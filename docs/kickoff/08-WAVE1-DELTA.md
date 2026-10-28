@@ -207,3 +207,17 @@ W2 的开工词写在波次 1 之前，当时假设"W1 还没落地、handler �
 4. **`PENDING_CONFIG` 的 `TODO(W2)` 改挂 W5。** W2 不碰渲染层，草稿分值接 `bootstrap.settings` 是 W5 接线时的事。在那之前它只能是 `DEFAULT_CONFIG`。
 5. **`reminder.cancel` / `snooze` 是写操作，但 `DomainEvent` 里没有对应事件类型**（只有 `reminder.fired` / `failed`）。§3.8 要求"任何写操作必须至少广播一条事件"，所以 `reminder.*` 整块划给 W8，由 W8 一并补 `reminder.updated`。本轮不提前造一个用不上的事件类型。
 6. `04 §1.1` 另加「只允许打开 http/https 链接」——`app.openExternal` 拒绝非 http(s) 时要用，原先没有登记过。
+
+### v0.13（W11 交付后，2026-10-28）
+
+W11 报了七条，其中三条是我契约写错了，一条是我的任务书写错了函数名：
+
+1. **`Content-Disposition: default` 是无效 token。** RFC 6266/2183 只认 `inline` / `attachment`，Chromium 直接忽略。改为：PDF 发 `inline`，图片**不发这个头**。
+2. **去重键改成 `(sha256, mime)`。** 只看 sha 时，同一份字节声明成两种 mime 会复用第一次的扩展名（`.png`）而新行记第二种 mime。多存一个文件换掉一个说不清的例外。
+3. **新增 `IO_ERROR` 码。** 落盘/读盘失败原先只能落 `UNKNOWN`，会被当成程序缺陷；借 `DB_ERROR` 又误导排查方向。`04 §1.1` 登记「附件写入磁盘失败」「附件读取失败」。
+4. **任务书里的 `attachmentById` 在 `messageRepo` 里根本不存在**（实际是 `insertAttachment` / `listAttachments` / `attachmentsFor` / `attachToMessage`）。W11 按现有代码迁是对的，另外补的 `attachmentById` 保留。
+5. `db/index.ts` 加 `export * as attachmentRepo`，与其余六个 repo 口径一致（已由架构方加好）。
+6. **`width` / `height` v1 留 `null`**，不引入图片解码依赖；UI 不要靠尺寸占位。
+7. `read()` 的 id 形状不合法与查不到行一样返回 `NOT_FOUND`，不在读盘前区分两种失败。
+
+另登记两条此前漏掉的文案（W11 实现里已经在用）：`INVALID_INPUT`「附件内容为空」「附件存放路径非法」、`FILE_TOO_LARGE`「附件超过 {N} MiB 上限」。

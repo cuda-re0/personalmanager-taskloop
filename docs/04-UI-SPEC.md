@@ -40,6 +40,11 @@
 | `INVALID_INPUT` | 文字证据不能为空 | — |
 | `INVALID_INPUT` | 证据不能为空 | — |
 | `INVALID_INPUT` | 附件证据缺少附件 id | — |
+| `INVALID_INPUT` | 附件内容为空 | — |
+| `INVALID_INPUT` | 附件存放路径非法 | — |
+| `FILE_TOO_LARGE` | 附件超过 {N} MiB 上限 | 上限数值 |
+| `IO_ERROR` | 附件写入磁盘失败 | — |
+| `IO_ERROR` | 附件读取失败 | — |
 | `INVALID_INPUT` | 调整分不能为 0 | — |
 | `INVALID_INPUT` | 日期区间起点晚于终点 | — |
 | `INVALID_INPUT` | 重复规则格式不正确 | — |

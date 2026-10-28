@@ -404,7 +404,7 @@
 
 （编号避开已有的 W10 打包。与 W2 同期开工，互不抢文件。）
 
-**只许改**：新建 `src/main/attachments/**`、`src/main/services/attachmentService.ts`、`src/main/db/repositories/attachmentRepo.ts`、`tests/attachments/**`；另外**允许**两处小改——`src/main/db/repositories/messageRepo.ts`（把 `insertAttachment` / `attachmentById` / `attachmentsFor` / `attachToMessage` 搬到新 repo，`messageRepo` 保留同名再导出或改为 import，**`messageService` 的调用点不许改**）、`src/main/index.ts`（只加两行注册）。
+**只许改**：新建 `src/main/attachments/**`、`src/main/services/attachmentService.ts`、`src/main/db/repositories/attachmentRepo.ts`、`tests/attachments/**`；另外**允许**三处小改——`src/main/db/repositories/messageRepo.ts`（把 `insertAttachment` / `listAttachments` / `attachmentsFor` / `attachToMessage` 搬到新 repo，`messageRepo` 保留同名再导出或改为 import，**`messageService` 的调用点不许改**）、`src/main/db/index.ts`（加一行 `export * as attachmentRepo`）、`src/main/index.ts`（只加两行注册）。
 
 **交付**
 
@@ -422,7 +422,7 @@
 - [ ] 同一张图连续 add 两次 → `attachments` 两行、`rel_path` 相同、磁盘一个文件。
 - [ ] 把 id 换成 `../../../etc/passwd` 调 `read` → `NOT_FOUND`，不读任何文件。
 - [ ] 10 MiB 的 PDF 走 `sourcePath` 能落盘；26 MiB 的返回 `FILE_TOO_LARGE`。
-- [ ] 重启应用后 `app://attach/<id>` 仍能取到图片（不是内存对象也不依赖渲染层 blob）。
+- [ ] 重启应用后 `app://attach/<id>` 仍能取到图片（不是内存对象也不依赖渲染层 blob）。**这条单测覆盖不了**——协议注册时序与 `standard/secure/stream` 标志只在真 Electron 里生效，归 W10 打包验收：手点一次 `<img src="app://attach/<id>">`。
 
 ---
 

@@ -46,6 +46,7 @@ export type AppErrorCode =
   | 'AI_RATE_LIMITED'
   | 'FILE_TOO_LARGE'
   | 'UNSUPPORTED_MIME'
+  | 'IO_ERROR'
   | 'UNKNOWN'
 
 /* ------------------------------------------------------------------ *

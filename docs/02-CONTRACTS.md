@@ -479,11 +479,15 @@ export type CompleteTaskInput =
 **这是唯一一个"把字节搬进系统"的入口。** 其余所有涉及附件的路径（消息、证据）都只传 `attachmentId`，不传文件本身。
 
 - **落盘位置**固定 `userData/attachments/YYYY/MM/<id>.<ext>`，`<ext>` 由 **mime 推导**，不用用户给的文件名——文件名只用于日志，绝不参与拼路径。
-- **去重**：按 `sha256` 查 `idx_attachments_sha`，命中则复用同一个 `rel_path`、**新插一行**（一条记录一个 id，能各自独立删）。物理文件 v1 **只增不删**：删消息只删行不删文件，避免共享文件被连带删除；磁盘代价按截图/PDF 量级可接受。
+- **去重**：按 `(sha256, mime)` 查 `idx_attachments_sha`，命中则复用同一个 `rel_path`、**新插一行**（一条记录一个 id，能各自独立删）。物理文件 v1 **只增不删**：删消息只删行不删文件，避免共享文件被连带删除；磁盘代价按截图/PDF 量级可接受。
+  - 键里必须带 `mime`：只看 `sha256` 的话，同一份字节被声明成两种 mime 会复用第一次的扩展名（`...png`）而新行记第二种 mime，路径与 `Content-Type` 长期不一致。多存一个文件，换掉一个说不清的例外。
 - **上限与白名单**：单文件 ≤ 25 MiB，mime ∈ `image/png` `image/jpeg` `image/webp` `image/gif` `application/pdf`，越界返回 `FILE_TOO_LARGE` / `UNSUPPORTED_MIME`（这两个码此前一直没人用）。
 - **`url` 由主进程拼**：`app://attach/<id>`，不在渲染层拼字符串。协议处理器只接受 `id`，**路径从数据库的 `rel_path` 取，绝不接受调用方传路径**；id 不匹配 `nanoid(12)` 形状或查不到行一律 404。
-- **协议注册时序**：`registerSchemesAsPrivileged` 必须在 `app.whenReady()` 之前调用（Electron 33 要求，否则 `secure`/`stream` 标志不生效），`protocol.handle('app', …)` 在 ready 之后。`Content-Type` 取行的 `mime`，PDF 用 `inline`，图片用 `default`。
-- **给 AI 的读取**：`attachment.read(id) → { bytes: Buffer; mime: string }` 是主进程内部函数，**不暴露成 IPC**。W4 组多模态请求时用它取 base64，渲染层拿不到原始字节。
+- **协议注册时序**：`registerSchemesAsPrivileged` 必须在 `app.whenReady()` 之前调用（Electron 33 要求，否则 `secure`/`stream` 标志不生效），`protocol.handle('app', …)` 在 ready 之后。`Content-Type` 取行的 `mime`。
+  - **`Content-Disposition`：PDF 发 `inline`，图片不发送这个头。** 不要写 `default`——RFC 6266/2183 只认 `inline` / `attachment`，`default` 是无效 token，Chromium 直接忽略，等于没写。
+- **给 AI 的读取**：`attachment.read(id) → { bytes: Buffer; mime: string }` 是主进程内部函数，**不暴露成 IPC**。W4 组多模态请求时用它取 base64，渲染层拿不到原始字节。id 形状不合法与查不到行一样返回 `NOT_FOUND`（不在读盘前区分两种失败）。
+- **磁盘失败用 `IO_ERROR`**：写盘/读盘失败（磁盘满、权限、目标被删）返回 `IO_ERROR`，不要借用 `DB_ERROR` 或 `UNKNOWN`——前者误导排查方向，后者会被当成程序缺陷。
+- **`width` / `height` v1 留 `null`**：不引入图片解码依赖。UI 不要靠尺寸占位（会抖动），要占位就先定宽高比容器。
 
 ### 3.4 `api.ai`
 
