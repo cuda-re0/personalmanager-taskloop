@@ -183,13 +183,29 @@ describe('tasks 建/查/改', () => {
     expect(fetched.pointsPlanned).toBe(10)
   })
 
-  it('daily 改难度后 points_planned 恒为 cfg.dailyBase，不跟着难度走', () => {
+  it('daily 创建时忽略传入的 pointsPlanned，只认 cfg.dailyBase（02 §5.2b）', () => {
     const daily = taskService.createTask({ type: 'daily', title: '背单词', pointsPlanned: 99 })
-    expect(daily.pointsPlanned).toBe(99) // 显式给了就先照用
+    expect(daily.pointsPlanned).toBe(1) // cfg.dailyBase，传入的 99 被忽略
+
+    // 忽略只针对"合法但不用"：0 仍然非法，与上面那条 <1 校验同一个口径
+    expectErrorCode(
+      () => taskService.createTask({ type: 'daily', title: '背单词', pointsPlanned: 0 }),
+      'INVALID_INPUT'
+    )
+  })
+
+  it('daily 改难度后 points_planned 恒为 cfg.dailyBase，不跟着难度走', () => {
+    const daily = taskService.createTask({ type: 'daily', title: '背单词' })
+    expect(daily.pointsPlanned).toBe(1)
+
+    // 现在没法靠"建的时候传 99"制造脏值了（创建时会被纠正），直接改库塞一个，
+    // 验证 updateTask 的重算分支会把历史脏值纠回来
+    getDb().prepare('UPDATE tasks SET points_planned = 99 WHERE id = ?').run(daily.id)
+    expect(taskService.requireTask(daily.id).pointsPlanned).toBe(99)
 
     const patched = taskService.updateTask(daily.id, { difficulty: 'easy' })
     expect(patched.difficulty).toBe('easy')
-    expect(patched.pointsPlanned).toBe(1) // cfg.dailyBase，不是 easy 的 10
+    expect(patched.pointsPlanned).toBe(1) // cfg.dailyBase，不是 easy 的 10，也不是残留的 99
 
     // hard 对 daily 非法：拒绝、不归位、不改库
     expectErrorCode(

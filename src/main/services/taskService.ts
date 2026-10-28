@@ -104,11 +104,15 @@ export function createTask(input: CreateTaskInput): Task {
   }
 
   return tx(() => {
-    // 没给 pointsPlanned 时按 type 分派现算，**不能**用 0 兜底：
+    // 应得分来源按 type 分派，**不能**用 0 兜底：
     // createManual 的 TaskPatch 没有这个字段，0 兜底等于每个手建任务都是 0 分（契约 v0.10 P1-1）。
+    // daily 的应得分只有一个来源 cfg.dailyBase（02 §5.2b）：传入值一律忽略，
+    // 否则 daily 传 99 会落 99，与"每日任务每天 1 分"的语义两套口径。
+    // 注意上面的 <1 入参校验仍对 daily 生效——显式给了就必须合法，忽略只针对"合法但不用"。
     const cfg = pointsConfig()
-    const pointsPlanned =
-      input.pointsPlanned ?? (isDaily ? cfg.dailyBase : computePlannedPoints(difficulty, cfg))
+    const pointsPlanned = isDaily
+      ? cfg.dailyBase
+      : (input.pointsPlanned ?? computePlannedPoints(difficulty, cfg))
 
     const task = taskRepo.insert({
       id,
