@@ -262,7 +262,11 @@ export interface TaskDraft {
   missingInfo: string[];             // 信息不足时列出要问用户的点，可能为空
   requiresEvidence: boolean;         // AI 判定这项完成时是否需要证据
   confidence: number;                // 0~1
-  pointsPlanned: number;             // 小数（2 位）。由 rubric 计算填充，AI 不给这个数
+  pointsPlanned: number;             // 小数（2 位）。AI 不给。按 type 分派：
+                                     //   daily → settings['points.dailyBase']
+                                     //   deadline / event → computePlannedPoints(difficulty)
+                                     // **必须与卡片显示值完全一致**：W5 确认时直接写入
+                                     // tasks.points_planned，两套口径会让每日任务变成每天 20 分
 }
 
 export interface DraftStep {
@@ -672,6 +676,8 @@ function clamp(v: number, lo: number, hi: number) {
 - **活动不看完成度，只看结果。** 考试你去了就是去了，分数才是有信息量的东西。两个系数叠乘会让"去考了但考砸"算出奇怪的数。
 - **逾期扣分只对限时生效。** 活动的日期事前就固定，事后隔几天才确认不代表没做。
 - **`leadHours = (dueAt − completedAt) / 3600000`，负数表示逾期。** 注意 `completedAt` 只能取"用户点确认 / 审核通过"的时刻，不是真正做完的时刻——晚点再点会拉低系数，这个偏差方向是对的（鼓励及时确认）。
+- **`overdueDays` 按满 24 小时计一天，向下取整。** 逾期 23 小时算 0 天（不扣），逾期 47 小时算 1 天（扣 2 分）。用 `Math.floor(overdueHours / 24)`，取绝对值后再取整再乘。**这条是唯一允许在渲染层出现 `Math.floor` 的地方**（它不产出积分值，只产出一个天数），积分本身仍然只在 `computeAwardedPoints` 里算完。卡片上显示的「逾期 3 天」与扣分用的是同一个数，不许各算各的。
+- **提前量的显示同理**：满 24 小时整才说「天」，否则说「小时」（`提前 30 小时`，不说 `提前 1.25 天`）。
 
 ### 5.2b 难度档与任务类型的对应
 

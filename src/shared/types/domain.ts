@@ -214,7 +214,13 @@ export interface TaskDraft {
   missingInfo: string[] // 信息不足时列出要问用户的点，可能为空
   requiresEvidence: boolean // AI 判定这项完成时是否需要证据
   confidence: number // 0~1
-  pointsPlanned: number // 小数（2 位）。由 rubric 计算填充，AI 不给这个数
+  /**
+   * 小数（2 位）。AI 不给这个数，由主进程按 type 分派填充：
+   * daily → settings['points.dailyBase']；deadline/event → computePlannedPoints(difficulty)。
+   * **必须与卡片上显示的分值完全一致**——W5 确认草稿时把它直接写入 tasks.points_planned，
+   * 若显示口径与存入值不同（例如显示 1 却存 20），每日任务就成了每天 20 分。
+   */
+  pointsPlanned: number
 }
 
 export interface DraftStep {

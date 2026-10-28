@@ -19,23 +19,31 @@
 |---|---|
 | DDL 字段类型 | `tasks.points_planned` / `tasks.points_awarded` / `task_occurrences.points_awarded` / `point_ledger.delta` / `daily_stats.points` 全部 **`REAL`**，不是 `INTEGER` |
 | 精度收敛 | `roundPoints(v) = Math.round(v * 100) / 100`，**全项目只允许这一处**出现 `Math.round` / `toFixed` |
-| 公式里不再取整 | `computePlannedPoints` 直接返回 `clamp(roundPoints(raw), 1, 100)`，不 `Math.round` 成整数 |
-| `RUBRIC_VERSION` | `'v0.6-b'` |
+| 公式里不再取整 | `computePlannedPoints` 返回 `clamp(roundPoints(cfg.difficultyBase[d]), 1, 100)`，不 `Math.round` 成整数 |
+| `RUBRIC_VERSION` | `'v0.7'`（v0.9 契约起。若你读到 `v0.6-b`，说明看的是旧文档） |
 
-典型值（用于自查，不是猜的）：
+典型值（**契约 v0.9 之后重算过，旧的按分钟加权那套已废**，以 `02-CONTRACTS.md` §5.2 为准）：
 
 ```
-trivial  5 min  → 5.06
-trivial 60 min  → 5.75
-easy    30 min  → 10.75
-medium  60 min  → 23
-hard   120 min  → 45.5      ← 旧文档写 42 是算错，已改
-epic   240 min  → 80
-computeAwardedPoints(10.75, 'partial', 0) → 6.45
+应得分只看难度，时长不进公式：
+trivial → 5      easy → 10      medium → 20     hard → 35      epic → 50
+estimateMin 传什么都不影响结果（它只用于 AI 判难度、排提醒、算逾期）
+
+限时（planned = 20）：
+  提前 96h 且达标        → 20 × 1.2 = 24
+  提前 30h 且达标        → 20 × 1.1 = 22
+  卡点完成               → 20
+  逾期 3 天              → 20 − 3×2 = 14
+  提前 96h 且超预期      → 20 × 1.2 × 1.15 = 27.6
+
+活动（planned = 20，不看 quality）：
+  超预期 → 24    达标 → 20    不佳 → 17
+
+medium 质量 partial（无限时/活动系数）→ 20 × 0.6 = 12
 ```
 
 **UI 显示统一走 `fmtPoints`**（`04-UI-SPEC.md` §4③；§6 是设计 token 表，别去那儿找）：最多 2 位小数、去掉尾零。
-`23` → `23`，`5.75` → `5.75`，`45.5` → `45.5`，`80` → `80`。不要写 `23.00`。
+`20` → `20`，`27.6` → `27.6`，`48.3` → `48.3`，`12` → `12`。不要写 `20.00`。
 
 **累加陷阱**：余额是 `SUM(delta)`。如果每笔都是 `5.750000000000001`，几十笔后会出现
 `319.99999999999994`。所以写入前必须过 `roundPoints`，不能只靠显示层 `toFixed`。
@@ -125,9 +133,11 @@ npm run lint
 3. 提交证据后任务停在 `reviewing`，卡片显示"待确认"。**不要乐观地先显示已完成**——
    证据不通过还会退回来。
 4. 草稿卡片的"分值"是 `pointsPlanned`，**必须按 type 分派**：`deadline` / `event` 用
-   `computePlannedPoints(difficulty, estimateMin)`；`daily` 用 `settings['points.dailyBase']`（默认 1）。
-   每日任务显示"每天 1 分"才有意义，显示 `5.38` 是错的。（`points.preview` 的入参本就带 `type`，
-   接上后它会自己分派；本地算时也要照此分派。）
+   `computePlannedPoints(difficulty)`（v0.9 起没有第二个参数，时长不进公式）；`daily` 用
+   `settings['points.dailyBase']`（默认 1）。每日任务显示"每天 1 分"才有意义，显示 `20` 是错的。
+   `points.preview` 的入参带 `type`，它会自己分派；本地算时也要照此分派。
+   **`pointsPlanned` 字段本身也必须按这个口径填**——W5 确认草稿时直接写库，
+   显示 1 却存 20 会让每日任务变成每天 20 分。
 
 ### W4 · AI 接入
 
