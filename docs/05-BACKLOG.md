@@ -237,7 +237,7 @@
 1. `pointsService`：`balance()`、`award(taskId, quality)`（事务内写 ledger + 更新 task + upsert daily_stats + 广播）。
 2. `awardOccurrence(occurrenceId)`：完成每日任务这一次 → 写 ledger（带 `occurrence_id`）→ 更新 streak → 若命中里程碑另写一条 `streak_bonus` → upsert stats。
 3. `undoOccurrence(occurrenceId)`：写负流水冲销，streak 回退到上一天的真实值（用 occurrence 反查，不要简单减 1）。
-4. 撤销限时/活动完成：`done → doing` 写负流水冲销。
+4. 撤销限时/活动完成（`task.undo`，v0.19）：`done → doing`、原发分行标 `reversed_at`、写等额负流水，24h 窗口内才允许。
 5. 右栏 ③「积分」区块 + ④「明细」区块（04 §4③④）。
 6. `points.preview` / `points.streakPreview` 纯计算通道。
 7. 分值表从 `settings['points.*']` 读，**禁止硬编码**；启动时若无配置写入 `DEFAULT_CONFIG`。
@@ -250,6 +250,9 @@
 - [ ] 连续完成 4 个小数任务，余额 `SUM(delta)` 不出现 `319.99999999999994` 这种浮点尾巴（`roundPoints` 生效）。
 - [ ] 重复完成同一限时任务不会二次入账（前端禁用 + 后端唯一索引双保险）。
 - [ ] 撤销完成 → 余额回落，明细出现 `-20`。
+- [ ] **撤销后重做**：完成 → 撤销 → 走回 `reviewing` → 再完成，正常入账 20，不报「已经发过完成分了」（v0.19）。
+- [ ] **撤销后重做（每日）**：打卡 → 撤销 → 同一天再打卡，正常入账，不报「这一天的打卡已经发过分了」（v0.19）。
+- [ ] 撤销超过 24 小时的完成记录 → 报「超过 24 小时的完成记录不能撤销」，状态与余额都不动（v0.19）。
 - [ ] 每日任务连续完成 7 天，第 7 天明细出现两条：`task_done +1` 与 `streak_bonus +5`。
 - [ ] 第 8 天漏做，第 9 天完成 → `streak_current = 1`，不给里程碑。
 - [ ] 撤销第 7 天的完成 → streak 回到 6，`streak_bonus` 被冲销。
