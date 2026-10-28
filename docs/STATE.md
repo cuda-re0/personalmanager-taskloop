@@ -12,7 +12,7 @@
 | W0 | 脚手架 | ✅ | `e380896` 之前 |
 | W1 | 数据层（表 / repo / service / 迁移 / 测试宿主） | ✅ 收工 | 六个提交，末笔 `423dc46` |
 | W3 | 会话 UI（消息流 / 草稿卡 / 输入区） | ✅ 收工 | 末笔 `98ed377` |
-| W11 | 附件存储（落盘 / 去重 / `app://attach` 协议） | 🔶 待补丁后提交 | 工作区（补丁三条见下） |
+| W11 | 附件存储（落盘 / 去重 / `app://attach` 协议） | ✅ 收工 | 末笔 `eb6b0e3` |
 | W2 | IPC 与事件总线（25 条通道 + bus + 测试） | ✅ | `ea503a5` |
 | W4 | AI 接入 | 未开工 | — |
 | W5 | 草稿 → 任务 | 未开工 | — |
@@ -26,15 +26,9 @@
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 20 文件 / 231 条
+npm test            # 20 文件 / 234 条
 npm run build
 ```
-
-## 二b、W11 补丁（提交前必须先做，对齐契约 v0.13）
-
-1. 去重键 `sha256` → `(sha256, mime)`（02 §3.3b）
-2. `Content-Disposition`：PDF 发 `inline`，图片**不发这个头**（`default` 是无效 token）
-3. 落盘/读盘失败 `UNKNOWN` → `IO_ERROR`（码已在 `ipc.ts`，两条文案已在 04 §1.1）
 
 ## 三、几条不能违反的口径
 
