@@ -4,6 +4,7 @@ import type {
   NotifyChannel,
   Priority,
   Task,
+  TaskCreatePatch,
   TaskPatch,
   TaskStatus,
   TaskType
@@ -274,7 +275,7 @@ export function reorderTask(id: string, beforeId: string | null): void {
 export interface PromoteDraftInput {
   messageId: string
   localId: string
-  patch?: TaskPatch
+  patch?: TaskCreatePatch
 }
 
 /**
@@ -330,7 +331,8 @@ function toActiveDay(value: string | null | undefined): string | null {
  *
  * occurrenceService / taskRepo 都不在 W5 授权内（开工词红线：不许改），所以 daily 草稿的
  * 子步骤落成 `deadline`（due_at 恒 NULL：不进日历红点、不参与逾期），难度用默认档 medium
- * （deadline 合法）。缺陷本体（listDailyActive 不排除子任务）按协作纪律 7 上报架构方。
+ * （deadline 合法）。v0.15 已修 listDailyActive（排除子任务），这里保留作双保险——
+ * 依赖两条独立防线比依赖一条强。
  */
 function subtaskTypeOf(type: TaskType): TaskType {
   return type === 'daily' ? 'deadline' : type
@@ -340,9 +342,16 @@ function subtaskTypeOf(type: TaskType): TaskType {
  * `task.promoteDraft`（02 §3.2）：从 `messages.meta_json` 读指定 draft → 复用 createTask
  * 落库（status `todo`）→ draft.steps 写成子任务 → meta_json 标 promoted → 返回 Task。
  *
+ * 落库类型（v0.15）：patch.type 存在时按新类型落库——draft 尚未落库，"落库后不可改类型"
+ * 约束的是 update 链路，确认本质是创建。due 字段（due_at / daily_time / repeat_rule /
+ * active_*）一律按**落库类型**映射，原类型的 hint 字段不会泄进新类型。
+ *
  * 分值口径（开工词红线 2）：
- * - 写库值默认 = 生成时算好的 `draft.pointsPlanned`（与卡面显示完全一致，02 §5.2b）；
- * - `patch.difficulty` 存在时在同一事务里按 cfg 重算（daily 恒 cfg.dailyBase，传入值忽略）；
+ * - 落库类型是 daily：恒 cfg.dailyBase，传入值忽略（02 §5.2b）；
+ * - patch.difficulty 存在：同一事务里按 cfg 重算；
+ * - 类型被 patch 改过：draft.pointsPlanned 是按**原**类型口径算的（daily→deadline 时
+ *   它是 dailyBase 的 1 分），不能再用，必须按落库难度重算；
+ * - 其余：写库值 = 生成时算好的 `draft.pointsPlanned`（与卡面显示完全一致）；
  * - 非法 type × difficulty 只拒 `INVALID_INPUT`，主进程不归位（snapDifficulty 是渲染层的事）。
  */
 export function promoteDraft(input: PromoteDraftInput): Task {
@@ -370,30 +379,33 @@ export function promoteDraft(input: PromoteDraftInput): Task {
 
     const patch = input.patch ?? {}
     const cfg = pointsConfig()
-    const isDaily = draft.type === 'daily'
+    // 落库类型：patch 带了 type 就按新类型（草稿卡就地改类型的确认链路，v0.15）
+    const type = patch.type ?? draft.type
+    const isDaily = type === 'daily'
+    const typeChanged = patch.type !== undefined && patch.type !== draft.type
     const today = todayLocalDay()
 
-    // 主进程只拒绝、不归位（02 §5.2b）
-    if (patch.difficulty !== undefined && !isDifficultyAllowed(draft.type, patch.difficulty)) {
+    // 主进程只拒绝、不归位（02 §5.2b）：校验对象是**落库**类型
+    if (patch.difficulty !== undefined && !isDifficultyAllowed(type, patch.difficulty)) {
       throw appError('INVALID_INPUT', '该任务类型不支持所选难度', {
-        detail: `${draft.type} + ${patch.difficulty}`
+        detail: `${type} + ${patch.difficulty}`
       })
     }
     const difficulty = patch.difficulty ?? draft.difficulty
 
     const pointsPlanned = isDaily
       ? cfg.dailyBase
-      : patch.difficulty !== undefined
-        ? computePlannedPoints(patch.difficulty, cfg)
+      : patch.difficulty !== undefined || typeChanged
+        ? computePlannedPoints(difficulty, cfg)
         : draft.pointsPlanned
 
     const task = createTask({
-      type: draft.type,
+      type,
       title: patch.title ?? draft.title,
       detailMd: patch.detailMd ?? draft.detailMd,
       difficulty,
       estimateMin: patch.estimateMin ?? draft.estimateMin,
-      // deadline/event 写 due_at；daily 不使用（01 §2.1.1）
+      // deadline/event 写 due_at；daily 不使用（01 §2.1.1）——按落库类型映射
       dueAt: isDaily ? null : toDueAt(patch.dueAt !== undefined ? patch.dueAt : draft.dueHint),
       dailyTime: isDaily
         ? toDailyTime(patch.dailyTime !== undefined ? patch.dailyTime : draft.dailyTimeHint)
@@ -416,7 +428,7 @@ export function promoteDraft(input: PromoteDraftInput): Task {
     // 走 createTask 默认档 medium（trivial/easy 对 deadline 非法，见 subtaskTypeOf 注释）
     for (const step of draft.steps) {
       createTask({
-        type: subtaskTypeOf(draft.type),
+        type: subtaskTypeOf(type),
         title: step.title,
         parentId: task.id,
         ...(isDaily ? {} : { difficulty }),

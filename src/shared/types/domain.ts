@@ -87,6 +87,18 @@ export interface TaskPatch {
   tags?: string[]
 }
 
+/**
+ * 创建侧 patch（02 §3.2 v0.15）：`TaskPatch` 全字段 + 可选 `type`。
+ *
+ * 只用于 `task.promoteDraft`——draft 尚未落库，"落库后不可改类型"约束的是 update 链路，
+ * 确认本质是创建：patch 带 `type` 时按新类型落库 + `pointsPlanned` 按新类型口径重算 +
+ * due 字段按类型映射；非法 type×difficulty 照旧只拒 `INVALID_INPUT`（主进程不归位）。
+ * `task.update` 的 patch 仍是 `TaskPatch`（没有 `type`），落库后依旧不可改。
+ */
+export interface TaskCreatePatch extends TaskPatch {
+  type?: TaskType
+}
+
 /** 每日任务在某一天的这一次 */
 export interface Occurrence {
   id: string

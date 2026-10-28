@@ -219,13 +219,14 @@ describe('task.promoteDraft（W5）', () => {
     if (!result.ok) expect(result.error.message).toBe('该任务类型不支持所选难度')
   })
 
-  it('guard 拒 type：patch 里的 type 被 zod 剥掉，不落库、不报错（落库后不可改类型，02 §3.2）', () => {
+  it('guard：promoteDraft 的 patch 是创建侧形状，type 透传生效；task.update 的 patch 仍剥掉 type（落库后不可改，02 §3.2 v0.15）', () => {
+    // 创建侧：type 通过 guard 且落到 service
     const parsed = g.promoteDraft.parse({
       messageId: 'm-1',
       localId: 'd-1',
       patch: { title: 'x', type: 'daily' }
     })
-    expect((parsed.patch as Record<string, unknown>).type).toBeUndefined()
+    expect((parsed.patch as Record<string, unknown>).type).toBe('daily')
 
     const messageId = seedDraftMessage([makeDraft({ localId: 'd-1', type: 'deadline', title: '交物理作业' })])
     const task = callOk(CH.task.promoteDraft, {
@@ -233,7 +234,81 @@ describe('task.promoteDraft（W5）', () => {
       localId: 'd-1',
       patch: { type: 'daily' }
     }) as Task
+    expect(task.type).toBe('daily')
+
+    // 更新侧：TaskPatch 没有 type，zod 剥掉（红线不变）
+    const updateTask = taskService.createTask({ type: 'deadline', title: '写周报' })
+    const updateParsed = g.update.parse({ id: updateTask.id, patch: { title: 'y', type: 'daily' } })
+    expect((updateParsed.patch as Record<string, unknown>).type).toBeUndefined()
+  })
+
+  it('patch.type=deadline 的 daily 草稿：按新类型落库（due 走 dueHint、无 daily 字段），pointsPlanned 按新类型口径重算', () => {
+    const messageId = seedDraftMessage([
+      makeDraft({
+        localId: 'd-1',
+        type: 'daily',
+        title: '背单词 30 个',
+        pointsPlanned: 1, // daily 生成时的 dailyBase，对 deadline 是脏值
+        dailyTimeHint: '21:00'
+      })
+    ])
+
+    const task = callOk(CH.task.promoteDraft, {
+      messageId,
+      localId: 'd-1',
+      patch: { type: 'deadline' }
+    }) as Task
+
     expect(task.type).toBe('deadline')
+    expect(task.dueAt).toBeNull() // deadline 无 dueHint → null（不沿用 daily 的 hint 字段）
+    expect(task.dailyTime).toBeNull()
+    expect(task.activeFrom).toBeNull()
+    // patch 未带 offsets 时沿用 draft 值（daily 草稿是 []）；UI 路径由渲染层切类型时换默认值
+    expect(task.reminderOffsets).toEqual([])
+    // draft.pointsPlanned=1 是 daily 口径（dailyBase），deadline+medium 必须重算 = 20
+    expect(task.pointsPlanned).toBe(20)
+  })
+
+  it('patch.type=daily 的 deadline 草稿：按新类型落库（daily_time/active_from、ensureRange），分值恒 cfg.dailyBase', () => {
+    const messageId = seedDraftMessage([
+      makeDraft({
+        localId: 'd-1',
+        type: 'deadline',
+        title: '交物理作业',
+        pointsPlanned: 33.5,
+        dueHint: '2026-11-02T02:00:00.000Z'
+      })
+    ])
+
+    const task = callOk(CH.task.promoteDraft, {
+      messageId,
+      localId: 'd-1',
+      patch: { type: 'daily' }
+    }) as Task
+
+    expect(task.type).toBe('daily')
+    expect(task.dueAt).toBeNull() // daily 不使用 due_at，原 dueHint 不泄进来
+    expect(task.activeFrom).toBe(todayLocalDay())
+    // daily 的分值唯一来源 cfg.dailyBase（默认 1），不是 draft 的 33.5
+    expect(task.pointsPlanned).toBe(1)
+
+    const mine = occurrenceRepo.listByTask(task.id)
+    expect(mine.length).toBe(4)
+    expect(mine.some(o => o.day === todayLocalDay())).toBe(true)
+  })
+
+  it('非法 type×difficulty 只拒 INVALID_INPUT：event + trivial（event 从 medium 起），不落库不归位', () => {
+    const messageId = seedDraftMessage([makeDraft({ localId: 'd-1', type: 'daily', title: '背单词' })])
+    const before = taskRepo.countAll()
+
+    const result = call(CH.task.promoteDraft, {
+      messageId,
+      localId: 'd-1',
+      patch: { type: 'event', difficulty: 'trivial' }
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.message).toBe('该任务类型不支持所选难度')
+    expect(taskRepo.countAll()).toBe(before)
   })
 
   it('dueHint 形状校验：无年份形态不交给 new Date，落 NULL（V8 会把 10-30 18:00 解析成 2001 年）', () => {

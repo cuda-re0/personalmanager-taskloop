@@ -43,6 +43,15 @@ const taskPatchSchema = z.object({
   tags: z.array(z.string()).optional()
 })
 
+/**
+ * `TaskCreatePatch` 的形状（domain.ts，02 §3.2 v0.15）：创建侧 patch，比 TaskPatch 多可选
+ * `type`。只给 `task.promoteDraft` 用——draft 尚未落库，确认本质是创建，patch 带 type 按
+ * 新类型落库 + 分值按新类型口径重算。`task.update` 仍用 taskPatchSchema（type 被剥掉）。
+ */
+const taskCreatePatchSchema = taskPatchSchema.extend({
+  type: taskTypeSchema.optional()
+})
+
 const evidenceSchema = z.union([
   z.object({
     kind: z.literal('text'),
@@ -80,8 +89,8 @@ export const g = {
   promoteDraft: z.object({
     messageId: z.string(),
     localId: z.string(),
-    // 复用 taskPatchSchema：没有 type 字段，调用方多传会被 zod 剥掉（落库后不可改类型，02 §3.2）
-    patch: taskPatchSchema.optional()
+    // 创建侧 patch（v0.15）：含可选 type（草稿卡就地改类型 → 确认按新类型落库，02 §3.2）
+    patch: taskCreatePatchSchema.optional()
   }),
   update: z.object({ id: z.string(), patch: taskPatchSchema }),
   transition: z.object({

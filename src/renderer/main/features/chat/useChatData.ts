@@ -9,8 +9,8 @@ import type {
   Message,
   ReviewVerdict,
   Task,
-  TaskDraft,
-  TaskPatch
+  TaskCreatePatch,
+  TaskDraft
 } from '@shared/types/domain'
 import type { ChatActions, ChatData, DraftPatch, DraftView, EvidenceView, ReviewView } from './chatTypes'
 import {
@@ -154,15 +154,16 @@ export function applyDraftPatch(
 }
 
 /**
- * 确认时随 patch 上送的就地编辑值（02 §3.2 `task.promoteDraft` 的 patch）。
+ * 确认时随 patch 上送的就地编辑值（02 §3.2 `task.promoteDraft` 的 patch，v0.15 创建侧形状）。
  *
- * **没有 type**：TaskPatch 契约里就没有（落库后不可改类型，02 §3.2），落库类型只来自
- * meta_json 里的 draft。卡片上改类型后确认，创建出的仍是原类型——这是契约现状，
- * 已按协作纪律上报架构方（04 §3.2 的草稿卡类型切换与确认链路如何打通需要契约裁决）。
+ * **type 恒随卡面**：草稿卡就地改过的类型（applyDraftPatch 已按新类型 snapDifficulty、
+ * 重算分值）通过 patch.type 送达主进程，确认按新类型落库（v0.15 打通，此前只来自 meta_json）。
+ * 落库后不可改的红线不变——那是 task.update 的 TaskPatch，没有 type。
  * dueHint / dailyTimeHint / activeToHint 的形状校验在主进程落库侧兜底。
  */
-export function promotePatchOf(draft: TaskDraft): TaskPatch {
+export function promotePatchOf(draft: TaskDraft): TaskCreatePatch {
   return {
+    type: draft.type,
     title: draft.title,
     detailMd: draft.detailMd,
     difficulty: draft.difficulty,

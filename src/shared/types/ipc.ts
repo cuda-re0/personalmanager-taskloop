@@ -13,6 +13,7 @@ import type {
   Reminder,
   ReviewVerdict,
   Task,
+  TaskCreatePatch,
   TaskPatch,
   TaskStatus,
   TaskType
@@ -142,7 +143,7 @@ export interface Api {
     promoteDraft(input: {
       messageId: string
       localId: string
-      patch?: TaskPatch
+      patch?: TaskCreatePatch
     }): Promise<IpcResult<Task>>
     update(input: { id: string; patch: TaskPatch }): Promise<IpcResult<Task>>
     transition(input: { id: string; to: TaskStatus; reason?: string }): Promise<IpcResult<Task>>
