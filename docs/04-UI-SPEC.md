@@ -42,6 +42,13 @@
 | `INVALID_INPUT` | 附件证据缺少附件 id | — |
 | `INVALID_INPUT` | 附件内容为空 | — |
 | `INVALID_INPUT` | 附件存放路径非法 | — |
+| `UNSUPPORTED_MIME` | 不支持的附件类型：{mime} | mime 名；空值显示「（空）」 |
+| `INVALID_INPUT` | 附件缺少内容：sourcePath 与 base64 至少给一个 | — |
+| `INVALID_INPUT` | 附件源文件不存在或不可读 | — |
+| `INVALID_INPUT` | 附件源路径不是普通文件 | — |
+| `INVALID_INPUT` | 附件内容不是合法的 base64 | — |
+| `NOT_FOUND` | 附件不存在 | id 形状不合法与查无此行同用这句 |
+| `NOT_FOUND` | 附件文件已丢失 | 行在库里、文件不在磁盘 |
 | `FILE_TOO_LARGE` | 附件超过 {N} MiB 上限 | 上限数值 |
 | `IO_ERROR` | 附件写入磁盘失败 | — |
 | `IO_ERROR` | 附件读取失败 | — |
@@ -74,6 +81,7 @@
 | `DB_ERROR` | 数据库版本高于当前应用，请升级应用后再打开 |
 | `DB_ERROR` | 数据库读写失败 |
 | `DB_ERROR` | 无法解析用户数据目录（非 Electron 环境请显式传入数据库路径） |
+| `DB_ERROR` | 无法解析附件目录（非 Electron 环境请先 initAttachmentRoot） |
 | `DB_ERROR` | 字段 {列名} 不是合法 JSON，数据可能已损坏 |
 | `DB_ERROR` | 字段 {列名} 应为数组 |
 | `DB_ERROR` | 字段 messages.meta_json 的 task_review 缺少 verdict |

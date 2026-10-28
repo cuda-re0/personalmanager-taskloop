@@ -92,7 +92,7 @@
 
 ## W2 · IPC 与事件总线
 
-**只许改**：`src/main/ipc/**`、`src/main/bus.ts`、`src/preload/index.ts`、`package.json`（仅加 `zod`）
+**只许改**：`src/main/ipc/**`、`src/main/bus.ts`、`src/preload/index.ts`、`package.json`（仅加 `zod`；`package-lock.json` 是加依赖的必然伴随，一并豁免）
 
 **交付**
 
@@ -404,7 +404,7 @@
 
 （编号避开已有的 W10 打包。与 W2 同期开工，互不抢文件。）
 
-**只许改**：新建 `src/main/attachments/**`、`src/main/services/attachmentService.ts`、`src/main/db/repositories/attachmentRepo.ts`、`tests/attachments/**`；另外**允许**三处小改——`src/main/db/repositories/messageRepo.ts`（把 `insertAttachment` / `listAttachments` / `attachmentsFor` / `attachToMessage` 搬到新 repo，`messageRepo` 保留同名再导出或改为 import，**`messageService` 的调用点不许改**）、`src/main/db/index.ts`（加一行 `export * as attachmentRepo`）、`src/main/index.ts`（只加两行注册）。
+**只许改**：新建 `src/main/attachments/**`、`src/main/services/attachmentService.ts`、`src/main/db/repositories/attachmentRepo.ts`、`tests/attachments/**`；另外**允许**三处小改——`src/main/db/repositories/messageRepo.ts`（把 `insertAttachment` / `listAttachments` / `attachmentsFor` / `attachToMessage` 搬到新 repo，`messageRepo` 保留同名再导出或改为 import，**`messageService` 的调用点不许改**）、`src/main/db/index.ts`（加一行 `export * as attachmentRepo`）、`src/main/index.ts`（`registerAttachmentScheme()` / `registerAttachmentProtocol()` 两处注册调用，及它们的 import 与注释——不止字面两行）。
 
 **交付**
 
@@ -427,6 +427,8 @@
 ---
 
 ## 协作纪律（发给每个 AI 时必须附带这一段）
+
+**交付报告里的"已由对方完成 / 已在契约里声明"类表述必须附 commit 号**（二轮审核揪出：v0.13 声称 `db/index.ts` 的转出"已由架构方加好"，实际从未落地）。没有 commit 号的声明按未发生处理。
 
 1. **只改你被授权的目录**。需要别人目录里的改动，写一句需求说明交给调度方，不要自己动手。
 2. **`src/shared/**` 是只读的**。缺字段就提变更单：`要加什么 / 为什么 / 影响谁`。

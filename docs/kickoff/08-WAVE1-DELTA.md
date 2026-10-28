@@ -216,7 +216,7 @@ W11 报了七条，其中三条是我契约写错了，一条是我的任务书�
 2. **去重键改成 `(sha256, mime)`。** 只看 sha 时，同一份字节声明成两种 mime 会复用第一次的扩展名（`.png`）而新行记第二种 mime。多存一个文件换掉一个说不清的例外。
 3. **新增 `IO_ERROR` 码。** 落盘/读盘失败原先只能落 `UNKNOWN`，会被当成程序缺陷；借 `DB_ERROR` 又误导排查方向。`04 §1.1` 登记「附件写入磁盘失败」「附件读取失败」。
 4. **任务书里的 `attachmentById` 在 `messageRepo` 里根本不存在**（实际是 `insertAttachment` / `listAttachments` / `attachmentsFor` / `attachToMessage`）。W11 按现有代码迁是对的，另外补的 `attachmentById` 保留。
-5. `db/index.ts` 加 `export * as attachmentRepo`，与其余六个 repo 口径一致（已由架构方加好）。
+5. `db/index.ts` 加 `export * as attachmentRepo`，与其余六个 repo 口径一致。**更正（二轮审核揪出）：上一会话声称"已加好"但从未落地**——W11 交付时该行不存在，各调用点一直是直接 import 仓库文件。已在审核整改中补上。
 6. **`width` / `height` v1 留 `null`**，不引入图片解码依赖；UI 不要靠尺寸占位。
 7. `read()` 的 id 形状不合法与查不到行一样返回 `NOT_FOUND`，不在读盘前区分两种失败。
 

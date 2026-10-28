@@ -30,6 +30,7 @@ export * as ledgerRepo from './repositories/ledgerRepo'
 export * as reminderRepo from './repositories/reminderRepo'
 export * as statsRepo from './repositories/statsRepo'
 export * as settingRepo from './repositories/settingRepo'
+export * as attachmentRepo from './repositories/attachmentRepo'
 
 export {
   ensureRange as ensureOccurrences,

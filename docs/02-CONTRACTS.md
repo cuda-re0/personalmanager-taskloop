@@ -7,7 +7,7 @@
 
 ## 1. 全局约定
 
-1. **通道命名**：`<domain>:<action>`，domain ∈ `task | msg | points | ai | reminder | hud | app | bus`。
+1. **通道命名**：`<domain>:<action>`，domain ∈ `task | msg | points | ai | reminder | hud | app | occurrence | calendar | attachment | bus`。前十个是 `Api` 上的方法域，`bus` 是单向事件通道（主进程 → 渲染层，`onEvent` 订阅），不在 `Api` 方法集合里。
 2. **返回值信封**（所有 `invoke` 一律返回这个形状，异常不 throw，走 `ok:false`）：
 
 ```ts
@@ -580,6 +580,7 @@ contextBridge.exposeInMainWorld('api', {
   occurrence: { today, listByRange, complete, undo, skip },
   calendar:   { dayIndex, dayDetail },
   msg:        { send, retry, list },
+  attachment: { add },
   ai:         { confirmDraft, rejectDrafts, review, health },
   points:     { balance, ledger, monthStats, adjust, preview, streakPreview },
   reminder:   { listByTask, listUpcoming, cancel, snooze, syncForTask, testChannel },
