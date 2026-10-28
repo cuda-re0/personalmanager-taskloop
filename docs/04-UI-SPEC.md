@@ -52,6 +52,16 @@
 | system / reminder | 居中细条，无气泡，`14px` 次级色文字 | 点击跳转对应任务 |
 | system / error | 左侧灰底卡，带 `[重试]` | 不阻断会话 |
 
+**渲染时按 `meta.kind` 收窄，不要按 `Message.kind`。** 两者是两个独立字段，且名字并不一一对应：`kind: 'text'` 的消息其 `meta` 是 `{ kind: 'none' }`（`MessageMeta` 里没有 `'text'` 成员）。用外层 `kind` 去 switch 会在 `text` 这一支上取不到任何 meta 字段。逐条映射：
+
+| `Message.kind` | `Message.meta.kind` | meta 携带 |
+|---|---|---|
+| `text` | `none` | 无 |
+| `task_draft` | `task_draft` | `drafts` |
+| `task_review` | `task_review` | `taskId` / `verdict` |
+| `reminder` | `reminder` | `reminderId` / `taskId` / `title` / `fireAt` |
+| `error` | `error` | `code` / `message` / `retryable` |
+
 ### 3.2 草稿卡片（核心组件）
 
 一张卡片 = 一个 `TaskDraft`。同一消息内多张时纵向排列，间距 12px。
@@ -202,6 +212,8 @@
 
 规则：最多 2 位小数，末尾的 0 去掉。因为积分是小数（02 §5.2），界面上任何"取整显示"都会让余额和明细对不上——用户会认为账算错了。
 
+**实现约束**：`fmtPoints` 的唯一实现是 `String(roundPoints(v))`，复用 `rubric.ts` 的 `roundPoints`，不要在里面另写 `Math.round` 或 `toFixed`——"全项目 `Math.round` 只准出现在 `roundPoints` 内"这条禁令同样管格式化函数。`String()` 天然去掉尾零，不要再额外裁剪；输入若已过 `roundPoints`，也不会出现 `5.750000000000001` 这类尾巴。
+
 ### ④ 明细
 
 - 时间倒序流水：`HH:mm  标题或原因  ±N`，`±N` 用上面的 `fmtPoints`。
@@ -327,7 +339,7 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 
 | 位置 | 条件 | 显示 |
 |---|---|---|
-| 会话区 | 无消息 | 一句话示例："发我一段话或一张图，我把它变成任务。"（**待你确认这句**） |
+| 会话区 | 无消息 | 一句话示例："发我一段话或一张图，我把它变成任务。"（**已定稿，照用**） |
 | ① 当前任务 | 无任务 | 空，不显示文字 |
 | ④ 明细 | 无流水 | 空，不显示文字 |
 | AI 未配置 Key | 首次启动 | 输入区位置替换为单一 `[配置模型]` 按钮 |
