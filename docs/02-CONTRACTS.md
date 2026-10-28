@@ -466,7 +466,7 @@ export type CompleteTaskInput =
 |---|---|---|---|
 | `msg.send` | `{ text: string; attachmentIds?: string[] }` | `{ userMessage: Message; assistantMessageId: string }` | 立即返回用户消息与占位的 assistant 消息 id，AI 结果通过事件流推送 |
 | `msg.retry` | `{ messageId: string }` | `void` | 重跑失败的那一轮 AI |
-| `msg.list` | `{ before?: string; limit?: number }` | `Message[]` | 分页向前翻 |
+| `msg.list` | `{ before?: string; limit?: number }` | `Message[]` | 分页向前翻。**排序是全序**：同毫秒落库的消息按落库序返回（`created_at` 只有毫秒精度，平手由插入序裁决，对渲染层透明）、游标跨毫秒对不丢不重；`before` 是消息 id，查不到报 `NOT_FOUND`「分页游标消息不存在」 |
 
 `msg.send` 的流程：写 user 消息 → 广播 → 返回 → 后台跑 AI → 逐条广播 `message.appended` / `message.patch`。渲染层不要 await 到 AI 完成。
 
