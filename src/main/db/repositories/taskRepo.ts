@@ -178,14 +178,17 @@ export function reorder(id: string, beforeId: string | null, updatedAt: string):
       if (prev) {
         const gap = before.sortKey - prev.sortKey
         if (gap < 0.001) {
-          // 间隔耗尽：按 1024 均匀重排后重新取中值
-          const all = [prev, before, ...list_.slice(index + 1)]
-          all.forEach((t, i) => {
+          // 间隔耗尽：**整段**同级列表从 2048 起按 1024 重新编号（1024 空出来给"插到最前"）。
+          // 不能只重排 [prev, before, ...]：那样前面的兄弟还留着旧键，prev 拿到 1024 会与之相撞，
+          // 而 ORDER BY sort_key, created_at 会让拖拽结果按创建时间排（契约 v0.10 P1-6）。
+          list_.forEach((t, i) => {
             getDb()
               .prepare('UPDATE tasks SET sort_key = ? WHERE id = ?')
-              .run((i + 1) * 1024, t.id)
+              .run((i + 2) * 1024, t.id)
           })
-          newKey = (index + 1) * 1024 - 512
+          // 重编号后取「before 前面那个空槽」与 before 的中点
+          const beforeKey = (index + 2) * 1024
+          newKey = beforeKey - 512
         } else {
           newKey = (prev.sortKey + before.sortKey) / 2
         }

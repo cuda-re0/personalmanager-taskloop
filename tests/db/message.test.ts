@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { MessageMeta, TaskDraft } from '../../src/shared/types/domain'
-import { closeTestDb, openMemoryDb } from './helpers'
+import type { MessageMeta, ReviewVerdict, TaskDraft } from '../../src/shared/types/domain'
+import { getDb } from '../../src/main/db/connection'
+import { closeTestDb, expectErrorCode, openMemoryDb } from './helpers'
 import * as messageService from '../../src/main/services/messageService'
 import * as taskService from '../../src/main/services/taskService'
 
@@ -194,5 +195,33 @@ describe('messages', () => {
     // 软删不会动消息；这里验证 meta 的 task_review 结构能取回
     const fetched = messageService.requireMessage(message.id)
     expect(fetched.meta.kind).toBe('task_review')
+  })
+
+  it('task_review 缺 verdict 抛 DB_ERROR，不静默塞假 verdict（契约 v0.10 P2-6）', () => {
+    const verdict: ReviewVerdict = {
+      verdict: 'pass',
+      quality: 'met',
+      result: null,
+      reason: '做得不错',
+      followup: null,
+      gaps: []
+    }
+    const message = messageService.appendMessage({
+      role: 'assistant',
+      kind: 'task_review',
+      meta: { kind: 'task_review', taskId: 't1', verdict }
+    })
+    // 合法 meta 原样回来（result / gaps 不被吞）
+    expect(messageService.requireMessage(message.id).meta).toEqual({
+      kind: 'task_review',
+      taskId: 't1',
+      verdict
+    })
+
+    // 模拟坏数据：meta_json 里没有 verdict 字段
+    getDb()
+      .prepare('UPDATE messages SET meta_json = ? WHERE id = ?')
+      .run('{"kind":"task_review","taskId":"t1"}', message.id)
+    expectErrorCode(() => messageService.requireMessage(message.id), 'DB_ERROR')
   })
 })

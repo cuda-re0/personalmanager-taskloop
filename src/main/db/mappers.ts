@@ -625,12 +625,21 @@ export function mapMessageMeta(kind: MessageKind, raw: string): MessageMeta {
       const drafts = parsed.drafts
       return { kind: 'task_draft', drafts: Array.isArray(drafts) ? (drafts as TaskDraft[]) : [] }
     }
-    case 'task_review':
+    case 'task_review': {
+      // 缺 verdict 时不能强转：undefined 会让渲染层读 verdict.verdict 直接抛错，
+      // 与 parseJsonColumn 的策略一致——坏数据报 DB_ERROR，不静默塞假 verdict（契约 v0.10 P2-6）
+      const verdict = parsed.verdict
+      if (!verdict || typeof verdict !== 'object') {
+        throw appError('DB_ERROR', '字段 messages.meta_json 的 task_review 缺少 verdict', {
+          detail: `实际为 ${verdict === null ? 'null' : typeof verdict}`
+        })
+      }
       return {
         kind: 'task_review',
         taskId: typeof parsed.taskId === 'string' ? parsed.taskId : '',
-        verdict: parsed.verdict as ReviewVerdict
+        verdict: verdict as ReviewVerdict
       }
+    }
     case 'reminder':
       return {
         kind: 'reminder',

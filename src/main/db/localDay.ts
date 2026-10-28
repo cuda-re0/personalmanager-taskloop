@@ -116,15 +116,16 @@ export function addDays(day: string, n: number): string {
 export function addMonths(day: string, n: number): string {
   const [y, m, d] = day.split('-').map(Number)
   const targetMonthIndex = m - 1 + n
+  // 月份整除（目标年月），不产出积分值，属"日期整除"例外；取整禁令只针对分值（02 §5.2）
   const year = y + Math.floor(targetMonthIndex / 12)
   const month = ((targetMonthIndex % 12) + 12) % 12
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
   return `${year}-${pad2(month + 1)}-${pad2(Math.min(d, lastDay))}`
 }
 
-/** 相差天数（b - a） */
+/** 相差天数（b - a）。两端都是 UTC 午夜，差值恒为 86400000 的整数倍，直接相除即可 */
 export function dayDiff(a: string, b: string): number {
-  return Math.round((dayToUtcDate(b).getTime() - dayToUtcDate(a).getTime()) / 86400000)
+  return (dayToUtcDate(b).getTime() - dayToUtcDate(a).getTime()) / 86400000
 }
 
 /** ISO 周几：1=周一 … 7=周日（`WEEKLY:1,3,5` 的 1 就是周一） */

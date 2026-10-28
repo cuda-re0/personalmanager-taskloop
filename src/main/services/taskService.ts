@@ -8,6 +8,7 @@ import type {
   TaskStatus,
   TaskType
 } from '../../shared/types/domain'
+import { computePlannedPoints } from '../../shared/points/rubric'
 import { tx } from '../db/connection'
 import { appError } from '../db/errors'
 import { isoToLocalDay, nowIso } from '../db/localDay'
@@ -16,6 +17,7 @@ import type { SqlValue } from '../db/mappers'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as taskRepo from '../db/repositories/taskRepo'
 import { assertTransition } from '../db/stateMachine'
+import { pointsConfig } from './pointsService'
 
 /**
  * taskService —— **只做数据访问**（01 开工词 §3：不写业务编排）。
@@ -82,7 +84,22 @@ export function createTask(input: CreateTaskInput): Task {
     ? []
     : (input.reminderOffsets ?? DEFAULT_OFFSETS[input.type] ?? [])
 
+  // 难度：DDL 的默认值是 'easy'（01 §2.1）。写库与算分必须取同一个值，
+  // 否则会出现"卡片显示 easy、分数按 medium 算"的两套口径（02 §5.2 的 DraftTask 注记）。
+  const difficulty = input.difficulty ?? 'easy'
+
+  // 显式给了就必须合法：planned=0 会让 clamp(hi=0 < lo=1) 恒返回 0，做完永远 0 分（02 §5.2）
+  if (input.pointsPlanned !== undefined && !(input.pointsPlanned >= 1)) {
+    throw appError('INVALID_INPUT', '应得分必须 ≥ 1', { detail: `收到 ${input.pointsPlanned}` })
+  }
+
   return tx(() => {
+    // 没给 pointsPlanned 时按 type 分派现算，**不能**用 0 兜底：
+    // createManual 的 TaskPatch 没有这个字段，0 兜底等于每个手建任务都是 0 分（契约 v0.10 P1-1）。
+    const cfg = pointsConfig()
+    const pointsPlanned =
+      input.pointsPlanned ?? (isDaily ? cfg.dailyBase : computePlannedPoints(difficulty, cfg))
+
     const task = taskRepo.insert({
       id,
       type: input.type,
@@ -92,7 +109,7 @@ export function createTask(input: CreateTaskInput): Task {
       parentId: input.parentId ?? null,
       sortKey: input.sortKey ?? taskRepo.nextSortKey(input.parentId ?? null),
       priority: input.priority ?? 0,
-      difficulty: input.difficulty ?? 'easy',
+      difficulty,
       estimateMin: input.estimateMin ?? null,
       dueAt: isDaily ? null : (input.dueAt ?? null),
       dailyTime: input.dailyTime ?? null,
@@ -102,7 +119,7 @@ export function createTask(input: CreateTaskInput): Task {
       reminderOffsets: offsets,
       reminderChannels: input.reminderChannels ?? ['inapp'],
       tags: input.tags ?? [],
-      pointsPlanned: input.pointsPlanned ?? 0,
+      pointsPlanned,
       requiresEvidence: input.requiresEvidence ?? false,
       evidence: input.evidence ?? [],
       source: input.source ?? 'chat',
@@ -175,8 +192,15 @@ export function setReminderOffsets(
 /**
  * 状态流转：只做状态机校验 + 时间戳，不碰积分（那是 W6）。
  * 同态调用按幂等 no-op 处理，重复点按钮不会 409。
+ *
+ * **`to='done'` 一律拦截**：完成必须在同一个事务里写 completed_at + points_awarded +
+ * point_ledger（01 §3），这里只改状态会造出"已完成但从未入账"的任务，之后还能再补一条
+ * task_done，账实直接分叉。完成入口只有一个：`task.complete`（02 §3.2）。
  */
 export function transitionTask(id: string, to: TaskStatus): Task {
+  if (to === 'done') {
+    throw appError('CONFLICT', '完成任务请走完成流程', { detail: 'use task.complete' })
+  }
   return tx(() => {
     const task = taskRepo.requireById(id)
     if (task.status === to) return task
@@ -185,7 +209,6 @@ export function transitionTask(id: string, to: TaskStatus): Task {
     const now = nowIso()
     const cols: Record<string, SqlValue> = { status: to }
     if (to === 'doing' && task.startedAt === null) cols.started_at = now
-    if (to === 'done') cols.completed_at = now
     if (to === 'archived') cols.archived_at = now
     return taskRepo.updateColumns(id, cols, now)
   })

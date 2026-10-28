@@ -97,6 +97,34 @@ describe('tasks 建/查/改', () => {
     expect(task.difficulty).toBe('easy')
   })
 
+  it('没给 pointsPlanned 时按 type 分派现算，不用 0 兜底（契约 v0.10 P1-1）', () => {
+    // createManual 的 TaskPatch 根本没有 pointsPlanned 字段，走的就是这条路径
+    const easy = taskService.createTask({ type: 'deadline', title: '手建-默认难度' })
+    expect(easy.difficulty).toBe('easy') // DDL 默认值
+    expect(easy.pointsPlanned).toBe(10) // 与 difficulty 同一个口径：easy = 10
+    expect(easy.pointsPlanned).not.toBe(0)
+
+    const hard = taskService.createTask({ type: 'event', title: '手建-hard', difficulty: 'hard' })
+    expect(hard.pointsPlanned).toBe(35)
+
+    const daily = taskService.createTask({ type: 'daily', title: '手建-每日' })
+    expect(daily.pointsPlanned).toBe(1) // settings['points.dailyBase']，不是难度基数
+
+    // 显式给了就照用（W5 写卡片值，不能被覆盖）
+    const explicit = taskService.createTask({
+      type: 'deadline',
+      title: '带分',
+      pointsPlanned: 45.5
+    })
+    expect(explicit.pointsPlanned).toBe(45.5)
+
+    // 显式 0 会被 clamp(hi=0 < lo=1) 恒压成 0 分（02 §5.2），直接拒，不留 0 分任务
+    expectErrorCode(
+      () => taskService.createTask({ type: 'deadline', title: '0 分', pointsPlanned: 0 }),
+      'INVALID_INPUT'
+    )
+  })
+
   it('默认提醒偏移按类型补齐（deadline / event）', () => {
     const deadline = taskService.createTask({ type: 'deadline', title: '交报告' })
     expect(deadline.reminderOffsets).toEqual([-1440, -60])
@@ -175,7 +203,7 @@ describe('tasks 状态机', () => {
     expect(taskService.requireTask(task.id).status).toBe('todo')
   })
 
-  it('todo → doing → reviewing → done 通过', () => {
+  it('todo → doing → reviewing 通过；to=done 被硬拦，只能走 task.complete', () => {
     const task = taskService.createTask({ type: 'deadline', title: '交作业' })
     const doing = taskService.transitionTask(task.id, 'doing')
     expect(doing.status).toBe('doing')
@@ -184,20 +212,33 @@ describe('tasks 状态机', () => {
     const reviewing = taskService.transitionTask(task.id, 'reviewing')
     expect(reviewing.status).toBe('reviewing')
 
-    const done = taskService.transitionTask(task.id, 'done')
-    expect(done.status).toBe('done')
-    expect(done.completedAt).not.toBeNull()
+    // 01 §3：进入 done 必须 completed_at + points_awarded + 流水同事务（契约 v0.10 P1-2）
+    let thrown: { code?: string; detail?: unknown } | undefined
+    try {
+      taskService.transitionTask(task.id, 'done')
+    } catch (e) {
+      thrown = e as { code?: string; detail?: unknown }
+    }
+    expect(thrown?.code).toBe('CONFLICT')
+    expect(thrown?.detail).toBe('use task.complete')
+
+    // 状态没变、没写 completed_at、没发分、没流水
+    const after = taskService.requireTask(task.id)
+    expect(after.status).toBe('reviewing')
+    expect(after.completedAt).toBeNull()
+    expect(after.pointsAwarded).toBeNull()
+    expect(pointsService.balance()).toBe(0)
   })
 
-  it('reviewing 被驳回回 doing 通过；done 可以在之后撤销回 doing', () => {
+  it('reviewing 被驳回回 doing 通过；done 不能由 transition 产生', () => {
     const task = taskService.createTask({ type: 'deadline', title: '交作业' })
     taskService.transitionTask(task.id, 'doing')
     taskService.transitionTask(task.id, 'reviewing')
     expect(taskService.transitionTask(task.id, 'doing').status).toBe('doing')
 
     taskService.transitionTask(task.id, 'reviewing')
-    taskService.transitionTask(task.id, 'done')
-    expect(taskService.transitionTask(task.id, 'doing').status).toBe('doing')
+    expectErrorCode(() => taskService.transitionTask(task.id, 'done'), 'CONFLICT')
+    expect(taskService.requireTask(task.id).status).toBe('reviewing')
   })
 
   it('daily 任务走 reviewing / done 被拒（走 occurrence，不走任务状态机）', () => {
