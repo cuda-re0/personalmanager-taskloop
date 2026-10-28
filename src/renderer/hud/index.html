@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>taskloop hud</title>
+    <style>
+      :root {
+        /* 中性 */
+        --bg: #ffffff;
+        --bg-sub: #f7f7f8;
+        --bg-hover: #f0f0f2;
+        --border: #e6e6e9;
+        --text: #1a1a1c;
+        --text-sub: #6b6b73;
+        --text-faint: #a0a0a8;
+
+        /* 主色（用于完成/积分/正向） */
+        --accent: #2f6feb;
+        --accent-weak: #eaf1fe;
+        --warn: #d98324; /* partial */
+        --danger: #cf4a4a; /* 负流水 */
+        --dot: #e5484d; /* 日历红点、提醒高亮 */
+
+        /* 形状 */
+        --r-sm: 8px;
+        --r-md: 12px;
+        --r-lg: 16px;
+        --shadow-float: 0 8px 28px rgba(0, 0, 0, 0.12);
+
+        /* 字 */
+        --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        --mono: 'JetBrains Mono', Consolas, monospace;
+      }
+
+      /* 透明窗：背景必须完全透明，否则会露出白底方块 */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 12px;
+        line-height: 1;
+        user-select: none;
+      }
+
+      #root {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>
