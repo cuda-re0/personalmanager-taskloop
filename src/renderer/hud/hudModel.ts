@@ -21,17 +21,11 @@ export interface HudRow {
 /** 展开列表最多 6 条（04 §5.2） */
 export const ROW_LIMIT = 6
 
-const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n))
-
 /**
- * 本地日历日 `YYYY-MM-DD`。渲染层自用，不引主进程模块。
- * 与 `features/tasks/tasksModel.ts`、`features/calendar/calendarModel.ts` 同口径
- * （都用 getFullYear/getMonth/getDate，不用 toISOString）；三处重复的清理已登记在
- * DELTA v0.18 第 4 条，等 W9 收工后统一提到 `src/shared`，本轮不动。
+ * 本地日历日 `YYYY-MM-DD`。
+ * v0.20 起实现只有一份，在 `src/shared/localDay.ts`；这里 re-export 旧名，调用方不动。
  */
-export function localDayOf(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-}
+export { toLocalDay as localDayOf } from '@shared/localDay'
 
 /** 完成率（积分环）：今日已打卡 / 今日应打卡；没有每日任务时为 0，不除零 */
 export function completionRatio(done: number, total: number): number {

@@ -465,6 +465,8 @@ export type CompleteTaskInput =
 - **窗口 24 小时**：`completed_at` 距今超过 24h 报 `CONFLICT`「超过 24 小时的完成记录不能撤销」。窗口外的分已进当日统计与 streak，回退会连带改写已经"结账"的历史。`daily` 的撤销走 `occurrence.undo`，不吃这个窗口（当天打卡天然在 24h 内）。
 - 撤销三件事同一事务：状态回 `doing`、原 `task_done` 行标 `reversed_at`、写等额负流水；`points_awarded` / `quality` / `completed_at` 清空，`daily_stats.tasks_done` 在**原完成日**减 1。
 - `noPoints` 完成的任务没有流水可冲，`entry` 返回 `null`，只回状态。
+  **已知限制（v0.20 登记）**：这类任务在 ④ 里没有可点的行（④ 是流水，无流水无行），① 又只列未完成任务（04 §4①），所以**当前没有 UI 入口**，通道能调、界面调不到。不补入口的理由：无分可退，误操作代价仅是任务变 `done`，而 24h 撤销窗口本来就是为"退分"设的；若 W10 打磨时要补，位置得先定（在 ① 里塞已完成行会推翻 04 §4① 的分工）。
+- **广播**（v0.20 写明）：非 `done` 的调用是同态 no-op，零写入零广播；实际撤销时推 `task.updated` + `points.changed`（`entry` 可为 `null`）+ `daystats.changed`——冲销行落在今天，而 `tasks_done` 减在**原完成日**，两天都要推（相邻日推一条，跨日推两条）。照 `occurrence.undo` 的既有做法。
 - **撤销后可以重做**：唯一索引的谓词带 `reversed_at IS NULL`（01 §2.4），重做时新插的发分行不会撞上已冲销的旧行。但**任务本身要先走回 `reviewing` 才能再次 `task.complete`**——`done → done` 仍然一律 `CONFLICT`（状态机没变）。
 
 **`TaskPatch` 没有 `type`，落库后不支持改类型。** 04 §3.2 那句"类型可就地修改"说的是**草稿卡片**（还没落库的 `TaskDraft`，纯渲染层状态）；右栏任务详情（04 §4①）只有 `detail_md` / 步骤勾选 / 提醒偏移 / `[完成]` 四项，本来就没有类型入口。任务一旦落库，类型不可改——要换类型就 `task.remove`（软删 → `discarded`）再建一条，旧任务连同它的流水与 occurrence 一起留在历史里。
@@ -568,7 +570,9 @@ export type CompleteTaskInput =
 | `hud.setExpanded` | `{ expanded: boolean }` | `void` | 展开/收起，**两种模式通用**（v0.17：dock-bar 由渲染层 hover 触发，float-pod 由点击/ESC 触发）；高度由主进程 `setBounds`，不走 CSS |
 | `hud.moveTo` | `{ x: number; y: number }` | `void` | 主进程 clamp 到该显示器 `workArea` 后落库。float-pod 拖动本身由主进程 `move` 事件去抖收尾，不依赖本通道（v0.17） |
 | `hud.setVisible` | `{ visible: boolean }` | `void` | |
-| `hud.getState` | — | `{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }` | `visible` 取 `win.isVisible()`，v0.17 新增——顶栏开关需要初态 |
+| `hud.getState` | — | `{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }` | `visible` 取**「应显示」状态**而不是 `win.isVisible()` 的瞬时值（v0.20）：HUD 窗口的 `attach` 早于 `ready-to-show`，主窗顶栏可能在它出现前就取初态，取瞬时值会让开关显示关闭、HUD 随后自己浮现。窗口已销毁时返回 `false` |
+
+**已知缺口（v0.20 登记）**：`hud.setVisible` 没有回向事件（没有 `hud.visible.changed`），目前顶栏开关是唯一消费方、自己驱动自己。**W8B 设置页也要开关时必须先加这条事件**，否则两个入口会各存一份状态。`hud.visible` 也**不落 settings**：显隐是会话态，重启复位为显示——关掉以后忘了怎么找回，比"重启又出现"更糟。
 
 ### 3.8 `api.onEvent`（唯一事件入口）
 

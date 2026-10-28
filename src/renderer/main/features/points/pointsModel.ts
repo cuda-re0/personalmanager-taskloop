@@ -21,10 +21,8 @@ export const RANGE_LABEL: Record<LedgerRange, string> = {
 
 const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n))
 
-/** 本地日历日 `YYYY-MM-DD`（渲染层自用，不引主进程模块） */
-export function localDayOf(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-}
+/** 本地日历日 `YYYY-MM-DD`：实现统一在 `@shared/localDay`（v0.20），这里只保留旧名 */
+export { toLocalDay as localDayOf } from '@shared/localDay'
 
 /** 日期加减：按 UTC 午夜算再拆回字符串，避免夏令时把天数算歪 */
 export function shiftDay(day: string, delta: number): string {

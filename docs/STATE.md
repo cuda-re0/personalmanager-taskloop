@@ -3,7 +3,7 @@
 > 每次开工前只读这一页 + 你那一节的契约。历史沿革在 `kickoff/08-WAVE1-DELTA.md`，
 > **不要从头读**——那是变更流水，只在"为什么这么定"说不清时才翻。
 >
-> 最后更新：2026-10-28，三轮收工审核 **PASS**（无 P0/P1，6 笔补丁无回归）；两处文档矛盾收口：02 §5.2b 过时表述改现行时态、STATE 口径 7 措辞修正。
+> 最后更新：2026-10-28，W5 / W6 / W6B / W9 全部交付并复核；三线收工审核 PASS 后补了 v0.15–v0.20 六轮契约（撤销重做、`task.undo`、HUD 口径）。
 
 ## 一、进度
 
@@ -13,12 +13,14 @@
 | W1 | 数据层（表 / repo / service / 迁移 / 测试宿主） | ✅ 收工 | 末笔 `885058e`（rowid 全序微补丁） |
 | W3 | 会话 UI（消息流 / 草稿卡 / 输入区） | ✅ 收工 | 末笔 `98ed377` |
 | W11 | 附件存储（落盘 / 去重 / `app://attach` 协议） | ✅ 收工 | 末笔 `2cd3df6`（base64 预检补丁） |
-| W2 | IPC 与事件总线（25 条通道 + bus + 测试） | ✅ | 末笔 `424e834`（审核 P2 补丁） |
+| W2 | IPC 与事件总线（36 条通道 + bus + 测试） | ✅ 收工 | 末笔 `424e834` |
+| W5 | 草稿 → 任务（promoteDraft 幂等 / 右栏①） | ✅ 收工 | 末笔 `32eb447` + `a8ebb93`（幂等零广播） |
+| W6 | 完成与积分（`task.complete` / `task.undo` / 右栏③④） | ✅ 收工 | 末笔 `6e0ebbf`（补丁：24h 窗口 / result / 证据码） |
+| W6B | 日历（红点 / 按日浮层 / focus-task） | ✅ 收工 | `949747e`（纯渲染层） |
+| W9 | 悬浮窗（dock-bar / float-pod / 顶栏开关） | ✅ 收工 | `83ee042` |
 | W4 | AI 接入 | 未开工 | — |
-| W5 | 草稿 → 任务 | 未开工 | — |
-| W6 / W6B | 完成与积分 / 日历 | 未开工 | — |
-| W8 | 提醒 | 未开工 | — |
-| W9 | 通知渠道 + 悬浮窗 | 未开工 | — |
+| W7 | 完成审核（含证据闸门，硬依赖 W4 的 `ai.review`） | 未开工 | — |
+| W8 / W8B | 提醒 / 外部通知渠道 | 未开工 | — |
 | W10 | 打包 | 未开工 | — |
 
 ## 二、基线（每次动手前后都该是这个数）
@@ -26,7 +28,7 @@
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 20 文件 / 243 条
+npm test            # 33 文件 / 392 条
 npm run build
 ```
 
@@ -35,11 +37,13 @@ npm run build
 1. **`pointsPlanned` 只有一个来源**：`daily → cfg.dailyBase`（传入值忽略），`deadline/event → computePlannedPoints(difficulty, cfg)`。卡面显示值必须等于落库值。
 2. **默认难度 `medium`**，`01 §2.1` 的 `DEFAULT 'easy'` 只是 SQL 兜底。主进程对非法 `type × difficulty` 只拒绝、不归位；归位（`snapDifficulty`）是渲染层的事。
 3. **`task.transition({to:'done'})` 一律 409**。不计分出口是 `task.complete({noPoints:true})`：写 `completed_at`、不写 ledger、`entry` 返回 `null`。
-4. **落库后不可改类型**，`TaskPatch` 没有 `type`。`04 §3.2` 的"类型可就地改"只指草稿卡片。
+4. **落库后不可改类型**，`TaskPatch` 没有 `type`。`04 §3.2` 的"类型可就地改"只指草稿卡片。唯一例外是 `promoteDraft` 的 `TaskCreatePatch`（还带 `type`，因为确认本质是**创建**）——落库之后仍不可改。
 5. **写操作必须广播事件**（02 §3.8）。`occurrence.today` / `listByRange` 内部会补行，也算写，必须广播 `occurrence.created`；`app.getBootstrap` 例外。
 6. **界面文案必须先在 `04 §1.1` / §1.2 登记**，包括错误消息。没有登记的串不许写进代码。
 7. **数值取整只允许 `roundPoints`**（`src/shared/points/rubric.ts`）；`Math.floor` 只许用于日期/天数换算，不得对分值本身取整（现有 4 处：月整除 1 处、逾期天数 3 处——逾期天数虽是 `penalty = overdueDays × 2` 的入参，但取整对象是天数不是分值，合规）。
 8. **测试值不是真理**：`tests/` 里的期望值若与 `02` 的公式冲突，以 `02` 为准，并报给架构方。
+9. **本地日历日只有一个实现**：`src/shared/localDay.ts`（v0.20 起主进程与渲染层共用）。不许再写 `toLocalDay` / `localDayOf` 的副本，更不许 `toISOString().slice(0,10)`——那是 UTC 日，东八区 00:00–08:00 会差一天。
+10. **一个组件树里只许有一个 `useTasksData()`**：详情、分组都从 `TasksPanel` 拿 `actions`。多实例会让 `subtasksByParent` 为空、确认条永远弹不出来（v0.20 修，`tests/renderer/tasksPanelWiring.test.ts` 守着）。
 
 ## 四、还开着的缺口
 
@@ -52,6 +56,11 @@ npm run build
 | `app://attach` 真机时序未验 | W10 打包时手点一次 | 05 W11 验收 |
 | `attachment.add` 的 handler 未注册（W11 只交了 service，`registry.ts` 是 W2 的文件） | 附件 UI 轮随 W2 补丁注册 | 05 W2 归属表 |
 | `streakPreview` 的 `current` 入参无语义（service 不读） | 已在 02 §3.5 标废弃；删除动作（02 表 + `ipc.ts` + guards schema）随附件 UI 轮的 W2 补丁一起做 | 02 §3.5 |
+| `hud.setVisible` 没有回向事件（`hud.visible.changed`） | **W8B 设置页要开关前必须先加**，否则两个入口各存一份状态 | 02 §3.7b |
+| HUD 显隐不落 settings（重启复位为显示） | 有意为之：会话态；关掉后忘了怎么找回比"重启又出现"更糟 | 02 §3.7b |
+| `noPoints` 完成的任务撤销没有 UI 入口（④ 是流水，无流水无行；① 只列未完成） | 通道可用、界面调不到；W10 打磨时若要补，先定位置 | 02 §3.2 |
+| 悬浮条展开列表的行尾（`30min` / `10:00` / `+20`）未实现 | 只显示标题；要时间得联表、要分值得区分 awarded/planned | 04 §5.2 |
+| 全屏自动隐藏未实现（纯 Electron 检测不可靠） | 只保留手动隐藏；W10 真机评估是否引入原生模块 | 04 §5.2、05 W9 验收 |
 
 ## 五、文档怎么用
 

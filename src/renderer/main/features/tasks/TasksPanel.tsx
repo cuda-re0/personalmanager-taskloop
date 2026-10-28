@@ -6,6 +6,7 @@ import { TYPE_LABEL, reminderSummary } from '../chat/chatViewModel'
 import type { DailyRow, TaskGroups } from './tasksModel'
 import { groupTasks, isStepChecked, remainingLabel } from './tasksModel'
 import { useTasksData } from './useTasksData'
+import type { TasksActions } from './useTasksData'
 import './tasks.css'
 
 /**
@@ -23,6 +24,7 @@ interface DailyGroupProps {
   expandedId: string | null
   focusId: string | null
   subtasksByParent: Map<string, Task[]>
+  actions: TasksActions
   onExpand(taskId: string): void
   onComplete(occurrenceId: string): void
 }
@@ -36,6 +38,7 @@ function DailyGroup({
   expandedId,
   focusId,
   subtasksByParent,
+  actions,
   onExpand,
   onComplete
 }: DailyGroupProps): ReactElement | null {
@@ -70,6 +73,7 @@ function DailyGroup({
           </div>
           {task && expandedId === task.id ? (
             <TaskDetail
+              actions={actions}
               confirming={false}
               subtasks={subtasksByParent.get(task.id) ?? []}
               task={task}
@@ -88,6 +92,7 @@ interface TaskGroupProps {
   confirmingId: string | null
   focusId: string | null
   subtasksByParent: Map<string, Task[]>
+  actions: TasksActions
   now: Date
   onExpand(taskId: string): void
   onDropRow(draggedId: string, targetId: string | null): void
@@ -101,6 +106,7 @@ function TaskGroup({
   confirmingId,
   focusId,
   subtasksByParent,
+  actions,
   now,
   onExpand,
   onDropRow
@@ -147,6 +153,7 @@ function TaskGroup({
           </div>
           {expandedId === task.id ? (
             <TaskDetail
+              actions={actions}
               confirming={confirmingId === task.id}
               subtasks={subtasksByParent.get(task.id) ?? []}
               task={task}
@@ -171,11 +178,16 @@ interface DetailProps {
   task: Task
   subtasks: Task[]
   confirming: boolean
+  /**
+   * 必须由 `TasksPanel` 传下来，**不能**在详情里再调 `useTasksData()`：
+   * 那是另一个实例，`subtasksByParent` 恒空、`confirmId` 也不是同一份状态，
+   * 结果「带未勾步骤的任务点完成」会绕过确认条直接计分完成（v0.20 修）。
+   */
+  actions: TasksActions
 }
 
 /** 就地展开的详情（04 §4①）：detail_md + 步骤勾选 + 提醒偏移 + [完成]。没有类型入口 */
-function TaskDetail({ task, subtasks, confirming }: DetailProps): ReactElement {
-  const { actions } = useTasksData()
+function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): ReactElement {
   const offsets = reminderSummary(task.type, task.dailyTime, task.reminderOffsets)
   return (
     <div className="task-detail">
@@ -256,6 +268,7 @@ export function TasksPanel(): ReactElement {
   return (
     <div className="tasks-panel">
       <DailyGroup
+        actions={actions}
         expandedId={expandedId}
         focusId={focusId}
         rows={groups.daily}
@@ -264,6 +277,7 @@ export function TasksPanel(): ReactElement {
         onExpand={actions.expand}
       />
       <TaskGroup
+        actions={actions}
         expandedId={expandedId}
         confirmingId={confirmId}
         focusId={focusId}
@@ -275,6 +289,7 @@ export function TasksPanel(): ReactElement {
         tasks={groups.deadline}
       />
       <TaskGroup
+        actions={actions}
         expandedId={expandedId}
         confirmingId={confirmId}
         focusId={focusId}

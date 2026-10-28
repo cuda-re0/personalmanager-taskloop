@@ -149,14 +149,17 @@ export function createHudWindow(): BrowserWindow {
 
   hudService.attach(hudWindowPort(win), displays)
 
-  // 插拔屏 / 分辨率变化后重算 bounds，越界则归位（04 §8）
+  // 插拔屏 / 分辨率变化后重算 bounds，越界则归位（04 §8）。
+  // display-added 也要挂：新屏接上后工作区布局变了，不重算 HUD 会留在旧屏的坐标上。
   const onDisplayChanged = (): void => {
     hudService.syncDisplays()
   }
+  screen.on('display-added', onDisplayChanged)
   screen.on('display-removed', onDisplayChanged)
   screen.on('display-metrics-changed', onDisplayChanged)
 
   win.on('closed', () => {
+    screen.removeListener('display-added', onDisplayChanged)
     screen.removeListener('display-removed', onDisplayChanged)
     screen.removeListener('display-metrics-changed', onDisplayChanged)
     hudService.detach()

@@ -309,3 +309,25 @@ occurrence 级：打卡 +1 → 撤销 → 同一天再打卡
 6. **证据闸门错误码统一为 `EVIDENCE_REQUIRED`**：02 §1 的说明（v0.9）本来就为"缺证据"单列了这个码并写明"既不是 CONFLICT 也不是 INVALID_INPUT"，但 §3.2 的 `task.complete` 行写 `CONFLICT`、04 §1.1 又把它登记在 `INVALID_INPUT` 名下——同一件事三种说法。以 §1 为准：代码抛 `EVIDENCE_REQUIRED`，04 §1.1 的「证据不能为空」改到该码名下（UI 据此切"补证据"态）。
 7. **STATE 口径 7 措辞纠错**：原文"任何 `Math.floor` 不得参与分值计算（现有 4 处均与分值无关）"把逾期天数那处说成"无关"不准确——它是 `penalty = overdueDays × 2` 的入参，参与分值。改成"`Math.floor` 只许用于日期/天数换算，不得对分值本身取整"。
 8. **未做（归 W6 补丁）**：第 3、5、6 条的实现改动——`task.undo` 通道注册 + guards、24h 校验、`result` 入参透传、证据码改名、04 §4④ 的 `[撤销]` 接线。契约已定，等补丁。
+
+### v0.20（W6 补丁与 W9 交付复核后，2026-10-28）
+
+W6 补丁 `6e0ebbf`（`task.undo` / 24h 窗口 / `result` / 证据码 / ④ 行尾撤销）与 W9 交付 `83ee042`（悬浮窗）都已复核：基线 32 文件 / 390 条绿，本单补完 33 / 392。
+
+**代码修复（架构方直接做，不等补丁）**
+
+1. **`TasksPanel` 的 `TaskDetail` 内部又调了一次 `useTasksData()`（P1，W6 自报）**。这是两个独立实例：`subtasksByParent` 恒空、`confirmId` 也不是同一份状态。实测后果比报告的更重——**带未勾步骤的任务点「完成」会绕过确认条直接计分完成**，`[直接标记完成（不计分）]` 这个逃生口永远出不来。修法：`actions` 从 `TasksPanel` 沿 `DailyGroup` / `TaskGroup` 传进 `TaskDetail`。项目没有 DOM 测试栈，所以补一条**源码结构断言**（`tests/renderer/tasksPanelWiring.test.ts`）：`= useTasksData()` 全文只许出现一次，详情必须从 props 取 `actions`。
+2. **`toLocalDay` 其实有 5 份副本**（不是 W9 报的"第 4 处"）：`main/db/localDay.ts` + `tasksModel` + `calendarModel` + `pointsModel` + `hudModel`。新建 `src/shared/localDay.ts` 收成一份（`Intl` + 显式 timeZone 的版本，可钉时区测试），主进程 `re-export`，三个渲染层模块用 `export { toLocalDay as localDayOf }` 保留旧名，调用方零改动。
+3. **HUD 漏订阅 `display-added`**：只挂了 removed / metrics-changed，运行中接一块新屏时 HUD 不重算坐标。补上（一行 + 卸监听）。
+
+**口径裁定（W9 报的 6 条 + W6 报的 4 条）**
+
+4. **`hud.getState().visible` 改"应显示"**（02 §3.7b 原文写"取 `win.isVisible()`"）：`attach` 早于 `ready-to-show`，主窗顶栏可能先取初态，取瞬时值会显示关闭而 HUD 随后浮现。窗口销毁时返回 `false`。
+5. **`hud.setVisible` 不加回向事件，顺延 W8B**：当前唯一消费方是顶栏自己驱动自己，事件没有第二个听众；**W8B 设置页也要开关时必须先加**，已记入 02 §3.7b 与 STATE 缺口表。
+6. **HUD 显隐不落 settings**：显隐按会话态处理，重启复位为显示。理由：关掉以后忘了怎么找回，比"重启又出现"更糟。`hud.autoHideFullscreen` 那个 key 仍保留标"未实现"。
+7. **HUD 两条可见串登记进 04 §1 显示格式表**：`⋯`（形态切换）与 `一句话加任务…`（占位），都逐字来自 §5.2 的图。行尾 `30min / 10:00 / +20` 本轮**不实现**（时间要联表、分值得区分 awarded/planned），在 §5.2 下加注说明，图保留为目标形态。
+8. **float-pod 的"点外部收起"用窗口 `blur` 近似**：Electron 感知不到窗口外点击；副作用是切走应用也收起，符合字面语义，04 §5.3 记下口径。
+9. **`noPoints` 完成的任务没有撤销入口**（W6 报）：④ 是流水，无流水无行；① 只列未完成任务。通道可用、界面调不到。**决定不补入口**：无分可退，误操作代价仅是任务变 `done`，24h 窗口本来就是为退分设的；若 W10 要补，位置得先定（在 ① 里塞已完成行会推翻 04 §4① 的分工）。
+10. **撤销的广播口径写明**（02 §3.2）：非 `done` 调用是同态 no-op、零广播；实际撤销推 `task.updated` + `points.changed` + `daystats.changed`，`tasks_done` 减在原完成日、冲销行落在今天，跨日时两天各一条。
+11. **`event` 的 `quality` 不强制 `met`**：`ReviewVerdict.result` 注释原写"event 的 quality 恒为 met"，与实现不符（主进程收到什么存什么）。event 的得分只看 `result`（quality 不进公式），UI 侧恒传 `met` 是约定不是校验——改注释说清楚，不改实现。
+12. **④ 的行结构**（04 §4④）：整行是主按钮，`[撤销]` 是行尾独立按钮（`<button>` 不能嵌套）；已冲销行整行降不透明度，不加文字、不加 tooltip。

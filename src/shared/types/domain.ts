@@ -254,7 +254,11 @@ export interface ReviewVerdict {
   /** need_evidence = 判断不了，需要用户补证据后再判 */
   verdict: 'pass' | 'partial' | 'fail' | 'need_evidence'
   quality: Quality | null
-  /** 仅 type='event' 有意义，其他类型传 null。event 的 quality 恒为 'met'，结果由 result 表达 */
+  /**
+   * 仅 type='event' 有意义，其他类型传 null。
+   * event 的得分**只看 result**（`quality` 不进公式，02 §5）；`task.complete` 收到什么
+   * `quality` 就存什么，主进程不做强制改写——UI 侧对 event 恒传 `met`（v0.20 澄清）。
+   */
   result: EventResult | null
   reason: string // 一句话，面向用户
   followup: string | null // 证据不足时的追问，可能为 null

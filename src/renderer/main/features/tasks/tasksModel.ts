@@ -1,4 +1,5 @@
 import type { Occurrence, Task } from '@shared/types/domain'
+import { toLocalDay as localDayOf } from '@shared/localDay'
 
 /**
  * 右栏①「当前任务」的纯模型（04 §4①）。导出只为可测，组件不另写排序/分组逻辑。
@@ -46,12 +47,6 @@ export function groupTasks(tasks: Task[], occurrences: Occurrence[]): TaskGroups
     deadline: topLevel.filter(t => t.type === 'deadline').sort(compareTasks),
     event: topLevel.filter(t => t.type === 'event').sort(compareTasks)
   }
-}
-
-/** 本地日历日 YYYY-MM-DD（渲染层自用，不引主进程模块） */
-function localDayOf(d: Date): string {
-  const pad = (n: number): string => (n < 10 ? `0${n}` : String(n))
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /**

@@ -18,13 +18,10 @@ const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n))
 /**
  * Date → 本地日历日 `YYYY-MM-DD`。
  *
- * 与 `tasksModel.localDayOf`、`main/db/localDay.toLocalDay`（生产路径不传 timeZone）同口径：
- * 取本地字段。**不许** `toISOString().slice(0,10)`——那是 UTC 日，东八区 00:00–08:00 会差一天
- * （01 §4.1 的时区陷阱）。渲染层不能 import 主进程模块，故此处按同一口径实现一份。
+ * v0.20：实现搬到 `src/shared/localDay.ts`（主进程与三个渲染层模块共用一份），这里只 re-export。
+ * **不许** `toISOString().slice(0,10)`——那是 UTC 日，东八区 00:00–08:00 会差一天（01 §4.1）。
  */
-export function toLocalDay(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-}
+export { toLocalDay } from '@shared/localDay'
 
 /** 年月日 → 本地日字符串。纯算术，不经过 Date 的时区换算 */
 export function dayOf(year: number, month: number, day: number): string {
