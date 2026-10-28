@@ -58,7 +58,7 @@
 
 ## W1 · 数据层
 
-**只许改**：`src/main/db/**`、`src/main/services/{task,message,points}Service.ts` 的**数据访问部分**、`tests/db/**`
+**只许改**：`src/main/db/**`、`src/main/services/{task,message,points}Service.ts` 的**数据访问部分**、`tests/db/**`、`tests/shared/**`
 
 **交付**
 
@@ -69,6 +69,8 @@
 5. 事务封装 `tx(fn)`：`db.transaction` 透传。
 6. 状态机校验 `assertTransition(type, from, to)`，非法抛 `AppError{code:'CONFLICT'}`。daily 类型不接受 `reviewing`/`done`。
 7. `rebuildDailyStats()`。
+8. **测试基建 + `tests/shared/rubric.test.ts`**：配 vitest（`npm test` 可跑），并按 02 §5.2 的示例表逐行断言 `computePlannedPoints` 六组值、`computeAwardedPoints` 的质量系数与逾期扣分。审核发现积分公式此前无任何测试，而它是全产品的分值来源，W1 建测试基建时顺手补上，边际成本接近零。
+   **只测不改**：`src/shared/points/rubric.ts` 若与 02 §5.2 不一致，报告，不要自行修正。
 
 **验收（写成自动化测试，必须绿）**
 
@@ -82,6 +84,7 @@
 - [ ] 删父任务，子任务级联删除；`point_ledger.task_id` 变 NULL（不删流水）；`task_occurrences` 级联删除。
 - [ ] 1000 条任务 + 5000 条流水 + 3000 条 occurrence 的 `task.list`、`calendar.dayIndex`、`points.monthStats` 各 < 20ms。
 - [ ] `day` 字段在东八区 00:30 写入时，落在当天而非前一天。
+- [ ] `npm test` 可跑，`rubric.test.ts` 的六组积分与质量系数断言全绿。
 
 **禁止**：不要在 service 里调 AI；不要改 DDL 结构（发现设计问题提变更单）。
 

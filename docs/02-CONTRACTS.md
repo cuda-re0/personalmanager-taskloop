@@ -297,29 +297,62 @@ export interface ReminderPayload {
 
 ### 3.0 补充类型（实现位置：`src/shared/types/ipc.ts`）
 
-§1 的 `Ok` / `Err` / `IpcResult` / `AppError` / `AppErrorCode`，加上本节的 `PublicSettings` / `HudMode`，**实现上都放在 `src/shared/types/ipc.ts`**——`domain.ts` 只放领域实体，不放传输层类型。
+§1 的 `Ok` / `Err` / `IpcResult` / `AppError` / `AppErrorCode`，加上本节的 `AppSettings` / `PublicSettings` / `HudMode` / `WebhookConfig`，**实现上都放在 `src/shared/types/ipc.ts`**——`domain.ts` 只放领域实体，不放传输层类型。
 
-（02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，W0 在代码里自行补的版本已确认合理，此处正式收录，与代码一致。）
+（02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，W0 在代码里自行补了 `Record<string, unknown>`。审核指出这等于放弃 settings 的类型检查，v0.7 改为封闭接口。W0 需按本节同步 `ipc.ts`。）
 
 ```ts
 /** 悬浮形态：顶部贴边条 / 自由浮窗 */
 export type HudMode = 'dock-bar' | 'float-pod';
 
+/** webhook 渠道配置（非敏感部分；token 存 safeStorage，不在此） */
+export interface WebhookConfig {
+  url: string;
+  method: 'POST';
+  /** 自定义 header，用于 `Authorization: Bearer <token>` 这类鉴权 */
+  headers: Record<string, string>;
+  /** body 模板，可用变量：{{title}} {{detail}} {{offsetLabel}} {{dueAt}} {{level}} */
+  bodyTemplate: string;
+}
+
 /**
- * 渲染层可见的 settings 投影。
- * key 是开放的（设置页可新增），已知 key 清单见 `01-DATA-MODEL.md` §2.7；
- * 读取方自行收窄类型，不要指望这里是强类型联合。
- * **不含任何密钥** —— API Key / webhook token 只存 `safeStorage`，永不进 IPC。
+ * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应。
+ * **封闭接口**：新增 key 必须先改这里 + 01 §2.7，两边同时改。
+ * 表里不含任何密钥（API Key / webhook token 只存 `safeStorage`），因此全量可暴露给渲染层。
  */
-export type PublicSettings = Record<string, unknown>;
+export interface AppSettings {
+  'ai.provider': { name: 'zhipu'; model: string };
+  'hud.mode': HudMode;
+  'hud.displayId': number | null;
+  'hud.position': { x: number | null; y: number | null };
+  'hud.autoHideFullscreen': boolean;
+  'points.difficultyBase': Record<Difficulty, number>;
+  'points.dailyBase': number;
+  'points.streakBonus': { days: number; bonus: number }[];
+  'points.dailyCap': number | null;
+  'reminder.quietHours': { from: string; to: string };   // 'HH:mm'
+  'reminder.channels': NotifyChannel[];
+  'channel.mail': { to: string } | null;                 // null = 未配置，渠道 available()=false
+  'channel.webhook': WebhookConfig | null;
+  'app.theme': 'light' | 'dark';
+}
+
+/**
+ * 渲染层可见的配置投影 = `AppSettings` 全量。
+ * **必须有全部字段**：`app.getBootstrap` 返回前要把 DB 里的值与 `DEFAULT_SETTINGS` 合并补齐，
+ * 渲染层不应处理 `undefined`。缺 key 视为 W1 的 bug，不是渲染层要兼容的情况。
+ */
+export type PublicSettings = AppSettings;
 ```
+
+`Difficulty` 与 `NotifyChannel` 从 `domain.ts` 引入，`ipc.ts` 可以 import，不算循环依赖（`domain.ts` 不反向引用 `ipc.ts`）。
 
 ### 3.1 `api.app`
 
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
 | `app.getBootstrap` | — | `Bootstrap` | 启动时一次性拉取：settings 摘要、当前任务、余额、最近 30 条消息、今日统计 |
-| `app.setSetting` | `{ key: string; value: unknown }` | `void` | 写 settings 并广播 `app.setting.changed` |
+| `app.setSetting` | `{ key: K; value: AppSettings[K] }`，其中 `K extends keyof AppSettings` | `void` | 写 settings 并广播 `app.setting.changed`。**key 封闭**：写未登记的 key 编译期即报错 |
 | `app.openExternal` | `{ url: string }` | `void` | 仅允许 http/https |
 | `app.quit` | — | `void` | |
 
@@ -484,6 +517,23 @@ contextBridge.exposeInMainWorld('api', {
 ```
 
 `src/shared/types/ipc.ts` 里同步导出 `export interface Api`（上面这个对象的类型），preload 与渲染层都 `implements Api`，保证两侧不会各写各的。
+
+**`setSetting` 是泛型方法**，`Api` 里的声明必须是：
+
+```ts
+setSetting<K extends keyof AppSettings>(
+  input: { key: K; value: AppSettings[K] },
+): Promise<IpcResult<void>>;
+```
+
+preload 侧写成箭头泛型即可（泛型只在编译期存在，运行时传的仍是 `{key, value}`，不影响 IPC 序列化）：
+
+```ts
+setSetting: <K extends keyof AppSettings>(input: { key: K; value: AppSettings[K] }) =>
+  invoke<void>(CH.app.setSetting, input),
+```
+
+**不允许**为了省事把 `Api.setSetting` 退回 `{ key: string; value: unknown }`——那样设置页每个读写点都要手写断言，等于没做类型。
 
 ---
 

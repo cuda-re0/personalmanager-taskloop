@@ -305,7 +305,7 @@ CREATE TABLE settings (
 | `reminder.quietHours` | `{"from":"22:00","to":"08:00"}` | 静默时段，落在其中顺延到 08:00 后 |
 | `reminder.channels` | `["inapp","toast"]` | 全局默认渠道；配好邮箱后由用户勾上 `mail` |
 | `channel.mail` | `{"to":""}` | ★ 收件邮箱。`to` 为空 = 未配置，渠道 `available()=false` 自动跳过，不报错 |
-| `channel.webhook` | `null` | ★ 结构见 02 §6.3。`null` = 未启用；密钥不在此，走 `safeStorage` |
+| `channel.webhook` | `null` | ★ 结构见 02 §3.0 的 `WebhookConfig`。`null` = 未启用；密钥不在此，走 `safeStorage` |
 | `app.theme` | `"light"` | |
 
 ---
