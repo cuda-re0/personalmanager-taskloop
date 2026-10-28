@@ -52,8 +52,9 @@ function leadHoursOf(task: Task): number | null {
 }
 
 /**
- * 逾期天数（只给限时扣分用）。02 只写了「逾期 3 天 → −6」，没写小数日怎么算：
- * 这里按整天计（满 24h 算 1 天），与卡片上「逾期 N 天」的显示同源，不会两处打架。
+ * 逾期天数（只给限时扣分用）。02 §5.2：按满 24h 计一天，向下取整——
+ * 23h 算 0 天（不扣）、47h 算 1 天。这是渲染层唯一允许出现 Math.floor 的地方，
+ * 它不产出积分值，只产出一个天数；卡片上的「逾期 N 天」也用这个数。
  */
 function overdueDaysOf(leadHours: number | null): number {
   if (leadHours === null || leadHours >= 0) return 0
