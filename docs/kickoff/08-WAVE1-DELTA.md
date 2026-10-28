@@ -247,3 +247,11 @@ W5 交付报告上报 5 项，架构方裁决与落盘：
 1. **shared 触碰准予备案（架构方责任，非承包方越界）**：W5 补丁按 v0.15 把已定名的 `TaskCreatePatch` 落进 `src/shared/types/domain.ts` 与 `ipc.ts`（promoteDraft 入参类型）。`TaskCreatePatch` 这个名字是架构方在 02 §3.2 定的，契约类型落码必然要动 shared——开工词只写了"guards + taskService"，漏了这处授权，算架构方口径不全。**语义零变更**：纯新增类型 + 入参引用替换；`task.update` 的 guard 仍用 `taskPatchSchema`、type 照旧被剥（测试有断言）。此后审核对 `025849c..HEAD` 内这两处 shared 改动不算越界。
 2. **脏分值口径确认**：类型被 patch 改过时 `draft.pointsPlanned` 是按原类型算的脏值（daily→deadline 时它 = dailyBase 的 1 分），必须按落库难度 × 完整 `PointsConfig` 重算；deadline→daily 时原 dueHint 不得泄进 `due_at`。W5 实现与测试均符合。
 3. 基线复核一致：typecheck / lint / build 零错，22 文件 / 265 条全绿（净增 3：listDailyActive 防回归 +1、本次新增 3、重写 1）。
+
+### v0.15.2（W5 审核两项 P2 处置，2026-10-28）
+
+W5 收工复审 PASS（无 P0/P1，2 项 P2），处置如下：
+
+1. **02 §2 补 `TaskCreatePatch` 条目（架构方文档欠账）**：代码块里此前只有 `TaskPatch`，按 §2"源码契约"判据机器比对会红。已补接口定义（字段名/类型与 `domain.ts` 一致，注释注明只用于 promoteDraft、update 链路红线不变）。
+2. **幂等路径零广播（W5 补丁 `a8ebb93`）**：`promoteDraft` 内部返 `{ task, created }`（IPC 仍返 `Task`，契约不变），handler 在 `created=false` 时零广播——没有行被创建就不发 `created` 类事件。幂等用例补"第二次调用 events 为空"断言，新增 internal 形状用例；基线 22 文件 / 266 条全绿。
+3. 保留项：幂等路径仍读一次 `listRangeRaw`（只读无副作用），不为此移动差集取样的职责边界。

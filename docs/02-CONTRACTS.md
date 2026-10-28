@@ -138,6 +138,14 @@ export interface TaskPatch {
   tags?: string[];
 }
 
+/**
+ * 创建侧 patch（§3.2 v0.15）：`TaskPatch` 全字段 + 可选 `type`。
+ * 只用于 `task.promoteDraft`（确认本质是创建）；`task.update` 仍是 `TaskPatch`，落库后不可改类型。
+ */
+export interface TaskCreatePatch extends TaskPatch {
+  type?: TaskType;
+}
+
 /** 每日任务在某一天的这一次 */
 export interface Occurrence {
   id: string;
