@@ -194,8 +194,10 @@ describe('余额与聚合', () => {
   })
 
   it('points.preview 是纯计算，daily 返回单日基础分', () => {
-    expect(pointsService.previewPoints('deadline', 'medium', 60)).toBe(23)
-    expect(pointsService.previewPoints('daily', 'medium', 60)).toBe(1)
+    // v0.7 起 previewPoints 只剩 (type, difficulty)：应得分只由难度决定
+    expect(pointsService.previewPoints('deadline', 'medium')).toBe(20)
+    expect(pointsService.previewPoints('deadline', 'hard')).toBe(35)
+    expect(pointsService.previewPoints('daily', 'medium')).toBe(1)
     expect(pointsService.balance()).toBe(0)
   })
 })

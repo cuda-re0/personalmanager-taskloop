@@ -50,15 +50,16 @@ export function pointsConfig(): PointsConfig {
   }
 }
 
-/** `points.preview`：纯计算、无副作用。daily 返回的是**单日**分值。 */
-export function previewPoints(
-  type: TaskType,
-  difficulty: Difficulty,
-  estimateMin: number | null
-): number {
+/**
+ * `points.preview`：纯计算、无副作用。daily 返回的是**单日**分值。
+ *
+ * v0.7（契约 v0.9）起 `estimateMin` 退出公式，参数只剩难度；`ipc.ts` 的
+ * `points.preview` 载荷也同步删了那个字段，这里跟着收窄，不要为了兼容塞个可选参数。
+ */
+export function previewPoints(type: TaskType, difficulty: Difficulty): number {
   const cfg = pointsConfig()
   if (type === 'daily') return roundPoints(cfg.dailyBase)
-  return computePlannedPoints(difficulty, estimateMin, cfg)
+  return computePlannedPoints(difficulty, cfg)
 }
 
 /** `points.streakPreview`：连续到 streakAfter 那天能拿到的里程碑奖励，0 = 无 */
