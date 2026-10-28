@@ -637,7 +637,10 @@ export function mapMessageMeta(kind: MessageKind, raw: string): MessageMeta {
         reminderId: typeof parsed.reminderId === 'string' ? parsed.reminderId : '',
         taskId: typeof parsed.taskId === 'string' ? parsed.taskId : null,
         title: typeof parsed.title === 'string' ? parsed.title : '',
-        fireAt: typeof parsed.fireAt === 'string' ? parsed.fireAt : ''
+        fireAt: typeof parsed.fireAt === 'string' ? parsed.fireAt : '',
+        // 写入方从 reminders.offset_min 抄进 meta_json；缺失即视为绝对时间（如每日任务按 dailyTime 触发），
+        // 不拿 fireAt - dueAt 现算——那会因为 due_at 改过而算错。
+        offsetMin: typeof parsed.offsetMin === 'number' ? parsed.offsetMin : null
       }
     case 'error':
       return {

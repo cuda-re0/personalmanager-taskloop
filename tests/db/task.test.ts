@@ -143,13 +143,28 @@ describe('tasks 建/查/改', () => {
   it('evidence 追加不覆盖原有证据', () => {
     const task = taskService.createTask({ type: 'deadline', title: '写论文', requiresEvidence: true })
     const first: Evidence = { kind: 'text', text: '初稿', addedAt: NOW }
-    const second: Evidence = { kind: 'image', attachmentId: 'att_1', addedAt: NOW }
+    // v0.8：Evidence 只有 text | attachment，"是不是图片"看 Attachment.kind
+    const second: Evidence = { kind: 'attachment', attachmentId: 'att_1', addedAt: NOW }
 
     taskService.addEvidence(task.id, first)
     const after = taskService.addEvidence(task.id, second)
     expect(after.evidence).toHaveLength(2)
     expect(after.evidence[1]).toEqual(second)
     expect(taskService.setRequiresEvidence(task.id, false).requiresEvidence).toBe(false)
+  })
+
+  it('evidence 校验：空文字 / 缺附件 id 被拒（INVALID_INPUT）', () => {
+    const task = taskService.createTask({ type: 'deadline', title: '写论文', requiresEvidence: true })
+
+    expectErrorCode(
+      () => taskService.addEvidence(task.id, { kind: 'text', text: '   ', addedAt: NOW }),
+      'INVALID_INPUT'
+    )
+    expectErrorCode(
+      () => taskService.addEvidence(task.id, { kind: 'attachment', attachmentId: '', addedAt: NOW }),
+      'INVALID_INPUT'
+    )
+    expect(taskService.requireTask(task.id).evidence).toHaveLength(0)
   })
 })
 

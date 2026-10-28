@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { TaskDraft } from '../../src/shared/types/domain'
+import type { MessageMeta, TaskDraft } from '../../src/shared/types/domain'
 import { closeTestDb, openMemoryDb } from './helpers'
 import * as messageService from '../../src/main/services/messageService'
 import * as taskService from '../../src/main/services/taskService'
@@ -57,6 +57,64 @@ describe('messages', () => {
       expect(fetched.meta.drafts.map(d => d.localId)).toEqual(['a', 'b'])
       expect(fetched.meta.drafts[0].requiresEvidence).toBe(true)
     }
+  })
+
+  it('reminder 的 meta 带上 offsetMin（-30 与绝对时间 null 都要能取回）', () => {
+    const relative = messageService.appendMessage({
+      role: 'assistant',
+      kind: 'reminder',
+      meta: {
+        kind: 'reminder',
+        reminderId: 'rem_1',
+        taskId: null,
+        title: '交作业',
+        fireAt: '2026-10-30T13:30:00.000Z',
+        offsetMin: -30
+      }
+    })
+    const fetched = messageService.requireMessage(relative.id)
+    expect(fetched.meta).toEqual({
+      kind: 'reminder',
+      reminderId: 'rem_1',
+      taskId: null,
+      title: '交作业',
+      fireAt: '2026-10-30T13:30:00.000Z',
+      offsetMin: -30
+    })
+
+    const absolute = messageService.appendMessage({
+      role: 'assistant',
+      kind: 'reminder',
+      meta: {
+        kind: 'reminder',
+        reminderId: 'rem_2',
+        taskId: null,
+        title: '每日任务',
+        fireAt: '2026-10-30T13:00:00.000Z',
+        offsetMin: null
+      }
+    })
+    const absoluteMeta = messageService.requireMessage(absolute.id).meta
+    expect(absoluteMeta.kind).toBe('reminder')
+    if (absoluteMeta.kind === 'reminder') expect(absoluteMeta.offsetMin).toBeNull()
+  })
+
+  it('reminder meta 缺 offsetMin 时落成 null，不猜', () => {
+    // 模拟旧数据/写入方漏字段：不能拿 fireAt - dueAt 现算，直接 null（绝对时间）
+    const message = messageService.appendMessage({
+      role: 'assistant',
+      kind: 'reminder',
+      meta: {
+        kind: 'reminder',
+        reminderId: 'rem_3',
+        taskId: null,
+        title: '老提醒',
+        fireAt: '2026-10-30T13:00:00.000Z'
+      } as MessageMeta
+    })
+    const meta = messageService.requireMessage(message.id).meta
+    expect(meta.kind).toBe('reminder')
+    if (meta.kind === 'reminder') expect(meta.offsetMin).toBeNull()
   })
 
   it('patch 只改 contentMd / status / meta', () => {

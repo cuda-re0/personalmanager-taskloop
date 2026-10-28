@@ -155,8 +155,9 @@ export function addEvidence(id: string, evidence: Evidence): Task {
   if (evidence.kind === 'text' && !evidence.text?.trim()) {
     throw appError('INVALID_INPUT', '文字证据不能为空')
   }
-  if (evidence.kind === 'image' && !evidence.attachmentId) {
-    throw appError('INVALID_INPUT', '图片证据缺少附件 id')
+  // attachment 证据只断言"有附件 id"；是不是图片由 Attachment.kind 决定，不看 Evidence.kind（契约 v0.8）
+  if (evidence.kind === 'attachment' && !evidence.attachmentId) {
+    throw appError('INVALID_INPUT', '附件证据缺少附件 id')
   }
   return taskRepo.appendEvidence(id, evidence, nowIso())
 }
