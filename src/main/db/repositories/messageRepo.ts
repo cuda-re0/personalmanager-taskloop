@@ -9,10 +9,12 @@ import { attachmentsFor } from './attachmentRepo'
 /**
  * messages 的数据访问层。发送与 AI 编排在 W3/W4，这里只管行。
  *
- * 附件相关的四个函数（`insertAttachment` / `listAttachments` / `attachToMessage` /
- * `attachmentsFor`）在 W11 迁到 `attachmentRepo`，但**这里继续同名转出**：
- * `messageService` 的调用点（`messageRepo.insertAttachment` 等）一行都不用改。
- * 新代码请直接用 `attachmentRepo`，这一层只是兼容壳。
+ * 附件的行级函数在 W11 迁到了 `attachmentRepo`。这里**同名转出**其中四个
+ * （`insertAttachment` / `listAttachments` / `attachToMessage` / `removeAttachment`），
+ * `messageService` 的调用点（`messageRepo.insertAttachment` 等）一行都不用改；
+ * `attachmentsFor` 只在本文件内部用（`getById` / `hydrate` 给消息带附件），import 进来、
+ * **没有**转出——批量分组取是消息读取侧的事，外面要用请直接找 `attachmentRepo`。
+ * 这一层只是兼容壳，新代码不要再往这里加附件函数。
  */
 
 export {
@@ -81,30 +83,40 @@ export function patch(id: string, input: MessagePatch): Message {
   return requireById(id)
 }
 
-/** 最近 N 条，按时间升序返回（Bootstrap 要的就是升序） */
+/**
+ * 最近 N 条，按时间升序返回（Bootstrap 要的就是升序）。
+ * tiebreaker 必须是 rowid 而不是 id：created_at 只有毫秒精度，id 是 randomBytes 纯随机，
+ * 两条消息同毫秒落库时按 id 排是 50% 随机；rowid 是插入序，恒为全序。
+ */
 export function listRecent(limit = 30): Message[] {
   const rows = getDb()
-    .prepare(`${SELECT_MESSAGE} ORDER BY created_at DESC, id DESC LIMIT ?`)
+    .prepare(`${SELECT_MESSAGE} ORDER BY created_at DESC, rowid DESC LIMIT ?`)
     .all(limit) as MessageRow[]
   return hydrate(rows.reverse())
 }
 
-/** 向前翻页：`before` 是消息 id，取它之前的 limit 条（返回升序） */
+/**
+ * 向前翻页：`before` 是消息 id，取它之前的 limit 条（返回升序）。
+ * 排序与游标比较都用 rowid（理由同 listRecent）：before 语义不变——仍是 messageId，
+ * 这里先查锚点行拿 rowid 再比较，rowid 不出 IPC、service 无感。
+ */
 export function listBefore(before: string, limit = 30): Message[] {
-  const anchor = getById(before)
+  const anchor = getDb()
+    .prepare('SELECT created_at, rowid AS rid FROM messages WHERE id = ?')
+    .get(before) as { created_at: string; rid: number } | undefined
   if (!anchor) throw appError('NOT_FOUND', '分页游标消息不存在', { detail: `id=${before}` })
   const rows = getDb()
     .prepare(
-      `${SELECT_MESSAGE} WHERE (created_at < ?) OR (created_at = ? AND id < ?)
-       ORDER BY created_at DESC, id DESC LIMIT ?`
+      `${SELECT_MESSAGE} WHERE (created_at < ?) OR (created_at = ? AND rowid < ?)
+       ORDER BY created_at DESC, rowid DESC LIMIT ?`
     )
-    .all(anchor.createdAt, anchor.createdAt, anchor.id, limit) as MessageRow[]
+    .all(anchor.created_at, anchor.created_at, anchor.rid, limit) as MessageRow[]
   return hydrate(rows.reverse())
 }
 
 export function listByThread(threadId: string, limit = 30): Message[] {
   const rows = getDb()
-    .prepare(`${SELECT_MESSAGE} WHERE thread_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+    .prepare(`${SELECT_MESSAGE} WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`)
     .all(threadId, limit) as MessageRow[]
   return hydrate(rows.reverse())
 }

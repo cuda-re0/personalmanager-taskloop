@@ -149,6 +149,30 @@ describe('messages', () => {
     expect(older.map(m => m.contentMd)).toEqual(['第 0 条', '第 1 条'])
   })
 
+  it('同毫秒背靠背 insert：升序按插入序，before 游标跨同毫秒对不丢不重', () => {
+    // 都不传 createdAt（走 nowIso()），背靠背三条大概率落在同一毫秒。
+    // 旧实现 tiebreaker 是随机 id，同毫秒平手时顺序 50% 颠倒；现在 tiebreaker 是
+    // rowid（插入序），无论是否真的同毫秒，断言都应成立。
+    messageService.appendMessage({ role: 'user', kind: 'text', contentMd: '第 1 条' })
+    messageService.appendMessage({ role: 'assistant', kind: 'text', contentMd: '第 2 条' })
+    messageService.appendMessage({ role: 'user', kind: 'text', contentMd: '第 3 条' })
+
+    expect(messageService.recentMessages(10).map(m => m.contentMd)).toEqual([
+      '第 1 条',
+      '第 2 条',
+      '第 3 条'
+    ])
+
+    // 第一页取最新 2 条（升序），再以页内最旧一条为游标向前翻——
+    // 游标（第 2 条）与其前一条（第 1 条）同毫秒，游标比较必须用 rowid：
+    // 按随机 id 比较会漏掉或错位第 1 条
+    const page1 = messageService.listMessages({ limit: 2 })
+    expect(page1.map(m => m.contentMd)).toEqual(['第 2 条', '第 3 条'])
+    const page2 = messageService.listMessages({ before: page1[0].id, limit: 2 })
+    expect(page2.map(m => m.contentMd)).toEqual(['第 1 条'])
+    expect(messageService.listMessages({ before: page2[0].id, limit: 2 })).toEqual([])
+  })
+
   it('附件按 message 分组带出，url 是 app://attach/<id>', () => {
     const message = messageService.appendMessage({ role: 'user', kind: 'text', contentMd: '看图' })
     messageService.insertAttachment({
