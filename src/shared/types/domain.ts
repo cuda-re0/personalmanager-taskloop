@@ -43,8 +43,9 @@ export interface Task {
   reminderChannels: NotifyChannel[]
 
   tags: string[]
+  /** 小数（2 位）。由 computePlannedPoints 算，不是整数，UI 用 fmtPoints 显示 */
   pointsPlanned: number
-  /** deadline/event 才有值；daily 恒为 null，看 occurrences */
+  /** deadline/event 才有值；daily 恒为 null，看 occurrences。同为小数 */
   pointsAwarded: number | null
   quality: Quality | null
 
@@ -89,6 +90,7 @@ export interface Occurrence {
   taskId: string
   day: string // YYYY-MM-DD 本地
   status: 'pending' | 'done' | 'skipped' | 'missed'
+  /** 小数（2 位），未完成为 null */
   pointsAwarded: number | null
   completedAt: string | null
   note: string | null
@@ -200,7 +202,7 @@ export interface TaskDraft {
   missingInfo: string[] // 信息不足时列出要问用户的点，可能为空
   requiresEvidence: boolean // AI 判定这项完成时是否需要证据
   confidence: number // 0~1
-  pointsPlanned: number // 由 rubric 计算填充，AI 不给这个数
+  pointsPlanned: number // 小数（2 位）。由 rubric 计算填充，AI 不给这个数
 }
 
 export interface DraftStep {
