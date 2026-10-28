@@ -109,6 +109,16 @@ export interface AppSettings {
  */
 export type PublicSettings = AppSettings
 
+/**
+ * `task.complete` 的两种模式（02 §3.2）。
+ *
+ * 做成可辨识联合而不是 `noPoints?: boolean`：两种模式一个给 `quality`、一个不给，
+ * 用可选开关会同时允许"给了 quality 又声明不计分"，到实现里就变成谁先读谁算数。
+ */
+export type CompleteTaskInput =
+  | { id: string; quality: Quality; evidence?: Evidence[]; noPoints?: false }
+  | { id: string; noPoints: true; evidence?: Evidence[] }
+
 /* ------------------------------------------------------------------ *
  * §4 preload 暴露形状：window.api 的类型
  * ------------------------------------------------------------------ */
@@ -134,11 +144,9 @@ export interface Api {
     }): Promise<IpcResult<Task>>
     update(input: { id: string; patch: TaskPatch }): Promise<IpcResult<Task>>
     transition(input: { id: string; to: TaskStatus; reason?: string }): Promise<IpcResult<Task>>
-    complete(input: {
-      id: string
-      quality: Quality
-      evidence?: Evidence[]
-    }): Promise<IpcResult<{ task: Task; entry: PointEntry }>>
+    complete(
+      input: CompleteTaskInput
+    ): Promise<IpcResult<{ task: Task; entry: PointEntry | null }>>
     addEvidence(input: { id: string; evidence: Evidence }): Promise<IpcResult<Task>>
     setRequiresEvidence(input: { id: string; value: boolean }): Promise<IpcResult<Task>>
     reorder(input: { id: string; beforeId: string | null }): Promise<IpcResult<void>>

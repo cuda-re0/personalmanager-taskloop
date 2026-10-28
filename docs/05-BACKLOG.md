@@ -265,7 +265,7 @@
 3. `taskService.complete` 里**硬校验**证据闸门，不能只靠 UI 拦。
 4. `task.addEvidence` + `[重新审核]` 的往返流程。
 5. `partial` 入账 60%，任务回 `doing`，卡片列出缺口。
-6. 连续 3 次 `need_evidence` 后出现 `[直接标记完成（不计分）]`，走 `transition('done')` 且不写 ledger。
+6. 连续 3 次 `need_evidence` 后出现 `[直接标记完成（不计分）]`，走 `task.complete({ noPoints: true })`：写 `completed_at`、不写 ledger、返回的 `entry` 为 `null`（02 §3.2）。**不能走 `transition('done')`**，那条路已被硬拦成 `CONFLICT`。
 7. 审核卡片四种状态（04 §3.3）。
 
 **验收**

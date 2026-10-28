@@ -261,6 +261,9 @@ export interface TaskDraft {
                                      // **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，
                                      // 而 due_at 同时喂提醒、逾期判定与效率系数三条链路。
                                      // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO
+                                     // **读侧必须校验形状**：`/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/` 不匹配
+                                     // 一律当空串，不许直接交给 `new Date` —— V8 会把 '10-30 18:00'
+                                     // 解析成 2001-10-30（实测），而且是静默的
   dailyTimeHint: string | null;      // 'HH:mm'，仅 daily
   activeToHint: string | null;       // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[];         // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改
@@ -271,7 +274,9 @@ export interface TaskDraft {
   confidence: number;                // 0~1
   pointsPlanned: number;             // 小数（2 位）。AI 不给。按 type 分派：
                                      //   daily → settings['points.dailyBase']
-                                     //   deadline / event → computePlannedPoints(difficulty)
+                                     //   deadline / event → computePlannedPoints(difficulty, cfg)
+                                     //   **cfg 不许省略**：省了就落到 DEFAULT_CONFIG，用户改过
+                                     //   points.difficultyBase 之后卡面与落库会分叉（§5.2b）
                                      // **必须与卡片显示值完全一致**：W5 确认时直接写入
                                      // tasks.points_planned，两套口径会让每日任务变成每天 20 分
 }
@@ -409,7 +414,7 @@ export interface Bootstrap {
 | `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskPatch }` | `Task` |
 | `task.update` | `{ id: string; patch: TaskPatch }` | `Task` |
 | `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` |
-| `task.complete` | `{ id: string; quality: Quality; evidence?: Evidence[] }` | `{ task: Task; entry: PointEntry }` | `requiresEvidence=true` 且无 evidence 时返回 `CONFLICT`，不抛异常 |
+| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时返回 `CONFLICT`，不抛异常 |
 | `task.addEvidence` | `{ id: string; evidence: Evidence }` | `Task` | 审核中补证据，用于"先追问再补"的来回 |
 | `task.setRequiresEvidence` | `{ id: string; value: boolean }` | `Task` | 用户手动改判 |
 | `task.reorder` | `{ id: string; beforeId: string \| null }` | `void` |
@@ -418,6 +423,17 @@ export interface Bootstrap {
 | `task.setReminderOffsets` | `{ id: string; offsets: number[]; channels?: NotifyChannel[] }` | `Task` | 改完立刻 sync 出 reminders 行 |
 
 `task.transition` 只接受状态机允许的边，非法跳跃返回 `CONFLICT`。`daily` 类型不接受 `reviewing` / `done`。
+
+**`to='done'` 一律 `CONFLICT`，包括对已完成任务的重复调用。** 完成必须在**同一个事务**里写 `completed_at` + `points_awarded` + `point_ledger`（01 §3），`transition` 只改状态，走过去就会造出"已完成但从未入账"的任务，`daily_stats.tasks_done` 也计不到。这里刻意**不做**幂等 no-op：完成只有 `task.complete` 一个入口，重复调用应当报错而不是假装成功。
+
+**`noPoints: true` 是不计分出口**（04 §3.3 的「直接标记完成（不计分）」）。它不是后门，是防死锁：连续 3 次 `need_evidence` 后用户仍需能把这件事收尾。语义固定为——写 `completed_at`、`status='done'`、累加 `daily_stats.tasks_done`，**不写 `point_ledger`、`points_awarded` 保持 NULL**；返回的 `entry` 为 `null`。事务边界与正常完成完全一致，只是少了入账两步。调用方拿 `entry === null` 判断"这次没给分"，不要再用别的字段推断。
+
+```ts
+/** 两种模式做成可辨识联合：给了 quality 就是计分，noPoints 就是不计分，不许两个都写 */
+export type CompleteTaskInput =
+  | { id: string; quality: Quality; evidence?: Evidence[]; noPoints?: false }
+  | { id: string; noPoints: true; evidence?: Evidence[] }
+```
 
 ### 3.2b `api.occurrence`（每日任务）
 
@@ -699,9 +715,12 @@ function clamp(v: number, lo: number, hi: number) {
 | 限时 | `easy` / `medium` / `hard` |
 | 活动 | `medium` / `hard` / `epic` |
 
-- `medium` 三类都允许，所以新建任务的默认难度用它不会越界。
+- **默认难度是 `medium`，不是 `easy`。** `medium` 三类都合法；`easy` 对 event 非法（04 §3.2 的下拉里根本没有这一项，`<select value="easy">` 匹配不到 option 会显示空白，任务却已经 10 分落了库）。01 §2.1 的 `DEFAULT 'easy'` 只是 SQL 兜底、不是应用层默认档，`createTask` 写 `input.difficulty ?? 'easy'` 是缺陷，不是"跟 DDL 对齐"。
 - 切换类型时若当前难度不合法，用 `snapDifficulty(type, d)` 归位到最近合法档，**平手取低档**——切个类型就白涨几十分，用户会认为系统算错了。
-- 校验落在两处：AI 输出（W4 的 parse pipeline）与草稿确认（W5 的 `confirmDraft`）。**数据库不设 CHECK**：条件约束以后要改就得写迁移，而历史数据不该因为规则收紧就读不出来。
+- **校验落在三处**：AI 输出（W4 的 parse pipeline）、草稿归一化（渲染层 `normalizeDraft`）、主进程 `createTask`。前两处**归位**（`snapDifficulty`），保证卡面显示的就是合法档；主进程**不归位，直接 `INVALID_INPUT`**——它若悄悄换一个难度，卡面 35 分、库里 20 分，又变回两套口径。正常路径渲染层已经归过位，主进程报错只会发生在绕过 UI 的调用上。
+- **草稿卡面分值与落库值必须同源**：`draftPointsOf(draft, cfg)` 的 `cfg` 必须是 `bootstrap.settings` 的 `points.*`（完整 `PointsConfig`），不许省略参数落回 `DEFAULT_CONFIG`，也不许只传 `dailyBase`。渲染层目前是 `dailyBase: number` 加一个写死的 `const DAILY_BASE = 1`，W2 的 bootstrap 接上后必须整条换掉：用户改过 `points.difficultyBase` 之后，卡面 +35 / 落库 +30 是同一类 bug 的另一种形态。
+- **改难度必须同步应得分。** `TaskPatch` 含 `difficulty`，而 `updateTask` 目前只写 patch：难度从 `hard` 改成 `easy` 之后 `points_planned` 还是 35，完成时会按 35 发分。`task.update` 收到 `difficulty` 时必须在**同一事务**里按本节规则重算 `points_planned`（daily 除外，它恒为 `cfg.dailyBase`），并做 type×difficulty 校验；渲染层的 `applyDraftPatch` 已经这么做了，主进程还缺这一步。
+- **数据库不设 CHECK**：条件约束以后要改就得写迁移，而历史数据不该因为规则收紧就读不出来。
 
 ### 5.3 每日任务（这是需要你拍板的核心）
 

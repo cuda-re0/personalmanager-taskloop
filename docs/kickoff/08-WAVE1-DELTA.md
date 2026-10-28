@@ -169,3 +169,20 @@ npm test
    这个方向搞反过一次，W9 会去改设计规格来迁就现有代码。
 2. 积分显示用 `fmtPoints`，不同形态下字号不同但格式一致。
 3. 悬浮条上的任务状态点与主窗必须同源（订阅 `DomainEvent`），不许自己轮询。
+
+---
+
+## v0.11 追补（2026-10-28 二轮审核后）
+
+以下五条是二次审核在 `0b92cbc` / `97c4a94` 上查出来的，属于**口径缺陷**，不是风格问题。都已经写进契约，施工方按契约改，不要按"以前就是这么写的"改。
+
+1. **默认难度是 `medium`，不是 `easy`。** `01 §2.1` 的 `DEFAULT 'easy'` 只是 SQL 兜底。`easy` 对 `event` 非法（`ALLOWED_DIFFICULTIES.event` 没有它），`task.createManual({type:'event'})` 会落出一个下拉框里根本不存在的难度档，还按 10 分入库。
+2. **草稿分值必须用完整 `PointsConfig` 算。** `computePlannedPoints(d, cfg)` 省掉 `cfg` 就落回 `DEFAULT_CONFIG`；渲染层现在传的是 `dailyBase: number` 加写死的 `const DAILY_BASE = 1`。用户改过 `points.difficultyBase` 之后，卡面 +35 / 落库 +30。
+3. **`task.transition({to:'done'})` 一律 `CONFLICT`**，不再有"直接标记完成"的旁路。「不计分」出口改为 `task.complete({ noPoints: true })`：写 `completed_at`、不写 ledger、`entry` 返回 `null`。
+4. **`task.update` 改难度必须同事务重算 `points_planned`。** `TaskPatch` 有 `difficulty`，而 `updateTask` 只写 patch，改完难度应得分还是旧的，完成时按旧值发分。
+5. **`TaskDraft.dueHint` 读侧要校验形状。** 正则 `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/` 不匹配就当空串，不许直接 `new Date` —— `'10-30 18:00'` 会被解析成 **2001-10-30**，而且不报错。
+
+另外两条文案纪律：
+
+- `04 §1` 现在有错误消息登记表（§1.1 可直接渲染 / §1.2 只进日志）。新增 `appError` 要同时加行。
+- `assertDay` 的 `label` 默认 `'day'`、调用方传 `'from'`/`'to'`，渲染出来是「from 必须是 YYYY-MM-DD 格式的本地日期」。改成中文。

@@ -63,6 +63,8 @@ CREATE TABLE tasks (
   sort_key        REAL NOT NULL DEFAULT 0,        -- 同级排序，插入取中值避免重排
   priority        INTEGER NOT NULL DEFAULT 0,     -- 0 普通 / 1 高 / 2 紧急
   difficulty      TEXT NOT NULL DEFAULT 'easy',   -- trivial|easy|medium|hard|epic
+                                                  -- ★ DEFAULT 只是 DDL 兜底，**不是应用层默认档**：
+                                                  -- 'easy' 对 event 非法（02 §5.2b），服务层必须显式传值
   estimate_min    INTEGER,                        -- 预估分钟。v0.9 起**不进积分公式**，只用于 AI 判难度、排提醒、算逾期
 
   -- ★ 时间语义按 type 解释，见 §2.1.1
