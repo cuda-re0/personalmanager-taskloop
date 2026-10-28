@@ -46,6 +46,27 @@ describe('computePlannedPoints：应得分只看难度（02 §5.2 表）', () =>
     expect(computePlannedPoints('epic')).not.toBe(80)
   })
 
+  /**
+   * 硬检查：estimateMin 不能原路返回。
+   *
+   * 这里不用 `expect(computePlannedPoints('epic', 240)).toBe(50)`，因为那个断言和意图正好相反：
+   * 第二个位置参数是 `cfg`，不是"多余实参"，传 240 进去会走 `(240).difficultyBase['epic']`
+   * → 运行时抛 TypeError（已实测），而不是被 JS 忽略。
+   * 反过来说，如果哪天有人把签名改成 `(d, estimateMin?, cfg?)` 并"接住但不用"，
+   * 这个调用就会从"抛错"变成"安静返回 50"——下面这条 toThrow 立刻红。
+   * 也就是说：这条断言在**当前实现**下绿、在**退步之后**红，方向是对的。
+   *
+   * 上面那行 @ts-expect-error 是编译期那一半：签名一旦多出可选参数，实参 240 就合法了，
+   * 指令变成"未使用"，tsc 报错。注意它只在 tests 进入某个 tsconfig 的 include 时才生效
+   * （目前 tsconfig.node / tsconfig.web 都不含 tests，见交付说明）。
+   */
+  it('estimateMin 不能作为参数回来：编译报错，运行时也当场崩（不静默算错）', () => {
+    // @ts-expect-error 第二参数已删除，传了必须编译报错
+    expect(() => computePlannedPoints('epic', 240)).toThrow(TypeError)
+    // 必填参数被加回来时 length 会变；可选参数靠上面那条 toThrow 兜住
+    expect(computePlannedPoints.length).toBe(1)
+  })
+
   it('上下限：[1, 100]', () => {
     const tiny = {
       ...DEFAULT_CONFIG,
