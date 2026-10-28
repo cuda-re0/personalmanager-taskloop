@@ -186,3 +186,8 @@ npm test
 
 - `04 §1` 现在有错误消息登记表（§1.1 可直接渲染 / §1.2 只进日志）。新增 `appError` 要同时加行。
 - `assertDay` 的 `label` 默认 `'day'`、调用方传 `'from'`/`'to'`，渲染出来是「from 必须是 YYYY-MM-DD 格式的本地日期」。改成中文。
+
+### v0.11.1 补丁（两条，都在 W1 的复核问题里）
+
+- **daily 的 `points_planned` 只有一个来源**：`createTask({type:'daily', pointsPlanned:99})` 必须**忽略**这个值、写 `cfg.dailyBase`。每日任务的应得分是定义出来的，`points_awarded` 也从不读它（走 `computeDailyPoints`）。`< 1` 的入参校验照旧，忽略只针对"合法但不用"。
+- **改类型的语义还没定，别自己发明**：`TaskPatch` 没有 `type`（04 §3.2 说类型可就地改），归位/清字段/重置提醒/补 occurrence 四件事牵一发动全身，W5 开工前由架构方写进 02 §3.2。在那之前 `task.update` 收到 `type` 就当没有这个字段。

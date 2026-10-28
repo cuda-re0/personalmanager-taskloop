@@ -190,6 +190,12 @@
 5. 右栏 ①「当前任务」列表（04 §4①）：三组分列、排序、就地展开详情、步骤勾选、完成按钮。
 6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。
 
+**未决：改类型的语义（W5 开工前必须定稿，否则第 5 条的"就地展开详情"落不了地）**
+
+04 §3.2 写着「标题、类型、难度、时长、时间五项**可就地修改**」，但 `TaskPatch` 里没有 `type`，主进程也没有改类型的入口——W1 在 v0.11 复核时提出来了，当时没定。要补的话至少牵四件事：难度是 `snapDifficulty` 归位还是拒绝、目标类型不适用的字段（`due_at` / `daily_time` / `repeat_rule` / `active_from` / `active_to`）清哪些、`reminderOffsets` 要不要重置成新类型的 `DEFAULT_OFFSETS`、切到 `daily` 之后当天的 occurrence 由谁补。还会牵出至少两条新的错误文案。
+
+**在架构方写进 02 §3.2 之前，W5 不要自己发明这套语义。**
+
 **验收**
 
 - [ ] 确认草稿 → 会话卡片变已确认态 + 右栏列表立刻出现 + HUD 同步出现。
