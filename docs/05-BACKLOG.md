@@ -1,0 +1,379 @@
+# 05 · 任务拆分与验收
+
+> 用法：把某一个 `W` 连同它依赖的前置文档**整段**发给对应的 AI，不要只发一句"做任务列表"。
+> 每个 W 都写明了「只许改哪些目录」和「验收标准」——验收不通过就不算交付。
+>
+> **已经写成可直接发出去的开工词**（自包含，含路径、必读章节、禁令、自检表）：第 0 波 `W0`，第 1 波 `W1` `W2` `W3` `W4` `W6B-UI` `W9-UI` —— 见 [`docs/kickoff/`](kickoff/README.md)。第 2 波之后的开工词等前一浪收工后再生成，因为要引用上游真实接口。
+
+---
+
+## 0. 依赖图
+
+| 阶段 | 模块 | 依赖 | 可否并行 |
+|---|---|---|---|
+| W0 | 脚手架 | — | 阻塞全部 |
+| W1 | 数据层 | W0 | 与 W2 / W3 并行 |
+| W2 | IPC 与事件总线 | W0 | 与 W1 / W3 并行 |
+| W3 | 会话 UI | W0 | 与 W1 / W2 并行（用 mock 数据） |
+| W4 | AI 接入 | W0、W2 的空壳 | 与 W1 / W3 并行 |
+| W5 | 草稿 → 任务 | W1、W2、W3、W4 | — |
+| W6 | 积分（含每日计分） | W1、W2、W5 | 与 W6B 并行 |
+| W6B | 日历红点与按日展开 | W1、W2、W5 | 与 W6 并行 |
+| W7 | 完成审核 | W4、W5、W6 | — |
+| W8 | 提醒（按类型） | W1、W2、W5 | 与 W7 并行 |
+| W8B | 外部通知渠道 | W8 | — |
+| W9 | 悬浮窗 | W2、W3（复用组件） | 与 W6 / W7 / W8 并行 |
+| W10 | 打包 | 全部 | — |
+
+关键路径：`W0 → W1 → W5 → W6 → W7 → W10`。要提速就压这条链，别在 W9 上堆人。
+
+**分工建议（若同时派多个 AI）**：数据层一个、AI 一个、渲染（W3+W6B+W9）一个、服务与提醒一个。四个人时 W6 和 W8 会撞——`pointsService` 与 `reminderService` 都在 W5 之后改 `taskService`，冲突高发区。
+
+---
+
+## W0 · 脚手架（阻塞项，先做完）
+
+**目标**：两个窗口能同时起来，`shared` 契约能编译，SQLite 能写能读。
+
+**只许改**：`package.json`、`electron.vite.config.ts`、`tsconfig*.json`、`src/main/index.ts`、`src/main/windowManager.ts`、`src/preload/index.ts`、`src/renderer/{main,hud}/index.tsx` 空壳、`.gitignore`
+
+**必须做到**
+
+1. `electron-vite` 三入口：main / preload / renderer[main, hud]。HUD 用独立 HTML 入口。
+2. TS `strict: true`，路径别名 `@shared → src/shared`，两个渲染进程都能用。
+3. ESLint + Prettier，`npm run lint` 干净。
+4. `better-sqlite3` 装上并 `electron-rebuild`，能在 main 里 `new Database(':memory:')` 跑通。
+5. 主窗开一个 1440×920 空窗口；HUD 开一个 300×32 透明置顶空窗口。
+6. `src/shared/types/*.ts`、`channels.ts`、`points/rubric.ts` 按 02 文档建好，能编译。
+7. `postinstall` 包含 rebuild；`npm run dev` / `npm run build` 都可用。
+8. **预留接线点**（并行调度必需）：`src/main/index.ts` 里写好 `initDb()` 与 `registerIpcHandlers()` 的调用行，并各自建一个空实现文件（`src/main/db/index.ts`、`src/main/ipc/index.ts`，函数体只有 `// TODO(W1)` / `// TODO(W2)`）。这样 W1、W2 各改自己的文件，**不需要动 `src/main/index.ts`，避免两人抢同一个文件**。
+
+**验收**：`npm run dev` 后两个窗口同时出现；主窗控制台能 `console.log(RUBRIC_VERSION)`；`npm run lint` 零错误；`npm run build` 成功；`initDb()` 与 `registerIpcHandlers()` 都被调用到（打日志确认）。
+
+**禁止**：不要开始写业务 UI、不要写 AI 调用、不要动 `src/shared` 里的类型定义（只许照抄，不许"优化"）。
+
+**开工词**：[`docs/kickoff/00-W0-脚手架.md`](kickoff/00-W0-脚手架.md)
+
+---
+
+## W1 · 数据层
+
+**只许改**：`src/main/db/**`、`src/main/services/{task,message,points}Service.ts` 的**数据访问部分**、`tests/db/**`
+
+**交付**
+
+1. `connection.ts`：单例连接、WAL、`foreign_keys=ON`、`migrate()` 顺序执行未应用迁移。
+2. `migrations/001_init.sql`：01 文档全部建表语句、索引、唯一索引，一字不改。**注意 2 条条件唯一索引**（`uq_ledger_task_done` 带 `occurrence_id IS NULL`，`uq_ledger_occurrence`）与 `uq_occurrence_task_day`。
+3. `repositories/`：`taskRepo`、`occurrenceRepo`、`messageRepo`、`ledgerRepo`、`reminderRepo`、`statsRepo`、`settingRepo`。全部同步方法，入参出参用 `src/shared/types/domain.ts` 的类型（做 snake_case ↔ camelCase 映射，映射逻辑只写在一处）。
+4. `occurrenceService.ensureRange(from, to)`：按 §2.1.3 规则幂等生成每日任务 occurrence。
+5. 事务封装 `tx(fn)`：`db.transaction` 透传。
+6. 状态机校验 `assertTransition(type, from, to)`，非法抛 `AppError{code:'CONFLICT'}`。daily 类型不接受 `reviewing`/`done`。
+7. `rebuildDailyStats()`。
+
+**验收（写成自动化测试，必须绿）**
+
+- [ ] 建库 → 建任务 → 查任务，字段全等（含 `type` / `reminderOffsets`）。
+- [ ] `todo → done` 直跳被拒；`todo → doing → reviewing → done` 通过。
+- [ ] 同一限时任务插两条 `task_done` 流水，第二条被唯一索引拒绝。
+- [ ] **同一每日任务连续两天各发一次分，两次都成功**（这条是本期最容易挂的地方，必测）。
+- [ ] 同一每日任务同一天发两次分，第二次被 `uq_ledger_occurrence` 拒绝。
+- [ ] `ensureRange` 连续调用 3 次，occurrence 数量不增长（幂等）。
+- [ ] `ensureRange` 不生成过去日期、不生成 `active_to` 之后的日期。
+- [ ] 删父任务，子任务级联删除；`point_ledger.task_id` 变 NULL（不删流水）；`task_occurrences` 级联删除。
+- [ ] 1000 条任务 + 5000 条流水 + 3000 条 occurrence 的 `task.list`、`calendar.dayIndex`、`points.monthStats` 各 < 20ms。
+- [ ] `day` 字段在东八区 00:30 写入时，落在当天而非前一天。
+
+**禁止**：不要在 service 里调 AI；不要改 DDL 结构（发现设计问题提变更单）。
+
+---
+
+## W2 · IPC 与事件总线
+
+**只许改**：`src/main/ipc/**`、`src/main/bus.ts`、`src/preload/index.ts`、`electron.vite.config.ts` 的入口配置
+
+**交付**
+
+1. `bus.ts`：持有所有 `BrowserWindow` 引用，`broadcast(event: DomainEvent)` 向全部存活窗口 `webContents.send('bus:event', event)`。
+2. `registerHandlers.ts`：按 02 §3 注册全部通道，统一封装 `handle(channel, fn)` —— 把异常转成 `AppError`、未知异常转 `UNKNOWN`、并打日志。
+3. `guards.ts`：入参 zod 校验，失败返回 `INVALID_INPUT`。
+4. preload：按 02 §4 暴露 `window.api`，`onEvent` 返回取消订阅函数，且要处理窗口卸载时自动清理。
+5. `window.api` 类型 `Api` 在 `shared/types/ipc.ts` 导出，preload 与渲染层共享。
+
+**验收**
+
+- [ ] 主窗调用 `api.app.getBootstrap` 拿到正确形状（此时数据可全空）。
+- [ ] 主窗发 `task.createManual` → HUD 通过 `onEvent` 收到 `task.created`，HUD 页面上显示该标题。
+- [ ] 传入错误类型参数 → 返回 `{ok:false, error:{code:'INVALID_INPUT'}}`，**不抛异常、不白屏**。
+- [ ] 关闭 HUD 后再发事件不报错（引用的窗口不销毁崩溃）。
+
+**禁止**：渲染层不许出现 `require('electron')`；不许在 handler 里直接写 SQL（走 service）。
+
+---
+
+## W3 · 会话 UI
+
+**只许改**：`src/renderer/main/features/chat/**`、`src/renderer/main/components/**`、`src/renderer/shared/styles/**`
+
+**交付**
+
+1. 消息流：虚拟滚动（消息 > 200 条时性能不塌）、自动滚到底、向上翻页加载。
+2. 五种消息组件：`text` / `task_draft` / `task_review` / `reminder` / `error`（04 §3.1）。
+3. 草稿卡片组件（04 §3.2）——**这是本阶段最重要的一块**，含就地编辑、分值徽标、missing_info 标签、确认/丢弃。
+4. 输入区：多行自适应、Enter 发送、粘贴图片、拖入文件、缩略图条、发送中状态。
+5. markdown 渲染：段落/列表/粗体/行内代码，**禁用 HTML 注入**（不做 `dangerouslySetInnerHTML` 不 sanitize 的事）。
+6. 空会话状态（用 04 §7 那句，等你确认后固定）。
+
+**验收**
+
+- [ ] 传入 mock 消息数组，五种类型都能正确渲染，无控制台警告。
+- [ ] 草稿卡片改难度，"分值徽标"立刻变化（走 `api.points.preview`）。
+- [ ] 粘贴一张截图，出现缩略图，可删除，发送后气泡里显示图片。
+- [ ] 1000 条消息滚动 60fps。
+- [ ] 消息里的 `<script>` 或 `![x](javascript:...)` 不被执行。
+
+**禁止**：不要在组件里直接算积分（必须调 `rubric` 或 `points.preview`）；不要写 04 §1 之外的新文案。
+
+---
+
+## W4 · AI 接入
+
+**只许改**：`src/main/ai/**`、`src/main/services/aiService.ts`
+
+**前置**：先完成 03 §6 的真机验证，把结论记录在 `docs/` 的变更记录里。**验证不通过，先停下来报告，不要自己换模型。**
+
+**交付**
+
+1. `AiProvider` 接口（03 §3.0）+ **一个实现**：
+   - `glmClient.ts`：直连智谱，`chatJson` 带 zod 校验、重试 1 次、超时、Abort。
+   - `harnessClient.ts`：**本版不写。** 只保证 `aiService` 依赖 `AiProvider` 而非具体类，以后补文件即可（接口签名已冻结）。
+   - `aiService` 按 `settings['ai.provider'].name` 取实现，**只接受 `'zhipu'`**；填 `'harness'` 报 `CONFIG` 错误而不是静默回退（避免"以为在用 harness，其实在直连"）。
+2. `prompts/`：`system.base.md`、`parse.system.md`、`review.system.md`、`parse.fewshot.json`。**prompt 必须在主程序**，将来接 harness 也不许挪出去。
+3. `schema.ts`：`ParseResultSchema`（含 `type`、`requires_evidence`）、`ReviewResultSchema`（含 `verdict: 'need_evidence'`）。
+4. `pipelines/parse.ts`：消息 → 多模态 payload → ParseResult → `TaskDraft[]`（补 `localId`、`pointsPlanned`、按 type 的 `reminderOffsets`）。
+5. `pipelines/review.ts`：接收 `evidence[]`，按 03 §4.2 判定。
+6. `aiService`：写 assistant 消息、更新 `ai.status` 事件、失败落 `error` 消息。
+7. `ai.health`：返回 `{ configured, provider, model, multimodal }`；`multimodal` 必须靠**一次真实带图调用**探测，不能读配置猜。
+8. API Key 走安全存储（`keytar` 或 Electron `safeStorage`），不落 DB 明文。
+
+**验收**
+
+- [ ] "明天下午三点前把季度报告初稿写完" → 1 个 draft，`type='deadline'`，`due_hint` 非空且合理，`requires_evidence=true`。
+- [ ] "每天早上背单词" → `type='daily'`，`daily_time_hint=null`，`requires_evidence=false`。
+- [ ] "下周三考英语六级" → `type='event'`，提醒偏移为 7/3/1 天。
+- [ ] 一张含三条待办的截图 → 最多 3 个 draft。
+- [ ] 一句"今天天气不错" → `intent='chat'`，`tasks=[]`，正常回复。
+- [ ] 一句"报告写完了" → `intent='review_task'`。
+- [ ] 断网/AI 报错 → 会话出现 error 气泡，带 `[重试]`，界面不崩，`ok:false` 不抛异常。
+- [ ] 故意让模型返回带 ```json 围栏的文本 → 能被正确剥离解析。
+- [ ] `settings['ai.provider']` 填 `'harness'` → 设置页显示"未实现"，不崩、不静默降级。
+- [ ] 全流程无任何 key / token 出现在控制台输出。
+
+**禁止**：不要让模型输出分数；不要在 prompt 里写"给 20 分"这种示例（会被照抄）；不要把 prompt 挪进 harness。
+
+---
+
+## W5 · 草稿 → 任务
+
+**只许改**：`src/main/services/taskService.ts`、`src/renderer/main/features/tasks/**`
+
+**交付**
+
+1. `task.promoteDraft`：读 `messages.meta_json` 里指定 draft → 写 `tasks`（status `todo`）→ 把 draft 的 `steps` 写成子任务 → 广播 `task.created`（含子任务各一条）。
+2. **按 type 分支落库**：
+   - `deadline` / `event`：写 `due_at`，无 occurrence
+   - `daily`：写 `daily_time` / `repeat_rule` / `active_from`，并立刻 `occurrenceService.ensureRange(今天, +3天)` 生成头几天
+3. **落库后立刻调 `reminderService.syncForTask(id)`**，让提醒在任务创建的那一刻就排好（不能等到 W8 才补）。
+4. 草稿消息的 `meta_json` 里把该 draft 标记 `promoted: true`，避免重复确认。
+5. 右栏 ①「当前任务」列表（04 §4①）：三组分列、排序、就地展开详情、步骤勾选、完成按钮。
+6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。
+
+**验收**
+
+- [ ] 确认草稿 → 会话卡片变已确认态 + 右栏列表立刻出现 + HUD 同步出现。
+- [ ] 同一 draft 点两次确认，只生成一个任务。
+- [ ] 确认一条"每天背单词"→ 右栏「每日」组出现，今日 occurrence 已生成，且**日历上不出红点**。
+- [ ] 展开任务、勾 2/3 个步骤、点完成 → 状态走 `reviewing`，出现确认条而非弹窗。
+- [ ] 拖动排序后重启应用顺序保持。
+- [ ] 把限时任务的截止时间从周五改到周六，`reminders` 表里的 `fire_at` 跟着变（不能残留旧行）。
+
+---
+
+## W6 · 积分（含每日任务计分）
+
+**只许改**：`src/main/services/pointsService.ts`、`src/shared/points/rubric.ts`（**只读，公式不许改**）、`src/renderer/main/features/points/**`
+
+**交付**
+
+1. `pointsService`：`balance()`、`award(taskId, quality)`（事务内写 ledger + 更新 task + upsert daily_stats + 广播）。
+2. `awardOccurrence(occurrenceId)`：完成每日任务这一次 → 写 ledger（带 `occurrence_id`）→ 更新 streak → 若命中里程碑另写一条 `streak_bonus` → upsert stats。
+3. `undoOccurrence(occurrenceId)`：写负流水冲销，streak 回退到上一天的真实值（用 occurrence 反查，不要简单减 1）。
+4. 撤销限时/活动完成：`done → doing` 写负流水冲销。
+5. 右栏 ③「积分」区块 + ④「明细」区块（04 §4③④）。
+6. `points.preview` / `points.streakPreview` 纯计算通道。
+7. 分值表从 `settings['points.*']` 读，**禁止硬编码**；启动时若无配置写入 `DEFAULT_CONFIG`。
+
+**验收**
+
+- [ ] 完成任务 `medium / 60min` → planned = `round(20 × 1.15)` = 23，`met` → 入账 23，余额 +23，明细出现一行。
+- [ ] 重复完成同一限时任务不会二次入账（前端禁用 + 后端唯一索引双保险）。
+- [ ] 撤销完成 → 余额回落，明细出现 `-23`。
+- [ ] 每日任务连续完成 7 天，第 7 天明细出现两条：`task_done +1` 与 `streak_bonus +5`。
+- [ ] 第 8 天漏做，第 9 天完成 → `streak_current = 1`，不给里程碑。
+- [ ] 撤销第 7 天的完成 → streak 回到 6，`streak_bonus` 被冲销。
+- [ ] 改 `settings['points.difficultyBase']` 后，历史流水金额不变，新任务按新表算。
+
+---
+
+## W6B · 日历（红点与按日展开）
+
+**只许改**：`src/main/services/occurrenceService.ts`、`src/main/ipc/handlers/calendar.ts`、`src/renderer/main/features/calendar/**`
+
+**交付**
+
+1. `calendar.dayIndex(year, month)`：按 01 §4.1 的单表查询一次返回当月红点，**只含 `deadline` / `event`**。
+2. `calendar.dayDetail(day)`：返回该日限时/活动任务，按本地时刻升序。
+3. 月视图组件（04 §4②）：7 列、红点行、完成变空心圈、今日描边、月份切换。
+4. 点击日期 → 浮层展开当日任务列表（04 §4②），点击外部关闭，点行跳转任务。
+5. 切月只发一次 `dayIndex`，不做缓存预热、不调 `ensureRange`（那是每日任务的事，与日历无关）。
+
+**验收**
+
+- [ ] 当月有 3 个限时任务、1 个活动任务，红点出现在正确的日子。
+- [ ] 每日任务**不产生**任何红点。
+- [ ] 某日全部完成 → 红点变空心圈；新增一个未完成任务后变回实心。
+- [ ] 点某日弹出列表，条目数、时间、类型标签、分值都对。
+- [ ] 点无任务的日期不弹窗。
+- [ ] 切月来回三次，红点数据不重复、不丢失。
+- [ ] 一个月 30 个格子只发了 1 次 `dayIndex` 请求（DevTools 确认）。
+
+---
+
+## W7 · 完成审核（含证据闸门）
+
+**只许改**：`src/main/services/taskService.ts` 的 `complete` 分支、`src/main/ai/pipelines/review.ts`、`src/renderer/main/features/chat/ReviewCard.tsx`
+
+**交付**
+
+1. 用户说"做完了"或点完成 → 若 `requiresEvidence` 且无证据 → 直接返回 `CONFLICT` + 追问消息（**不调模型也行，省一次钱**）。
+2. 有证据（或不需要证据）→ 走 `ai.review` → 按 03 §4.2 映射表动作 → `task_review` 卡片。
+3. `taskService.complete` 里**硬校验**证据闸门，不能只靠 UI 拦。
+4. `task.addEvidence` + `[重新审核]` 的往返流程。
+5. `partial` 入账 60%，任务回 `doing`，卡片列出缺口。
+6. 连续 3 次 `need_evidence` 后出现 `[直接标记完成（不计分）]`，走 `transition('done')` 且不写 ledger。
+7. 审核卡片四种状态（04 §3.3）。
+
+**验收**
+
+- [ ] 需要证据的任务，点完成但不给证据 → 状态停在 `reviewing`，**余额不变**，卡片显示 `need_evidence`。
+- [ ] 补一张截图后点重新审核 → AI 判定 pass → 入账，余额增加。
+- [ ] 证据与任务无关（随便一张图）→ 仍判 `need_evidence`，不通过。
+- [ ] 不需要证据的每日任务，点完成直接入账 1 分，不要求证据。
+- [ ] 绕过 UI 直接调 `api.task.complete` 且不带 evidence → 返回 `CONFLICT`，数据库无新流水。
+- [ ] 模型超时/报错 → 停在 `reviewing` 并显示 `[重试]`，**绝不自动入账**。
+- [ ] 撤销一次带证据的完成 → 证据保留在任务上，余额回滚。
+
+**禁止**：不要在模型失败时降级为"自动通过"。S4 一旦有例外，等于没有 S4。
+
+---
+
+## W8 · 提醒（按类型 + 醒目度）
+
+**只许改**：`src/main/scheduler/**`、`src/main/services/reminderService.ts`、`src/main/notify/**`、`src/renderer/main/features/reminder/**`
+
+**交付**
+
+1. `reminderService.syncForTask(taskId)`：按 `tasks.reminder_offsets_json` 生成 `reminders` 行，幂等（删未触发的旧行再建）。**必须在 W5 建任务时就能被调用**，本阶段补全实现。
+2. 偏移 → 触发时刻换算：`fire_at = due_at + offset`，落在 `quietHours` 内顺延到 `08:00`。
+3. `daily` 分支：按 `daily_time` + `repeat_rule` 生成当天/下一触发点的 reminder，关联当天 occurrence。
+4. `reminderScheduler`：启动载入 active，`setTimeout` 到最近一条 + 30s 心跳兜底（防休眠唤醒丢失）；错过的提醒唤醒后补发**最多一条**。
+5. 触发链路：写 `messages(kind='reminder')` → 广播 `message.appended` + `reminder.fired` → 按 `channels` 逐渠道派发（`inapp` 永远先发）。
+6. 渠道实现：`inapp`（HUD 变色脉冲 + 会话注入 + 主窗 flashFrame）、`toast`（Electron Notification）。
+7. 醒目度 `normal` / `strong`（04 §9）；`strong` 的顶部横幅组件。
+8. 静默时段逻辑 + 顺延补发。
+9. 任务详情里可增删偏移（"再加一个提前 3 天"）。
+
+**验收**
+
+- [ ] 建一个限时任务、截止 3 天后 → `reminders` 表出现 2 行（-1440、-60）。
+- [ ] 建一个活动任务、5 天后发生 → 出现 2 行（-4320、-1440），-10080 那条因已过去被跳过。
+- [ ] 建 `daily_time='21:00'` 的每日任务 → 今天 21:00 触发，触发后自动排明天。
+- [ ] 到点会话流出现提醒条 + HUD 变色脉冲 + 系统 toast 三条同时到。
+- [ ] 把系统通知权限关掉 → 应用内提醒仍正常，`fail_reason` 记录 toast 失败，不重复弹错误框。
+- [ ] 22:30 到点的提醒被顺延到次日 08:00，且只补一条。
+- [ ] 系统休眠 2 小时后唤醒，错过的提醒补发一次，不刷屏。
+- [ ] 删除任务时其提醒级联清理；取消的提醒不再触发。
+- [ ] 改截止时间后旧提醒行消失、新行生成，不出现重复触发。
+
+**禁止**：不要在 `reminderService` 里直接 `new Notification()`，走 `notify/channels`。
+
+---
+
+## W8B · 外部通知渠道
+
+**只许改**：`src/main/notify/channels/**`、`src/renderer/main/features/settings/**`
+
+**交付**（按 02 §6.3 的 P0 → P1 执行；P2 只留接口，不做真实验收）
+
+1. `ChannelRegistry` + `NotificationChannel` 接口（02 §6）。
+2. `mailChannel`：走已连接的 Agent Mail，配置收件邮箱即用。**这是本版唯一必须真正接通的外部渠道。**
+3. `webhookChannel`：可配置 URL / method / headers / body 模板，模板变量 `{{title}} {{detail}} {{offsetLabel}} {{dueAt}} {{level}}`。**最小实现即可**，用 httpbin 验证模板替换正确，不要求接任何真实推送服务。
+4. 设置页：渠道列表、可用状态、配置表单（webhook 用 JSON 文本框）、`[测试]` 按钮（调 `reminder.testChannel`）。
+5. 密钥走 `safeStorage`，不落 DB 明文。
+6. **`webhook` 必须支持自定义 header** —— 这条现在不做会让将来接 harness/PushDeer 时改契约。
+
+**验收**
+
+- [ ] 未配置任何外部渠道时，提醒照常触发且**不报错**，`channels` 里 `available=false`。
+- [ ] 配好邮件收件人 → 点测试 → 收到一封，正文含任务标题、偏移标签、截止时间。
+- [ ] 配一个 webhook（用 `https://httpbin.org/post` 验证）→ 回显 body 里模板变量已正确替换。
+- [ ] webhook 加自定义 header `Authorization: Bearer xxx` → httpbin 回显里能看到该 header。
+- [ ] 邮件发送失败（如断网）→ `fail_reason` 有记录，应用内提醒不受影响。
+- [ ] `safeStorage` 加密后的密钥在 DB 里是密文。
+
+**不做**：harness 的 `/v1/notify` 联调（P3，暂缓）；QQ 官方开放平台机器人；hook 本地 QQ 客户端；逆向协议。
+
+---
+
+## W9 · 悬浮窗
+
+**只许改**：`src/renderer/hud/**`、`src/main/windows/hudWindow.ts`、`src/main/services/hudService.ts`
+
+**交付**
+
+1. 两种模式 + 切换（04 §5），共用 `HudPanel`。
+2. `dock-bar`：贴边、hover 展开/收起（主进程改窗口高度）、全屏检测自动隐藏。
+3. `float-pod`：拖动、边缘吸附、位置记忆、点击展开面板。
+4. 与 `DomainEvent` 同步、启动自取 bootstrap。
+5. 顶栏的悬浮条开关。
+6. 多屏 & DPI 变化后归位逻辑。
+
+**验收**
+
+- [ ] 主窗勾完一个任务，悬浮条上的完成数与积分在 100ms 内更新。
+- [ ] 切换模式后位置与展开态各自记忆，重启保持。
+- [ ] 拖动 float-pod 到屏幕边缘松开，吸附且不下沉到任务栏下面。
+- [ ] 打开全屏视频，悬浮条自动隐藏；退出后恢复。
+- [ ] 拔掉副屏重启，悬浮条回到主屏顶部而不是屏幕外。
+- [ ] 125% / 150% 缩放下不掉字、不重叠。
+
+---
+
+## W10 · 打包
+
+**只许改**：`electron-builder.yml`、`build/`、`package.json` scripts
+
+**交付**：NSIS 安装包、图标、`asarUnpack: better-sqlite3`、首启动建库、卸载保留用户数据（放在 userData 不随卸载删）。
+
+**验收**：干净 Win10/11 机器安装 → 启动无缺失 DLL → 建库成功 → 完成一次建任务全流程 → 卸载重装数据还在。
+
+---
+
+## 协作纪律（发给每个 AI 时必须附带这一段）
+
+1. **只改你被授权的目录**。需要别人目录里的改动，写一句需求说明交给调度方，不要自己动手。
+2. **`src/shared/**` 是只读的**。缺字段就提变更单：`要加什么 / 为什么 / 影响谁`。
+3. **不要为了"顺便优化"改动已完成模块**，尤其不要重命名已冻结的类型与通道。
+4. **接口文档优先于你的直觉**。文档写错时提变更，不要默默按自己的做法写然后让文档过期。
+5. **交付必须附一段自检结果**：跑了哪些验收项、哪几项没过、没过是什么原因。不许只说"已完成"。
+6. **不许自己加界面文案**，见 04 §1。
+7. 发现设计缺陷不要绕，直接报：`位置 / 现象 / 影响 / 建议`。
