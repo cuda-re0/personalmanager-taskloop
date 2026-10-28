@@ -146,9 +146,11 @@ CREATE INDEX idx_occurrence_done ON task_occurrences(day, status);
 生成规则（`occurrenceService.ensureRange(fromDay, toDay)`，幂等）：
 
 - 只为 `type='daily'` 且 `status IN ('todo','doing')` 的任务生成，且日期落在 `[active_from, active_to]` 内。
+- **必须按 `repeat_rule` 过滤周几**：`NULL` 或 `'DAILY'` = 每天；`'WEEKLY:1,3,5'` = 仅这些 ISO 周几（1=周一 … 7=周日）。漏掉这条会把"每周三次"生成成 7 条，`streak` 与日历统计一并作废。
 - 只生成 **今天及未来 3 个月**；过去日期的缺失视为"没做"，不回溯生成（避免历史被伪造）。
 - 日历切月时调用一次，缺口补齐。单日单任务只生成一条（唯一索引兜底）。
 - 错过未完成的 occurrence 在次日 00:05 由调度器批量置为 `missed`，并把 `streak_current` 归零。
+- **occurrence 不做物理删除**，只改 `status`（`pending` / `done` / `skipped` / `missed`）。唯一会删它的是任务被物理删除时的 `ON DELETE CASCADE`，但那一刻 `point_ledger.task_id` 也同步变 `NULL`，而 `NULL` 在唯一索引里互不相等，`uq_ledger_task_done` 不会被误撞。将来若加入"删除某天记录"的入口，必须同时把关联流水的 `task_id` 置空，否则会撞索引。
 
 ### 2.1.4 point_ledger 的调整（应对每日任务重复发分）
 
@@ -259,10 +261,12 @@ CREATE TABLE reminders (
 CREATE INDEX idx_reminders_fire ON reminders(status, fire_at);
 CREATE UNIQUE INDEX uq_reminder_task_offset
   ON reminders(task_id, offset_min)
-  WHERE offset_min IS NOT NULL AND status != 'cancelled';
+  WHERE offset_min IS NOT NULL AND status IN ('active', 'paused');
 ```
 
-**同步策略**：`reminders` 是**从** `tasks.reminder_offsets_json` 生成的物化结果，不是独立真相。任务新建或时间变更时调 `reminderService.syncForTask(taskId)`：删除未触发的旧行 → 按偏移重建。唯一索引 `(task_id, offset_min)` 保证重复 sync 不会产生重复提醒。
+**条件里为什么不含 `fired` 与 `failed`**：已触发/已失败的行是**历史**，不参与"当前该有哪几条提醒"的判定。若把它们也算进唯一性，同一偏移触发过一次之后再 `syncForTask`（比如改了 `due_at` 导致 `fire_at` 变化）就会插不进去——这是 W8 必踩的坑。正确行为是：旧行留作历史，新建一条 `active` 行。
+
+**同步策略**：`reminders` 是**从** `tasks.reminder_offsets_json` 生成的物化结果，不是独立真相。任务新建或时间变更时调 `reminderService.syncForTask(taskId)`：删除未触发的旧行（`active` / `paused` / `failed`）→ 按偏移重建。唯一索引只约束"当前有效"的那几条，保证重复 sync 不会产生重复提醒。
 
 ### 2.6 daily_stats — 日历聚合（可重建）
 
@@ -270,7 +274,7 @@ CREATE UNIQUE INDEX uq_reminder_task_offset
 CREATE TABLE daily_stats (
   day             TEXT PRIMARY KEY,   -- YYYY-MM-DD
   points          REAL NOT NULL DEFAULT 0,     -- ★ 2 位小数，不做整数化
-  tasks_done      INTEGER NOT NULL DEFAULT 0,  -- 含每日任务当天完成数
+  tasks_done      INTEGER NOT NULL DEFAULT 0,  -- tasks 表当日 done 数；每日任务另有 occurrences_done，不要加进来
   tasks_created   INTEGER NOT NULL DEFAULT 0,
   occurrences_done INTEGER NOT NULL DEFAULT 0  -- ★ 每日任务完成数
 );

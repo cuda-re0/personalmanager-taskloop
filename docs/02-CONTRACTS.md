@@ -162,6 +162,7 @@ export interface DayTaskItem {
   time: string;                        // 'HH:mm'，由 dueAt 转本地时刻
   dueAt: string;
   status: 'todo' | 'doing' | 'reviewing' | 'done';
+  /** 已完成取实得分 pointsAwarded，未完成取计划分 pointsPlanned；两者都无则 null */
   points: number | null;
 }
 
