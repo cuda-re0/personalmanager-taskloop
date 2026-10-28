@@ -67,6 +67,38 @@ const evidenceSchema = z.union([
 
 const idInput = { id: z.string() }
 const monthInput = { year: yearSchema, month: monthSchema }
+const qualitySchema = z.enum(['partial', 'met', 'exceeded'])
+
+/**
+ * `task.complete` 的入参（02 §3.2 的 `CompleteTaskInput` 可辨识联合）。
+ *
+ * 两个分支互斥：给了 `quality` 就是计分，`noPoints:true` 就是不计分。
+ * **两个都给必须拒**——zod 的 object 会剥掉不认识的键，若直接用 union，
+ * `{quality, noPoints:true}` 会悄悄落到第二个分支、quality 被丢掉，等于默认不计分。
+ * 所以先用 preprocess 把它变成非法值，让两个分支都匹配不上，统一报「请求参数格式不正确」。
+ */
+const completeTaskSchema = z.preprocess(
+  raw => {
+    if (raw !== null && typeof raw === 'object') {
+      const record = raw as Record<string, unknown>
+      if (record.noPoints === true && record.quality !== undefined) return undefined
+    }
+    return raw
+  },
+  z.union([
+    z.object({
+      id: z.string(),
+      quality: qualitySchema,
+      evidence: z.array(evidenceSchema).optional(),
+      noPoints: z.literal(false).optional()
+    }),
+    z.object({
+      id: z.string(),
+      noPoints: z.literal(true),
+      evidence: z.array(evidenceSchema).optional()
+    })
+  ])
+)
 
 /**
  * 每条 WIRED 通道一张表：channel → zod schema。
@@ -115,6 +147,12 @@ export const g = {
   // occurrence
   occurrenceToday: z.undefined(),
   listByRange: z.object({ from: z.string(), to: z.string() }),
+  // task.complete（W6）
+  taskComplete: completeTaskSchema,
+  // occurrence.complete / undo / skip（W6）
+  occurrenceComplete: z.object(idInput),
+  occurrenceUndo: z.object(idInput),
+  occurrenceSkip: z.object({ id: z.string(), note: z.string().optional() }),
   // calendar
   dayIndex: z.object(monthInput),
   dayDetail: z.object({ day: z.string() }),
@@ -165,8 +203,12 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.task.createManual]: g.createManual,
   [CH.task.remove]: g.remove,
   [CH.task.setReminderOffsets]: g.setReminderOffsets,
+  [CH.task.complete]: g.taskComplete,
   [CH.occurrence.today]: g.occurrenceToday,
   [CH.occurrence.listByRange]: g.listByRange,
+  [CH.occurrence.complete]: g.occurrenceComplete,
+  [CH.occurrence.undo]: g.occurrenceUndo,
+  [CH.occurrence.skip]: g.occurrenceSkip,
   [CH.calendar.dayIndex]: g.dayIndex,
   [CH.calendar.dayDetail]: g.dayDetail,
   [CH.msg.list]: g.msgList,

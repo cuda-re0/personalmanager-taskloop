@@ -64,7 +64,7 @@
   text-overflow: ellipsis;
 }
 
-/* 每日组的圆形勾选框（occurrence.complete 归 W6，先只有视觉） */
+/* 每日组的圆形勾选框（点击 = occurrence.complete） */
 .task-check {
   width: 16px;
   height: 16px;
@@ -72,6 +72,19 @@
   border: 1.5px solid var(--text-faint);
   border-radius: 50%;
   box-sizing: border-box;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-check:hover {
+  border-color: var(--accent);
+}
+
+/* focus-task 的短暂高亮（日历浮层 / ④ 明细点行过来） */
+.task-row--focus {
+  background: var(--accent-weak);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .task-streak {

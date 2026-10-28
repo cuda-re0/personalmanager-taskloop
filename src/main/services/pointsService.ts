@@ -1,24 +1,37 @@
-import type { PointEntry } from '../../shared/types/domain'
+import type { Occurrence, PointEntry, Task } from '../../shared/types/domain'
 import type { PointsConfig } from '../../shared/points/rubric'
-import { computeDailyPoints, computePlannedPoints, roundPoints } from '../../shared/points/rubric'
+import {
+  computeDailyPoints,
+  computePlannedPoints,
+  roundPoints
+} from '../../shared/points/rubric'
 import type { DayStat, Difficulty, TaskType } from '../../shared/types/domain'
 import { tx } from '../db/connection'
 import { appError } from '../db/errors'
-import { nowIso, todayLocalDay } from '../db/localDay'
+import { addDays, isoWeekday, nowIso, todayLocalDay } from '../db/localDay'
 import { newId } from '../db/ids'
+import * as occurrenceService from '../db/occurrenceService'
 import * as ledgerRepo from '../db/repositories/ledgerRepo'
+import * as occurrenceRepo from '../db/repositories/occurrenceRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
+import * as taskRepo from '../db/repositories/taskRepo'
 
 /**
- * pointsService —— 积分的数据访问 + 精度收敛（01 §2.4 / 02 §5）。
+ * pointsService —— 积分的数据访问 + 精度收敛 + **每日任务的计分编排**（01 §2.4 / 02 §5）。
  *
- * 边界：**不发分、不判质量**。谁该得多少分由 W6 依 rubric 算好后传给 `award()`，
- * 本文件只保证「写流水 + 更新 daily_stats 在同一事务里」和「写入前过 roundPoints」。
+ * 边界（W6 起）：
+ * - 分值只由 `rubric.ts` 算：本文件不复制任何公式，`roundPoints` 是唯一的取整点。
+ * - 编排只管「哪几条流水、streak 是多少、occurrence 落到什么状态」；
+ *   具体列怎么写交给 occurrenceService（db 层），本文件开事务。
+ * - 限时/活动的完成事务在 taskService.completeTask（02 §3.2），本文件只提供 `award` / `rollback` 零件。
  *
- * 精度纪律（08 DELTA · D1）：`roundPoints` 是**全项目唯一**的取整点（在 rubric.ts 里），
- * 本文件只调用它，不出现 `Math.round` / `toFixed`。
+ * 精度纪律（08 DELTA · D1）：本文件不出现 `Math.round` / `toFixed`。
  */
+
+/** 连续天数的扫描上限（约 10 年）：纯防御，避免稀疏 repeat_rule 下的死循环 */
+const STREAK_SCAN_LIMIT = 3660
+
 
 export function balance(): number {
   return ledgerRepo.balance()
@@ -137,5 +150,185 @@ export function rollback(entry: PointEntry, reasonText: string): PointEntry {
     reasonCode: 'manual_adjust',
     reasonText: reasonText || `撤销 ${entry.id}`,
     day: todayLocalDay()
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ * 每日任务：streak 口径 + 计分编排（kickoff/11 交付 3–5）
+ * ------------------------------------------------------------------ */
+
+/** 这一天按 repeat_rule / active_* 本来该不该有 occurrence（纯规则，不查库） */
+function isScheduledDay(task: Task, day: string): boolean {
+  if (task.activeFrom !== null && day < task.activeFrom) return false
+  if (task.activeTo !== null && day > task.activeTo) return false
+  const days = occurrenceService.repeatDaysOf(task.repeatRule)
+  return days === null || days.includes(isoWeekday(day))
+}
+
+/** 从 occurrence 历史里数出「正好在 endingDay 结束」的连续完成天数 */
+function streakFromHistory(
+  task: Task,
+  history: Map<string, Occurrence['status']>,
+  endingDay: string
+): number {
+  let streak = 0
+  for (let i = 0; i < STREAK_SCAN_LIMIT; i += 1) {
+    const day = addDays(endingDay, -i)
+    if (task.activeFrom !== null && day < task.activeFrom) break
+    const status = history.get(day)
+    if (status === undefined) {
+      // 没有这一天的行：本来就不该做（周几不匹配 / 区间外）→ 不算断，继续往前看；
+      // 该做却没生成过行（01 §2.1.3 不回溯生成）→ 视为没做，断开
+      if (isScheduledDay(task, day)) break
+      continue
+    }
+    if (status !== 'done') break
+    streak += 1
+  }
+  return streak
+}
+
+/**
+ * 「正好在 endingDay 结束」的连续天数（公开给测试与撤销用）。
+ *
+ * 红线 5：streak 只能从 occurrence 历史反查，**不许靠 ±1**——漏做一天后归 1、
+ * 撤销第 7 天回 6，两种口径「减 1」都算不出来。
+ */
+export function streakEndingAt(task: Task, endingDay: string): number {
+  const history = new Map(occurrenceRepo.listByTask(task.id).map(o => [o.day, o.status] as const))
+  return streakFromHistory(task, history, endingDay)
+}
+
+export interface AwardOccurrenceResult {
+  occurrence: Occurrence
+  entry: PointEntry
+  streakAfter: number
+  /** 内部形状：handler 用它算真实 changed（not IPC 载荷） */
+  taskBefore: Task
+  task: Task
+}
+
+/**
+ * `occurrence.complete`：完成今天这一次（02 §3.2b）。
+ *
+ * 同一事务内：写 `task_done` 流水（带 `occurrence_id`）→ 命中里程碑再写一条 `streak_bonus`
+ * → occurrence 落 done + streak 两列 + `daily_stats`。
+ *
+ * 里程碑那条的 `occurrence_id` **必须是 NULL**：`uq_ledger_occurrence` 是「每个 occurrence
+ * 只准一条」，两条都带同一个 id 会被自己的唯一索引拒掉。
+ *
+ * 重复完成不做事先判重：第二次会撞 `uq_ledger_occurrence`，翻成 CONFLICT 并整体回滚。
+ */
+export function awardOccurrence(occurrenceId: string): AwardOccurrenceResult {
+  const cfg = pointsConfig()
+  return tx(() => {
+    const occ = occurrenceRepo.requireById(occurrenceId)
+    const taskBefore = taskRepo.requireById(occ.taskId)
+
+    // 先把这一天视为已完成再数 streak：否则第 0 天还停在 pending，streak 恒为 0
+    const history = new Map(occurrenceRepo.listByTask(taskBefore.id).map(o => [o.day, o.status] as const))
+    history.set(occ.day, 'done')
+    const streakAfter = streakFromHistory(taskBefore, history, occ.day)
+
+    const { base, bonus } = computeDailyPoints(streakAfter, cfg)
+    const day = occ.day
+
+    const entry = award({
+      taskId: taskBefore.id,
+      occurrenceId: occ.id,
+      delta: base,
+      kind: 'award',
+      reasonCode: 'task_done',
+      reasonText: taskBefore.title,
+      day
+    })
+    if (bonus > 0) {
+      award({
+        taskId: taskBefore.id,
+        occurrenceId: null,
+        delta: bonus,
+        kind: 'award',
+        reasonCode: 'streak_bonus',
+        reasonText: taskBefore.title,
+        day
+      })
+    }
+
+    const occurrence = occurrenceService.complete({
+      occurrence: occ,
+      pointsAwarded: roundPoints(base + bonus),
+      completedAt: nowIso(),
+      streakAfter
+    })
+    return {
+      occurrence,
+      entry,
+      streakAfter,
+      taskBefore,
+      task: taskRepo.requireById(taskBefore.id)
+    }
+  })
+}
+
+/**
+ * 这一天已经入账的流水：`task_done` 那条（带 occurrence_id）+ 里程碑那条
+ * （`occurrence_id IS NULL` 的 `streak_bonus`，按 task + day 定位）。
+ * 已经退回 pending / skipped 的没有可冲销的行。
+ */
+function entriesOfOccurrence(occ: Occurrence): PointEntry[] {
+  if (occ.status !== 'done') return []
+  return ledgerRepo
+    .list({ from: occ.day, to: occ.day })
+    .filter(
+      e =>
+        e.occurrenceId === occ.id ||
+        (e.occurrenceId === null && e.taskId === occ.taskId && e.reasonCode === 'streak_bonus')
+    )
+}
+
+export interface UndoOccurrenceResult {
+  occurrence: Occurrence
+  balanceAfter: number
+  /** 内部形状：handler 用它算真实 changed（not IPC 载荷） */
+  taskBefore: Task
+  task: Task
+}
+
+/**
+ * `occurrence.undo`：撤销这一天（02 §3.2b）。
+ *
+ * 冲销走 `rollback()` 写负流水，**不删行**（流水一旦写入就是事实）；里程碑那条一并冲销。
+ * streak 回退到「前一天的真实值」——用 occurrence 反查，不是 -1。
+ * `streak_best` 保留历史最高，不跟着回退。
+ */
+export function undoOccurrence(occurrenceId: string): UndoOccurrenceResult {
+  return tx(() => {
+    const occ = occurrenceRepo.requireById(occurrenceId)
+    const taskBefore = taskRepo.requireById(occ.taskId)
+
+    for (const e of entriesOfOccurrence(occ)) rollback(e, taskBefore.title)
+
+    const streakAfter = streakEndingAt(taskBefore, addDays(occ.day, -1))
+    const occurrence = occurrenceService.undo({ occurrence: occ, streakAfter })
+    return {
+      occurrence,
+      balanceAfter: ledgerRepo.balance(),
+      taskBefore,
+      task: taskRepo.requireById(taskBefore.id)
+    }
+  })
+}
+
+/**
+ * `occurrence.skip`：本次跳过，不计分、不动 streak 两列（01 §4）。
+ *
+ * 已完成的打卡不回退成「跳过」：积分已经入账，先 `undo` 再跳；这里直接原样返回，
+ * 不写库也不冲销（隐式冲销等于绕过 ledger 的唯一真相）。
+ */
+export function skipOccurrence(occurrenceId: string, note?: string): Occurrence {
+  return tx(() => {
+    const occ = occurrenceRepo.requireById(occurrenceId)
+    if (occ.status === 'done') return occ
+    return occurrenceService.skip({ occurrence: occ, note })
   })
 }

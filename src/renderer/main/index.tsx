@@ -18,7 +18,7 @@ const container = document.getElementById('root')
 if (!container) throw new Error('#root not found')
 
 // 主窗两栏布局（04 §2）：左会话区（弹性）+ 右栏 400px。
-// 右栏四区块里已落地 ①「当前任务」（W5）、②「日历」（W6B）；③④ 随 W6 落地。
+// 右栏四区块：①「当前任务」（W5）、②「日历」（W6B）、③④「积分 / 明细」（W6）。
 createRoot(container).render(
   <StrictMode>
     <div className="app-shell">
@@ -26,6 +26,7 @@ createRoot(container).render(
       <aside className="right-col">
         <TasksPanel />
         <CalendarPanel />
+        <PointsPanel />
       </aside>
     </div>
   </StrictMode>

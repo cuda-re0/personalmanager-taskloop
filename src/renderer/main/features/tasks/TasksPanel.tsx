@@ -21,21 +21,50 @@ function dragIdOf(e: DragEvent): string {
 interface DailyGroupProps {
   rows: DailyRow[]
   expandedId: string | null
+  focusId: string | null
   subtasksByParent: Map<string, Task[]>
   onExpand(taskId: string): void
+  onComplete(occurrenceId: string): void
 }
 
-/** 每日组：圆形勾选框 + 标题 + 连续天数（纯数字）。勾选动作归 W6（occurrence.complete 未注册） */
-function DailyGroup({ rows, expandedId, subtasksByParent, onExpand }: DailyGroupProps): ReactElement | null {
+/**
+ * 每日组：圆形勾选框 + 标题 + 连续天数（纯数字）。
+ * 勾选框 = `occurrence.complete`（每日任务不进 done，状态落在 occurrence 上，01 §3）。
+ */
+function DailyGroup({
+  rows,
+  expandedId,
+  focusId,
+  subtasksByParent,
+  onExpand,
+  onComplete
+}: DailyGroupProps): ReactElement | null {
   if (rows.length === 0) return null
   return (
     <section className="task-group">
       <h3 className="task-group-title">{TYPE_LABEL.daily}</h3>
       {rows.map(({ occurrence, task }) => (
         <div key={occurrence.id}>
-          <div className="task-row" onClick={() => task && onExpand(task.id)} role="presentation">
-            {/* W6 接线点：occurrence.complete 落地前只渲染视觉，不加任何说明文字 */}
-            <span aria-hidden className="task-check" />
+          <div
+            className={[
+              'task-row',
+              task && focusId === task.id ? 'task-row--focus' : ''
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            data-task-id={task?.id}
+            onClick={() => task && onExpand(task.id)}
+            role="presentation"
+          >
+            <button
+              aria-label={occurrence.taskTitle ?? task?.title ?? ''}
+              className="task-check"
+              onClick={event => {
+                event.stopPropagation()
+                onComplete(occurrence.id)
+              }}
+              type="button"
+            />
             <span className="task-title">{occurrence.taskTitle ?? task?.title ?? ''}</span>
             <span className="task-streak">{task?.streakCurrent ?? 0}</span>
           </div>
@@ -57,6 +86,7 @@ interface TaskGroupProps {
   tasks: Task[]
   expandedId: string | null
   confirmingId: string | null
+  focusId: string | null
   subtasksByParent: Map<string, Task[]>
   now: Date
   onExpand(taskId: string): void
@@ -69,6 +99,7 @@ function TaskGroup({
   tasks,
   expandedId,
   confirmingId,
+  focusId,
   subtasksByParent,
   now,
   onExpand,
@@ -91,9 +122,14 @@ function TaskGroup({
       {tasks.map(task => (
         <div key={task.id}>
           <div
-            className={['task-row', dragOverId === task.id ? 'task-row--drop' : '']
+            className={[
+              'task-row',
+              dragOverId === task.id ? 'task-row--drop' : '',
+              focusId === task.id ? 'task-row--focus' : ''
+            ]
               .filter(Boolean)
               .join(' ')}
+            data-task-id={task.id}
             draggable
             onClick={() => onExpand(task.id)}
             onDragEnd={() => setDragOverId(null)}
@@ -180,6 +216,13 @@ function TaskDetail({ task, subtasks, confirming }: DetailProps): ReactElement {
             >
               完成
             </button>
+            <button
+              className="btn btn--faint"
+              onClick={() => actions.confirmCompleteNoPoints(task)}
+              type="button"
+            >
+              直接标记完成（不计分）
+            </button>
             <button className="btn btn--ghost" onClick={actions.cancelComplete} type="button">
               继续做
             </button>
@@ -202,7 +245,8 @@ function TaskDetail({ task, subtasks, confirming }: DetailProps): ReactElement {
 
 /** 右栏① 外壳：三组固定顺序 每日 → 限时 → 活动（04 §4①），空组不显示标题 */
 export function TasksPanel(): ReactElement {
-  const { tasks, occurrences, subtasksByParent, expandedId, confirmId, actions } = useTasksData()
+  const { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, actions } =
+    useTasksData()
   const groups: TaskGroups = useMemo(
     () => groupTasks(tasks, occurrences),
     [tasks, occurrences]
@@ -213,13 +257,16 @@ export function TasksPanel(): ReactElement {
     <div className="tasks-panel">
       <DailyGroup
         expandedId={expandedId}
+        focusId={focusId}
         rows={groups.daily}
         subtasksByParent={subtasksByParent}
+        onComplete={actions.completeOccurrence}
         onExpand={actions.expand}
       />
       <TaskGroup
         expandedId={expandedId}
         confirmingId={confirmId}
+        focusId={focusId}
         label={TYPE_LABEL.deadline}
         now={now}
         onDropRow={actions.reorder}
@@ -230,6 +277,7 @@ export function TasksPanel(): ReactElement {
       <TaskGroup
         expandedId={expandedId}
         confirmingId={confirmId}
+        focusId={focusId}
         label={TYPE_LABEL.event}
         now={now}
         onDropRow={actions.reorder}

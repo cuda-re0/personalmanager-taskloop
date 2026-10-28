@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DomainEvent } from '@shared/types/events'
 import type { Occurrence, Task, TaskStatus } from '@shared/types/domain'
 import { isStepChecked } from './tasksModel'
+import { onFocusTask } from './focusTask'
 
 /**
  * 右栏①「当前任务」的数据入口。
@@ -10,14 +11,17 @@ import { isStepChecked } from './tasksModel'
  * 任何 task.* 事件（created / updated / removed）都重拉列表——单窗口、列表量级小，
  * 重拉比维护一套本地 diff 简单且不会漂；occurrence.created / updated 按 id upsert。
  *
- * 通道边界（W5）：
- * - 步骤勾选 / [完成] → `task.transition`（[完成] 语义 = 提交完成 → reviewing，开工词红线 3；
- *   `transition({to:'done'})` 恒 409，`task.complete` 是 W6 的通道、未注册，不调）。
+ * 通道边界（W6 起）：
+ * - 步骤勾选 → `task.transition`（todo ↔ doing，只改子任务）。
+ * - [完成] → 先 `task.transition({to:'reviewing'})` 提交，再 `task.complete({quality:'met'})`。
+ *   **done 只能从 reviewing 进入**（01 §3），而 `task.complete` 是唯一写 `completed_at` +
+ *   ledger 的入口（02 §3.2）；两步都用已接通的通道，不碰 `transition({to:'done'})`（恒 409）。
+ * - [直接标记完成（不计分）] → `task.complete({ noPoints: true })`，`entry` 返回 null。
+ * - 每日组的圆形勾选框 → `occurrence.complete`（每日任务不进 done，状态在 occurrence 上）。
  * - 拖动排序 → `task.reorder`（sortKey 落库，重启保持）。
  * - `task.update` / `task.setReminderOffsets`：04 §4① 的详情区没有对应编辑入口
  *   （提醒偏移只读展示，增删偏移是 W8 交付 9），无可接线处，通道接线随编辑器落地。
- * - 每日组的圆形勾选框只渲染视觉（04 §4①），完成动作是 `occurrence.complete`
- *   （W6 的通道、未注册），W6 接线前点击无动作。
+ * - `taskloop:focus-task`（W6B 日历浮层 / ④ 明细点行）→ 展开 + 滚动 + 短暂高亮。
  */
 
 const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'reviewing']
@@ -33,10 +37,14 @@ export interface TasksActions {
   expand(taskId: string): void
   /** 步骤勾选：只改子任务状态（todo ↔ doing），不影响父任务（04 §4①） */
   toggleStep(step: Task): void
-  /** [完成]：还有未勾步骤时弹就地确认条，否则直接提交 */
+  /** [完成]：还有未勾步骤时弹就地确认条，否则直接提交并计分 */
   completeTask(task: Task): void
-  /** 确认条上的 [完成] */
+  /** 确认条上的 [完成]（计分，quality='met'） */
   confirmComplete(task: Task): void
+  /** 确认条上的 [直接标记完成（不计分）] */
+  confirmCompleteNoPoints(task: Task): void
+  /** 每日组的圆形勾选框 → occurrence.complete */
+  completeOccurrence(occurrenceId: string): void
   /** 确认条上的 [继续做] */
   cancelComplete(): void
   /** 拖动排序：放到 beforeId 之前，null = 末尾 */
@@ -51,6 +59,8 @@ export interface TasksData {
   expandedId: string | null
   /** 正在显示就地确认条的任务 id */
   confirmId: string | null
+  /** focus-task 高亮的任务 id（1.2s 后自动清空） */
+  focusId: string | null
   actions: TasksActions
 }
 
@@ -59,6 +69,7 @@ export function useTasksData(): TasksData {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [focusId, setFocusId] = useState<string | null>(null)
   const reloadSeq = useRef(0)
 
   const reloadTasks = useCallback(() => {
@@ -112,6 +123,25 @@ export function useTasksData(): TasksData {
     return off
   }, [reloadTasks, reloadOccurrences])
 
+  /** focus-task（W6B 日历浮层 / ④ 明细点行）：展开该任务并高亮 */
+  useEffect(
+    () =>
+      onFocusTask(id => {
+        setExpandedId(id)
+        setConfirmId(null)
+        setFocusId(id)
+      }),
+    []
+  )
+
+  useEffect(() => {
+    if (focusId === null) return
+    const target = document.querySelector(`[data-task-id="${focusId}"]`)
+    if (target instanceof HTMLElement) target.scrollIntoView({ block: 'nearest' })
+    const timer = window.setTimeout(() => setFocusId(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [focusId])
+
   /** 按父任务分组的子步骤 */
   const subtasksByParent = useMemo(() => {
     const map = new Map<string, Task[]>()
@@ -139,6 +169,35 @@ export function useTasksData(): TasksData {
     setConfirmId(null)
   }, [])
 
+  /**
+   * 提交 + 完成（02 §3.2 / 01 §3）。
+   *
+   * 先 `transition('reviewing')`（同状态时是幂等 no-op，不会 409），再走唯一完成入口
+   * `task.complete`。两步分开调是刻意的：完成需要 `reviewing` 这个前置状态，
+   * 而 `task.complete` 内部要保证「状态 + 入账 + 统计」同事务，不该由渲染层拼事务。
+   * 证据不足时第二步返回 CONFLICT，任务就停在「待确认」——这正是 01 §3 要的语义。
+   */
+  const submitAndComplete = useCallback((task: Task, noPoints: boolean): void => {
+    void window.api.task
+      .transition({ id: task.id, to: 'reviewing' })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] 提交完成失败', res.error)
+          return
+        }
+        const complete = noPoints
+          ? window.api.task.complete({ id: task.id, noPoints: true })
+          : window.api.task.complete({ id: task.id, quality: 'met' })
+        void complete
+          .then(done => {
+            if (!done.ok) console.error('[tasks] task.complete 失败', done.error)
+            // 成功后的刷新走 task.updated / points.changed 事件
+          })
+          .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
+      })
+      .catch((e: unknown) => console.error('[tasks] task.transition 调用失败', e))
+  }, [])
+
   const completeTask = useCallback(
     (task: Task): void => {
       const steps = subtasksByParent.get(task.id) ?? []
@@ -147,18 +206,35 @@ export function useTasksData(): TasksData {
         setConfirmId(task.id)
         return
       }
-      transition(task.id, 'reviewing')
+      submitAndComplete(task, false)
     },
-    [subtasksByParent, transition]
+    [subtasksByParent, submitAndComplete]
   )
 
   const confirmComplete = useCallback(
     (task: Task): void => {
       setConfirmId(null)
-      transition(task.id, 'reviewing')
+      submitAndComplete(task, false)
     },
-    [transition]
+    [submitAndComplete]
   )
+
+  const confirmCompleteNoPoints = useCallback(
+    (task: Task): void => {
+      setConfirmId(null)
+      submitAndComplete(task, true)
+    },
+    [submitAndComplete]
+  )
+
+  const completeOccurrence = useCallback((occurrenceId: string): void => {
+    void window.api.occurrence
+      .complete({ id: occurrenceId })
+      .then(res => {
+        if (!res.ok) console.error('[tasks] occurrence.complete 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[tasks] occurrence.complete 调用失败', e))
+  }, [])
 
   const cancelComplete = useCallback((): void => {
     setConfirmId(null)
@@ -181,9 +257,27 @@ export function useTasksData(): TasksData {
   }, [])
 
   const actions = useMemo<TasksActions>(
-    () => ({ expand, toggleStep, completeTask, confirmComplete, cancelComplete, reorder }),
-    [expand, toggleStep, completeTask, confirmComplete, cancelComplete, reorder]
+    () => ({
+      expand,
+      toggleStep,
+      completeTask,
+      confirmComplete,
+      confirmCompleteNoPoints,
+      completeOccurrence,
+      cancelComplete,
+      reorder
+    }),
+    [
+      expand,
+      toggleStep,
+      completeTask,
+      confirmComplete,
+      confirmCompleteNoPoints,
+      completeOccurrence,
+      cancelComplete,
+      reorder
+    ]
   )
 
-  return { tasks, occurrences, subtasksByParent, expandedId, confirmId, actions }
+  return { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, actions }
 }

@@ -3,6 +3,7 @@ import { tx } from './connection'
 import { addMonths, assertDay, daysBetweenInclusive, isoWeekday, nowIso, todayLocalDay } from './localDay'
 import { appError } from './errors'
 import * as occurrenceRepo from './repositories/occurrenceRepo'
+import * as statsRepo from './repositories/statsRepo'
 import * as taskRepo from './repositories/taskRepo'
 
 /**
@@ -108,6 +109,102 @@ export function listRangeRaw(from: string, to: string): Occurrence[] {
 export function markMissedBefore(day: string): number {
   assertDay(day)
   return occurrenceRepo.markMissedBefore(day, nowIso())
+}
+
+/* ------------------------------------------------------------------ *
+ * 完成 / 撤销 / 跳过（W6，kickoff/11 交付 3–5）
+ *
+ * 三个函数的边界：**只写 occurrence 与它带出来的任务列**，不碰积分、不判分。
+ * 分值计算、ledger 写入与 streak 口径都在 pointsService（services 层）；
+ * 本层收的是「已经算好要写什么」。事务由调用方开（pointsService.awardOccurrence 等）。
+ * ------------------------------------------------------------------ */
+
+export interface CompleteOccurrenceInput {
+  occurrence: Occurrence
+  /** 单日实得（基础分 + 里程碑奖励，已过 roundPoints） */
+  pointsAwarded: number
+  completedAt: string
+  /** 这一天完成后的连续天数，由 pointsService 从 occurrence 历史反查 */
+  streakAfter: number
+}
+
+/**
+ * 把这一天标记为已完成：写 occurrence 三列 + 任务的 streak 列 + 当日 occurrences_done。
+ * `streak_best` 只增不减（01 §2.1 的列语义）；`streak_current` 用调用方算出的真实值，
+ * 不在本层做 ±1。
+ */
+export function complete(input: CompleteOccurrenceInput): Occurrence {
+  return tx(() => {
+    const occurrence = occurrenceRepo.update(
+      input.occurrence.id,
+      {
+        status: 'done',
+        pointsAwarded: input.pointsAwarded,
+        completedAt: input.completedAt
+      },
+      input.completedAt
+    )
+    const task = taskRepo.requireById(occurrence.taskId)
+    taskRepo.updateColumns(
+      task.id,
+      {
+        streak_current: input.streakAfter,
+        streak_best: Math.max(task.streakBest, input.streakAfter)
+      },
+      input.completedAt
+    )
+    // 01 §2.6：occurrences_done 与 occurrence 状态同事务（重建口径 = COUNT(status='done')）
+    statsRepo.bumpOccurrencesDone(occurrence.day)
+    return occurrence
+  })
+}
+
+export interface UndoOccurrenceInput {
+  occurrence: Occurrence
+  /** 回退后的连续天数（前一天的真实值），同样由 pointsService 反查 */
+  streakAfter: number
+}
+
+/**
+ * 撤销这一天：退回 `pending`、清掉分值快照与完成时刻。
+ * **不写流水**——冲销由 pointsService 走 `rollback()` 写负行，本层不删行也不改 ledger。
+ * `streak_current` 写回调用方算好的值；`streak_best` 保留历史最高。
+ */
+export function undo(input: UndoOccurrenceInput): Occurrence {
+  return tx(() => {
+    const occurrence = occurrenceRepo.update(
+      input.occurrence.id,
+      { status: 'pending', pointsAwarded: null, completedAt: null },
+      nowIso()
+    )
+    const task = taskRepo.requireById(occurrence.taskId)
+    taskRepo.updateColumns(task.id, { streak_current: input.streakAfter }, nowIso())
+    // 只有原本是 done 的那一天才从当日完成数里减回来
+    if (input.occurrence.status === 'done') statsRepo.bumpOccurrencesDone(occurrence.day, -1)
+    return occurrence
+  })
+}
+
+export interface SkipOccurrenceInput {
+  occurrence: Occurrence
+  note?: string | null
+}
+
+/**
+ * 本次跳过（01 §4 / 02 §3.2b）：不计分、不写 ledger、不动 streak 两列。
+ * streak 是「从 occurrence 历史数出来的」，跳过的那天不是 done，下一次完成自然从 1 开始，
+ * 所以这里只改 occurrence 自己的状态。
+ */
+export function skip(input: SkipOccurrenceInput): Occurrence {
+  return tx(() => {
+    const patch: occurrenceRepo.OccurrenceUpdate = {
+      status: 'skipped',
+      pointsAwarded: null,
+      completedAt: null
+    }
+    if (input.note !== undefined) patch.note = input.note
+    return occurrenceRepo.update(input.occurrence.id, patch, nowIso())
+  })
 }
 
 /** 某个任务应当出现在哪些天（调试与测试用） */

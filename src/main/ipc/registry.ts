@@ -22,7 +22,8 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 26 条**（W5 起 promoteDraft 接通，见 kickoff/09）；NOT_WIRED 一律不注册
+ * **只接 WIRED 里的 30 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条接通，
+ * 见 kickoff/09、kickoff/11）；NOT_WIRED 一律不注册
  * （不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -37,11 +38,6 @@ export type HandlerFn = (input: unknown) => unknown
 export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
 
 export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
-  // W6：完成事务
-  [CH.task.complete]: { owner: 'W6' },
-  [CH.occurrence.complete]: { owner: 'W6' },
-  [CH.occurrence.undo]: { owner: 'W6' },
-  [CH.occurrence.skip]: { owner: 'W6' },
   // W4：AI 接入
   [CH.msg.send]: { owner: 'W4' },
   [CH.msg.retry]: { owner: 'W4' },
@@ -86,6 +82,11 @@ function diffOccurrences(before: Occurrence[], after: Occurrence[]): Occurrence[
   return after.filter(o => !known.has(o.id))
 }
 
+/** 当日聚合变化统一走这里（points / tasks_done / occurrences_done 任一变化都要推） */
+function broadcastDayStats(day: string): void {
+  broadcast({ type: 'daystats.changed', day: statsRepo.getDay(day) })
+}
+
 interface Row {
   channel: string
   run: HandlerFn
@@ -123,7 +124,7 @@ const TABLE: Row[] = [
       monthIndex: statsRepo.dayIndex(from, to),
       recentLedger: pointsService.recentLedger(20),
       settings: settingRepo.getAll(),
-      // W9 落地前恒为空，不许返回假的可用性（02 §3.1）
+      // 通知渠道可用性恒空到 W8（02 §3.1），不许返回假的可用性
       channels: []
     }
   }),
@@ -210,6 +211,25 @@ const TABLE: Row[] = [
     })
     return after
   }),
+  /* ---------------- task.complete（1，W6） ---------------- */
+  row(CH.task.complete, g.taskComplete, input => {
+    const before = taskService.getTask(input.id)
+    const { task, entry } = taskService.completeTask(input)
+    broadcast({
+      type: 'task.updated',
+      task,
+      changed: before ? diffKeys(before, task) : []
+    })
+    // entry 为 null = 这次没给分（noPoints），余额没动但今日完成数动了
+    broadcast({
+      type: 'points.changed',
+      balance: pointsService.balance(),
+      entry,
+      today: pointsService.todayStat()
+    })
+    broadcastDayStats(todayLocalDay())
+    return { task, entry }
+  }),
   row(CH.task.addEvidence, g.addEvidence, input => {
     const before = taskService.getTask(input.id)
     const after = taskService.addEvidence(input.id, input.evidence)
@@ -281,6 +301,49 @@ const TABLE: Row[] = [
     const created = diffOccurrences(before, list)
     if (created.length > 0) broadcast({ type: 'occurrence.created', occurrences: created })
     return list
+  }),
+
+  /* ---------------- occurrence.complete / undo / skip（3，W6） ---------------- */
+  row(CH.occurrence.complete, g.occurrenceComplete, input => {
+    const { occurrence, entry, streakAfter, taskBefore, task } = pointsService.awardOccurrence(
+      input.id
+    )
+    broadcast({ type: 'occurrence.updated', occurrence })
+    broadcast({ type: 'task.updated', task, changed: diffKeys(taskBefore, task) })
+    broadcast({
+      type: 'points.changed',
+      balance: pointsService.balance(),
+      entry,
+      today: pointsService.todayStat()
+    })
+    // 流水记在 occurrence.day（可能是补做的往日），聚合按那一天推
+    broadcastDayStats(occurrence.day)
+    return { occurrence, entry, streakAfter }
+  }),
+  row(CH.occurrence.undo, g.occurrenceUndo, input => {
+    const { occurrence, balanceAfter, taskBefore, task } = pointsService.undoOccurrence(input.id)
+    broadcast({ type: 'occurrence.updated', occurrence })
+    broadcast({ type: 'task.updated', task, changed: diffKeys(taskBefore, task) })
+    // 冲销行落在今天（回滚是"现在"发生的事实），occurrences_done 减在原来那一天
+    broadcast({
+      type: 'points.changed',
+      balance: balanceAfter,
+      entry: null,
+      today: pointsService.todayStat()
+    })
+    broadcastDayStats(occurrence.day)
+    const today = todayLocalDay()
+    if (occurrence.day !== today) broadcastDayStats(today)
+    return { occurrence, balanceAfter }
+  }),
+  row(CH.occurrence.skip, g.occurrenceSkip, input => {
+    const occurrence = pointsService.skipOccurrence(input.id, input.note)
+    // 已完成的打卡不会退回"跳过"（不加分也不冲销），此时 skipOccurrence 原样返回：
+    // 没有写入就不广播，避免发一条内容没变的 occurrence.updated
+    if (occurrence.status === 'skipped') {
+      broadcast({ type: 'occurrence.updated', occurrence })
+    }
+    return occurrence
   }),
 
   /* ---------------- calendar（2） ---------------- */

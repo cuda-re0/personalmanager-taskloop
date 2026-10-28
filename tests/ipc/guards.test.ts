@@ -63,7 +63,39 @@ describe('guards（zod 形状校验）', () => {
   })
 
   it('未接的通道没有守卫（不放假 handler 的一部分）', () => {
-    expect(guards[CH.task.complete]).toBeUndefined()
+    expect(guards[CH.ai.review]).toBeUndefined()
     expect(guards[CH.attachment.add]).toBeUndefined()
+  })
+
+  it('task.complete 的两个分支互斥：quality 与 noPoints 同给 → INVALID_INPUT', () => {
+    expect(parseInput(g.taskComplete, { id: 't1', quality: 'met' })).toEqual({
+      id: 't1',
+      quality: 'met'
+    })
+    expect(parseInput(g.taskComplete, { id: 't1', noPoints: true })).toEqual({
+      id: 't1',
+      noPoints: true
+    })
+    expectErrorCode(
+      () => parseInput(g.taskComplete, { id: 't1', quality: 'met', noPoints: true }),
+      'INVALID_INPUT'
+    )
+    // 既不给 quality 也不给 noPoints：两个分支都匹配不上
+    expectErrorCode(() => parseInput(g.taskComplete, { id: 't1' }), 'INVALID_INPUT')
+    // quality 取值必须落在三档里
+    expectErrorCode(
+      () => parseInput(g.taskComplete, { id: 't1', quality: 'perfect' }),
+      'INVALID_INPUT'
+    )
+  })
+
+  it('occurrence 三条的入参只有 id（skip 可带 note）', () => {
+    expect(parseInput(g.occurrenceComplete, { id: 'o1' })).toEqual({ id: 'o1' })
+    expect(parseInput(g.occurrenceUndo, { id: 'o1' })).toEqual({ id: 'o1' })
+    expect(parseInput(g.occurrenceSkip, { id: 'o1', note: '今天跳过' })).toEqual({
+      id: 'o1',
+      note: '今天跳过'
+    })
+    expectErrorCode(() => parseInput(g.occurrenceSkip, { id: 'o1', note: 1 }), 'INVALID_INPUT')
   })
 })

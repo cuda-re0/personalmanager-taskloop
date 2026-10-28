@@ -2,14 +2,17 @@ import type {
   Difficulty,
   Evidence,
   NotifyChannel,
+  PointEntry,
   Priority,
+  Quality,
   Task,
   TaskCreatePatch,
   TaskPatch,
   TaskStatus,
   TaskType
 } from '../../shared/types/domain'
-import { computePlannedPoints } from '../../shared/points/rubric'
+import type { CompleteTaskInput } from '../../shared/types/ipc'
+import { computeAwardedPoints, computePlannedPoints } from '../../shared/points/rubric'
 import type { TaskDraft } from '../../shared/types/domain'
 import { isDifficultyAllowed } from '../../shared/taskRules'
 import { tx } from '../db/connection'
@@ -18,21 +21,27 @@ import { addDays, isValidDay, isoToLocalDay, nowIso, todayLocalDay } from '../db
 import { newId } from '../db/ids'
 import * as occurrenceService from '../db/occurrenceService'
 import type { SqlValue } from '../db/mappers'
+import * as ledgerRepo from '../db/repositories/ledgerRepo'
 import * as messageRepo from '../db/repositories/messageRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as taskRepo from '../db/repositories/taskRepo'
 import { assertTransition } from '../db/stateMachine'
-import { pointsConfig } from './pointsService'
+import {
+  award as awardPoints,
+  pointsConfig,
+  rollback as rollbackPoints
+} from './pointsService'
 
 /**
- * taskService —— **只做数据访问**（01 开工词 §3：不写业务编排）。
+ * taskService —— **只做数据访问与完成事务**（01 开工词 §3、02 §3.2）。
  *
  * 边界说明（避免和后续波次重复实现）：
- * - 这里不含积分计算、不含证据闸门、不含 AI 调用。`task.complete` 的完整事务（写 ledger +
- *   改 task + upsert daily_stats）属于 W6，本文件只提供零件。
+ * - 这里不写积分公式、不调 AI。分值一律由 `rubric.ts` 算好（02 §5.2），本文件只负责
+ *   「状态 + 发分 + 统计在同一事务里」与证据闸门。每日任务的计分编排在 pointsService。
  * - `tasks_created` 由本文件的 `createTask()` 负责（01 §2.6 把这张表的分工按模块划开），
  *   W6 别再累加一次。
- * - `transitionTask()` 只是状态机 + 时间戳，**不**累加 `tasks_done`（完成计数合并进 W6 的完成事务）。
+ * - `transitionTask()` 只是状态机 + 时间戳，**不**累加 `tasks_done`（完成计数只在
+ *   `completeTask` / `undoCompletion` 里增减）。
  */
 
 export interface CreateTaskInput {
@@ -467,5 +476,170 @@ export function promoteDraft(input: PromoteDraftInput): PromoteDraftResult {
     })
 
     return { task, created: true }
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ * 完成与撤销（W6，02 §3.2 / 01 §3）
+ * ------------------------------------------------------------------ */
+
+export interface CompleteTaskResult {
+  task: Task
+  /** `noPoints:true` 时恒为 null（02 §3.2：调用方拿它判断"这次没给分"） */
+  entry: PointEntry | null
+}
+
+export interface UndoCompletionResult {
+  task: Task
+  /** 冲销行的流水（`noPoints` 完成过的任务没有可冲销的行，返回 null） */
+  entry: PointEntry | null
+}
+
+/**
+ * 完成前的状态校验。
+ *
+ * `done → done` 在状态机里是"同态 no-op"（双击不该 409），但**完成**不能沿用这个宽容：
+ * 02 §3.2 明确"重复调用应当报错而不是假装成功"，而且 `noPoints` 重复走一遍会把
+ * `tasks_done` 加两次。文案取 04 §1.1 的模板「任务不能从「{状态}」直接变为「{状态}」」。
+ */
+function assertCompletable(task: Task): void {
+  if (task.status === 'done') {
+    throw appError('CONFLICT', '任务不能从「已完成」直接变为「已完成」', {
+      detail: `id=${task.id} 已处于 done`
+    })
+  }
+  // daily 与非法边（如 todo → done）都由状态机给出已登记的 CONFLICT 文案
+  assertTransition(task.type, task.status, 'done')
+}
+
+/** 距截止的小时数（02 §5.2）：仅限时任务，`dueAt` 缺失或坏值按未知处理 */
+function leadHoursOf(task: Task, completedAt: string): number | null {
+  if (task.type !== 'deadline' || task.dueAt === null) return null
+  const due = new Date(task.dueAt).getTime()
+  if (Number.isNaN(due)) return null
+  return (due - new Date(completedAt).getTime()) / 3600000
+}
+
+/** 逾期天数：满 24 小时算一天、向下取整（02 §5.2）。日期整除，不产出积分值 */
+function overdueDaysOf(task: Task, leadHours: number | null): number {
+  if (task.type !== 'deadline' || leadHours === null || leadHours >= 0) return 0
+  return Math.floor(Math.abs(leadHours) / 24)
+}
+
+/**
+ * `task.complete`（02 §3.2）：**唯一**写 `completed_at` + `points_awarded` + 完成流水的入口。
+ *
+ * 两种模式是 `CompleteTaskInput` 的可辨识联合：给了 `quality` 就是计分，`noPoints:true`
+ * 就是不计分（两个都给由守卫挡在 IPC 边界，见 guards.ts）。
+ */
+export function completeTask(input: CompleteTaskInput): CompleteTaskResult {
+  return input.noPoints === true
+    ? completeWithoutPoints(input.id, input.evidence)
+    : completeWithPoints(input.id, input.quality, input.evidence)
+}
+
+/** 计分完成：状态 + 发分 + 统计同事务（失败整体回滚，不留"入账了但状态没改"） */
+function completeWithPoints(
+  id: string,
+  quality: Quality,
+  evidence: Evidence[] | undefined
+): CompleteTaskResult {
+  const completedAt = nowIso()
+  return tx(() => {
+    const task = taskRepo.requireById(id)
+    assertCompletable(task)
+
+    // 证据闸门（01 §3）：任务上已存的证据也算，缺了停在原地，不靠 UI 拦
+    const provided = evidence ?? []
+    if (task.requiresEvidence && task.evidence.length === 0 && provided.length === 0) {
+      throw appError('CONFLICT', '证据不能为空', {
+        detail: 'requiresEvidence=true 且任务与入参都没有证据'
+      })
+    }
+    for (const item of provided) addEvidence(id, item)
+
+    // 分值只由 rubric 算：质量 × 类型系数 − 逾期扣分，leadHours 由 completed_at 与 due_at 得出
+    const leadHours = leadHoursOf(task, completedAt)
+    const awarded = computeAwardedPoints({
+      type: task.type,
+      planned: task.pointsPlanned,
+      quality,
+      overdueDays: overdueDaysOf(task, leadHours),
+      leadHours,
+      // 活动的结果档不在 CompleteTaskInput 里（契约缺口，已在交付报告登记），按"未给"处理
+      result: null
+    })
+    const day = isoToLocalDay(completedAt)
+
+    const updated = taskRepo.updateColumns(
+      id,
+      { status: 'done', completed_at: completedAt, points_awarded: awarded, quality },
+      completedAt
+    )
+    // 唯一索引兜底：同一任务的第二条 task_done（occurrence_id IS NULL）在这里被拒并转 CONFLICT
+    const entry = awardPoints({
+      taskId: id,
+      occurrenceId: null,
+      delta: awarded,
+      kind: 'award',
+      reasonCode: 'task_done',
+      reasonText: task.title,
+      day
+    })
+    statsRepo.bumpTasksDone(day)
+    return { task: updated, entry }
+  })
+}
+
+/**
+ * 不计分出口（02 §3.2 的 `noPoints:true`）：写 `completed_at` + `status='done'` + `tasks_done`，
+ * **不写 ledger**、`points_awarded` 留 NULL。证据闸门对它不生效——它就是防死锁的那个口子。
+ */
+function completeWithoutPoints(id: string, evidence: Evidence[] | undefined): CompleteTaskResult {
+  const completedAt = nowIso()
+  return tx(() => {
+    const task = taskRepo.requireById(id)
+    assertCompletable(task)
+    for (const item of evidence ?? []) addEvidence(id, item)
+
+    const updated = taskRepo.updateColumns(
+      id,
+      { status: 'done', completed_at: completedAt, points_awarded: null, quality: null },
+      completedAt
+    )
+    statsRepo.bumpTasksDone(isoToLocalDay(completedAt))
+    return { task: updated, entry: null }
+  })
+}
+
+/**
+ * 撤销限时/活动的完成（01 §3：`done → doing` + 负流水冲销 + `completed_at` 清空）。
+ *
+ * 三条实现约束：
+ * - 冲销走 `pointsService.rollback()` 写负行，**不删流水**（唯一真相是 ledger）；
+ * - 冲销行 `occurrence_id = NULL`、`kind='adjust'`，不撞两条条件唯一索引；
+ * - `tasks_done` 在**原完成日**减回来，与 `rebuildDailyStats` 的口径一致。
+ *
+ * 未完成的任务没有可撤销的完成记录：按 `transitionTask` 的同态 no-op 处理，不报错也不写库。
+ */
+export function undoCompletion(id: string): UndoCompletionResult {
+  return tx(() => {
+    const task = taskRepo.requireById(id)
+    if (task.status !== 'done') return { task, entry: null }
+
+    const original =
+      ledgerRepo.listByTask(id).find(e => e.reasonCode === 'task_done' && e.occurrenceId === null) ??
+      null
+    // noPoints 完成的任务没有 task_done 行，撤销只回状态、不冲销
+    const entry = original === null ? null : rollbackPoints(original, task.title)
+    const day = task.completedAt === null ? todayLocalDay() : isoToLocalDay(task.completedAt)
+
+    const updated = taskRepo.updateColumns(
+      id,
+      { status: 'doing', completed_at: null, points_awarded: null, quality: null },
+      nowIso()
+    )
+    statsRepo.bumpTasksDone(day, -1)
+    return { task: updated, entry }
   })
 }
