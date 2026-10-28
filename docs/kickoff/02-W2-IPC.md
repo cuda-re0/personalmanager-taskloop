@@ -1,5 +1,9 @@
 # W2 · IPC 与事件总线（开工词）
 
+> **契约版本**：`contract-v0.7`（commit `c58e0c8`）。本开工词写于 v0.5，
+> 之后契约经过两次变更（积分小数化、`AppSettings` 封闭类型），
+> **动手前必读 `docs/kickoff/08-WAVE1-DELTA.md`，与本文冲突时以它为准。**
+>
 > 第 1 波，可与 W1 / W3 / W4 / W6B-UI / W9-UI 同时开工。
 
 ---
