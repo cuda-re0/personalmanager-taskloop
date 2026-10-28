@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RUBRIC_VERSION } from '@shared/points/rubric'
 import type { Task } from '@shared/types/domain'
+import { ChatPanel } from './features/chat/ChatPanel'
 
 /**
  * 类型探针：`@shared` 别名 + 领域类型在渲染进程必须可用。
@@ -15,7 +16,7 @@ if (!container) throw new Error('#root not found')
 
 createRoot(container).render(
   <StrictMode>
-    <div className="app-shell" />
+    <ChatPanel />
   </StrictMode>
 )
 
