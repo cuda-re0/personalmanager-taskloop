@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { RUBRIC_VERSION } from '@shared/points/rubric'
 import type { Task } from '@shared/types/domain'
 import { ChatPanel } from './features/chat/ChatPanel'
+import { TasksPanel } from './features/tasks/TasksPanel'
 
 /**
  * 类型探针：`@shared` 别名 + 领域类型在渲染进程必须可用。
@@ -14,9 +15,16 @@ export type DomainTask = Task
 const container = document.getElementById('root')
 if (!container) throw new Error('#root not found')
 
+// 主窗两栏布局（04 §2）：左会话区（弹性）+ 右栏 400px。
+// 右栏四区块里 W5 只有 ①「当前任务」，②③④ 随 W6 / W6B 落地。
 createRoot(container).render(
   <StrictMode>
-    <ChatPanel />
+    <div className="app-shell">
+      <ChatPanel />
+      <aside className="right-col">
+        <TasksPanel />
+      </aside>
+    </div>
   </StrictMode>
 )
 

@@ -1,5 +1,6 @@
-import { DEFAULT_CONFIG, computePlannedPoints } from '@shared/points/rubric'
+import { computePlannedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
+import type { PublicSettings } from '@shared/types/ipc'
 import { snapDifficulty } from '@shared/taskRules'
 import type { Difficulty, TaskDraft, TaskType } from '@shared/types/domain'
 
@@ -29,13 +30,20 @@ export const TYPE_DEFAULT_OFFSETS: Record<TaskType, number[]> = {
 }
 
 /**
- * 草稿分值与难度归位的临时配置来源。
+ * bootstrap.settings 的 points.* → rubric 的 PointsConfig（02 §5.2b）。
  *
- * TODO(W2): 换成 bootstrap.settings 的 points.*（主进程 pointsConfig() 读的就是 settings，
- * 用户把 hard 从 35 改成 30 之后卡面必须跟着变）。只此一处：调用点各写一份 DEFAULT_CONFIG，
- * 接 settings 时必然漏改。
+ * 必须传**完整**配置：不许只传 dailyBase，也不许省略参数落回 DEFAULT_CONFIG——
+ * 用户改过 points.difficultyBase 之后，卡面 +35 / 落库 +30 就是省这两步的必然结果。
+ * W5 起 useChatData 从 app.getBootstrap 组装（v0.12 第 4 条，原 PENDING_CONFIG 占位已删）。
  */
-export const PENDING_CONFIG: PointsConfig = DEFAULT_CONFIG
+export function pointsConfigOf(settings: PublicSettings): PointsConfig {
+  return {
+    difficultyBase: settings['points.difficultyBase'],
+    dailyBase: settings['points.dailyBase'],
+    streakBonus: settings['points.streakBonus'],
+    dailyCap: settings['points.dailyCap']
+  }
+}
 
 /**
  * pointsPlanned 的唯一口径（02 §5.2b）：daily 取 cfg.dailyBase，deadline / event 看难度。

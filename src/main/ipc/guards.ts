@@ -77,6 +77,12 @@ export const g = {
     includeSubtasks: z.boolean().optional()
   }),
   get: z.object(idInput),
+  promoteDraft: z.object({
+    messageId: z.string(),
+    localId: z.string(),
+    // 复用 taskPatchSchema：没有 type 字段，调用方多传会被 zod 剥掉（落库后不可改类型，02 §3.2）
+    patch: taskPatchSchema.optional()
+  }),
   update: z.object({ id: z.string(), patch: taskPatchSchema }),
   transition: z.object({
     id: z.string(),
@@ -141,6 +147,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.app.quit]: g.quit,
   [CH.task.list]: g.list,
   [CH.task.get]: g.get,
+  [CH.task.promoteDraft]: g.promoteDraft,
   [CH.task.update]: g.update,
   [CH.task.transition]: g.transition,
   [CH.task.addEvidence]: g.addEvidence,

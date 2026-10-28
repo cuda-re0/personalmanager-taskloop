@@ -11,9 +11,10 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 25 条', () => {
-    expect(WIRED_CHANNELS.length).toBe(25)
-    expect(new Set(WIRED_CHANNELS).size).toBe(25)
+  it('WIRED 有 26 条（W5 起 promoteDraft 接通）', () => {
+    expect(WIRED_CHANNELS.length).toBe(26)
+    expect(new Set(WIRED_CHANNELS).size).toBe(26)
+    expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
   })
 
   it('WIRED ∪ NOT_WIRED == CH 的全部 api 叶子，且不交叠（新通道没人接必须红）', () => {
@@ -35,11 +36,11 @@ describe('registry 通道覆盖', () => {
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
-    expect(Object.keys(NOT_WIRED).length).toBe(26)
+    expect(Object.keys(NOT_WIRED).length).toBe(25)
   })
 
-  it('关键归属抽查：promoteDraft→W5（v0.14 改判）、task.complete→W6、ai.*→W4、hud.*→W9、attachment.add→W11', () => {
-    expect(NOT_WIRED[CH.task.promoteDraft]).toEqual({ owner: 'W5' })
+  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete→W6、ai.*→W4、hud.*→W9、attachment.add→W11', () => {
+    expect(NOT_WIRED[CH.task.promoteDraft]).toBeUndefined()
     expect(NOT_WIRED[CH.task.complete]).toEqual({ owner: 'W6' })
     expect(NOT_WIRED[CH.ai.review]).toEqual({ owner: 'W4' })
     expect(NOT_WIRED[CH.hud.getState]).toEqual({ owner: 'W9' })

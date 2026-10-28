@@ -1,7 +1,7 @@
-import { computePlannedPoints } from '@shared/points/rubric'
+import { DEFAULT_CONFIG, computePlannedPoints } from '@shared/points/rubric'
 import { snapDifficulty } from '@shared/taskRules'
 import type { Attachment, Evidence, Message, ReviewVerdict, Task, TaskDraft } from '@shared/types/domain'
-import { PENDING_CONFIG, TYPE_DEFAULT_OFFSETS, draftPointsOf } from '../chatViewModel'
+import { TYPE_DEFAULT_OFFSETS, draftPointsOf } from '../chatViewModel'
 
 /**
  * W3 专用 fixture。所有对象都显式标注为 @shared 的领域类型，
@@ -178,8 +178,9 @@ function draft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'localId' | 'type' | '
     ...seed,
     difficulty,
     estimateMin,
-    // 只看难度/类型，配置由 chatViewModel 的 PENDING_CONFIG 统一给（W2 换 settings 后整条跟着变）
-    pointsPlanned: draftPointsOf({ type: seed.type, difficulty }, PENDING_CONFIG)
+    // 只看难度/类型。占位值：useChatData 载入时会用 bootstrap.settings 的真配置
+    // normalizeDraft 重算（02 §5.2b），这里的数值不进显示。
+    pointsPlanned: draftPointsOf({ type: seed.type, difficulty }, DEFAULT_CONFIG)
   }
 }
 

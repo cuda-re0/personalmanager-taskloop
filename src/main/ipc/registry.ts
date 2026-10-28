@@ -5,7 +5,7 @@ import type { AppSettings, Bootstrap } from '@shared/types/ipc'
 import type { Occurrence, Task } from '@shared/types/domain'
 import { broadcast } from '../bus'
 import { appError } from '../db/errors'
-import { monthBounds, todayLocalDay } from '../db/localDay'
+import { monthBounds, addDays, todayLocalDay } from '../db/localDay'
 import * as occurrenceService from '../db/occurrenceService'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
@@ -22,7 +22,8 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 25 条**；NOT_WIRED 一律不注册（不放假 handler、不返假数据），
+ * **只接 WIRED 里的 26 条**（W5 起 promoteDraft 接通，见 kickoff/09）；NOT_WIRED 一律不注册
+ * （不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
 
@@ -32,13 +33,10 @@ export interface IpcLike {
 
 export type HandlerFn = (input: unknown) => unknown
 
-/** 未接通道的归属（05 W2 段的通道归属表；promoteDraft 的改判见 kickoff/08 v0.14） */
+/** 未接通道的归属（05 W2 段的通道归属表；promoteDraft 已随 W5 接通，不在表内） */
 export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
 
 export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
-  // W5：草稿晋升（v0.14 改判：原随"完成事务"成簇误标 W6，但 W6 授权目录不含 taskService，
-  // 且依赖链 W1→W5→W6 要求晋升先行。随 W5 开工词授权注册，见 kickoff/09）
-  [CH.task.promoteDraft]: { owner: 'W5' },
   // W6：完成事务
   [CH.task.complete]: { owner: 'W6' },
   [CH.occurrence.complete]: { owner: 'W6' },
@@ -154,11 +152,32 @@ const TABLE: Row[] = [
     app.quit()
   }),
 
-  /* ---------------- task（10） ---------------- */
+  /* ---------------- task（11） ---------------- */
   row(CH.task.list, g.list, input => taskService.listTasks(input)),
   row(CH.task.get, g.get, input => {
     // requireById 抛 NOT_FOUND「任务不存在」
     return taskService.getTaskWithSubtasks(input.id)
+  }),
+  row(CH.task.promoteDraft, g.promoteDraft, input => {
+    // occurrence 差集的取样区间与 service 内 ensureRange(今天, +3天) 对齐（开工词交付 3）
+    const today = todayLocalDay()
+    const rangeTo = addDays(today, 3)
+    const before = occurrenceService.listRangeRaw(today, rangeTo)
+    const task = taskService.promoteDraft(input)
+    const created = diffOccurrences(before, occurrenceService.listRangeRaw(today, rangeTo))
+
+    // 写操作广播（02 §3.8）：父任务 + 子任务各一条 task.created
+    broadcast({ type: 'task.created', task })
+    for (const sub of taskService.listTasks({ parentId: task.id })) {
+      broadcast({ type: 'task.created', task: sub })
+    }
+    if (created.length > 0) broadcast({ type: 'occurrence.created', occurrences: created })
+    // meta_json 已标 promoted，推给全部窗口把卡片切成已确认态（02 §3.8：message.patch 只许 meta）
+    const message = messageService.requireMessage(input.messageId)
+    broadcast({ type: 'message.patch', messageId: input.messageId, patch: { meta: message.meta } })
+    // createTask 已 bump tasks_created，把最新当日统计推出去（对齐 createManual 的既有模式）
+    broadcast({ type: 'daystats.changed', day: statsRepo.getDay(today) })
+    return task
   }),
   row(CH.task.update, g.update, input => {
     // 先存 before，调用后求真实差异再广播——不为省这次读而广播空 changed（渲染层整体覆盖）

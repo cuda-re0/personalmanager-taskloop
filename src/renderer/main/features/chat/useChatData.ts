@@ -9,19 +9,19 @@ import type {
   Message,
   ReviewVerdict,
   Task,
-  TaskDraft
+  TaskDraft,
+  TaskPatch
 } from '@shared/types/domain'
 import type { ChatActions, ChatData, DraftPatch, DraftView, EvidenceView, ReviewView } from './chatTypes'
 import {
-  PENDING_CONFIG,
   TYPE_DEFAULT_OFFSETS,
   draftPointsOf,
   dueHintToLocal,
   leadLabel,
-  normalizeDraft
+  normalizeDraft,
+  pointsConfigOf
 } from './chatViewModel'
 import {
-  FIXTURE_DRAFTS,
   FIXTURE_MESSAGES,
   FIXTURE_TASKS,
   findAttachment,
@@ -32,8 +32,10 @@ import {
 /**
  * 会话区唯一的数据入口。
  *
- * 现在主进程没有注册任何 IPC handler，`window.api.*` 调用会直接 reject，
- * 所以这里全部走本地 fixture；W2 交付后只改这个文件，组件不动。
+ * W5 起：挂载时调 `app.getBootstrap` 拿真消息与 settings，成功后**整体替换** fixture
+ * （草稿分值按 settings 的完整 PointsConfig 归一，02 §5.2b）。IPC 不可用时才落回
+ * fixture（W3 的开发/压测路径）。分页：真消息的向前翻页归 msg 域（W4），本层不越界，
+ * 拿到真消息后关闭 loadMore。
  */
 const PAGE = 20
 const THREAD = 'thread-demo'
@@ -151,16 +153,41 @@ export function applyDraftPatch(
   return next
 }
 
+/**
+ * 确认时随 patch 上送的就地编辑值（02 §3.2 `task.promoteDraft` 的 patch）。
+ *
+ * **没有 type**：TaskPatch 契约里就没有（落库后不可改类型，02 §3.2），落库类型只来自
+ * meta_json 里的 draft。卡片上改类型后确认，创建出的仍是原类型——这是契约现状，
+ * 已按协作纪律上报架构方（04 §3.2 的草稿卡类型切换与确认链路如何打通需要契约裁决）。
+ * dueHint / dailyTimeHint / activeToHint 的形状校验在主进程落库侧兜底。
+ */
+export function promotePatchOf(draft: TaskDraft): TaskPatch {
+  return {
+    title: draft.title,
+    detailMd: draft.detailMd,
+    difficulty: draft.difficulty,
+    estimateMin: draft.estimateMin,
+    dueAt: draft.type === 'daily' ? null : draft.dueHint,
+    dailyTime: draft.type === 'daily' ? draft.dailyTimeHint : null,
+    activeTo: draft.type === 'daily' ? draft.activeToHint : null,
+    reminderOffsets: [...draft.reminderOffsets],
+    tags: [...draft.tags],
+    requiresEvidence: draft.requiresEvidence
+  }
+}
+
+/** 草稿上的幂等标记（主进程写入的额外 JSON 键，TaskDraft 契约冻结不能加字段） */
+function promoteMarkerOf(draft: TaskDraft): { promoted?: unknown; promotedTaskId?: unknown } {
+  return draft as TaskDraft & { promoted?: unknown; promotedTaskId?: unknown }
+}
+
 export function useChatData(): ChatData {
+  const [cfg, setCfg] = useState<PointsConfig | null>(null)
   const [messages, setMessages] = useState<Message[]>(() => {
     const n = bulkCount()
     return n > 0 ? makeBulkMessages(n) : FIXTURE_MESSAGES
   })
-  const [drafts, setDrafts] = useState<Record<string, TaskDraft>>(() => {
-    const map: Record<string, TaskDraft> = {}
-    for (const draft of FIXTURE_DRAFTS) map[draft.localId] = normalizeDraft(draft, PENDING_CONFIG)
-    return map
-  })
+  const [drafts, setDrafts] = useState<Record<string, TaskDraft>>({})
   const [confirmed, setConfirmed] = useState<Record<string, string>>({})
   const [tasks] = useState<Record<string, Task>>(() => {
     const map: Record<string, Task> = {}
@@ -186,6 +213,46 @@ export function useChatData(): ChatData {
   useEffect(() => {
     return () => {
       if (ackTimer.current !== null) window.clearTimeout(ackTimer.current)
+    }
+  }, [])
+
+  // W5 接线①：分值配置换 bootstrap.settings 的完整 PointsConfig（v0.12 第 4 条），
+  // 同时把真消息整体换进来（fixture 只在 IPC 不可用时保留）
+  useEffect(() => {
+    let alive = true
+    void window.api.app
+      .getBootstrap()
+      .then(res => {
+        if (!alive) return
+        if (!res.ok) {
+          console.error('[chat] app.getBootstrap 失败', res.error)
+          return
+        }
+        const nextCfg = pointsConfigOf(res.data.settings)
+        setCfg(nextCfg)
+        setMessages(res.data.messages)
+        setHasMore(false)
+        const nextDrafts: Record<string, TaskDraft> = {}
+        const promoted: Record<string, string> = {}
+        for (const message of res.data.messages) {
+          if (message.meta.kind !== 'task_draft') continue
+          for (const raw of message.meta.drafts) {
+            const draft = normalizeDraft(raw, nextCfg)
+            nextDrafts[draft.localId] = draft
+            const marker = promoteMarkerOf(draft)
+            if (marker.promoted === true && typeof marker.promotedTaskId === 'string') {
+              promoted[draft.localId] = marker.promotedTaskId
+            }
+          }
+        }
+        setDrafts(nextDrafts)
+        setConfirmed(prev => ({ ...prev, ...promoted }))
+      })
+      .catch((e: unknown) => {
+        console.error('[chat] app.getBootstrap 调用失败', e)
+      })
+    return () => {
+      alive = false
     }
   }, [])
 
@@ -224,24 +291,61 @@ export function useChatData(): ChatData {
     return views
   }, [messages, tasks, evidence, needCount, results])
 
-  const patchDraft = useCallback((localId: string, patch: DraftPatch) => {
-    setDrafts(prev => {
-      const current = prev[localId]
-      if (!current) return prev
-      return { ...prev, [localId]: applyDraftPatch(current, patch, PENDING_CONFIG) }
-    })
-  }, [])
+  // localId → 所在消息的 id（promoteDraft 必须按消息定位草稿）
+  const draftMessageIds = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const message of messages) {
+      if (message.meta.kind !== 'task_draft') continue
+      for (const draft of message.meta.drafts) map[draft.localId] = message.id
+    }
+    return map
+  }, [messages])
+
+  const patchDraft = useCallback(
+    (localId: string, patch: DraftPatch) => {
+      if (!cfg) return
+      setDrafts(prev => {
+        const current = prev[localId]
+        if (!current) return prev
+        return { ...prev, [localId]: applyDraftPatch(current, patch, cfg) }
+      })
+    },
+    [cfg]
+  )
 
   const setEventResult = useCallback((taskId: string, result: EventResult) => {
     // TODO(W6): 换成 api.task.complete({ id, result })，现在只改本地展示
     setResults(prev => ({ ...prev, [taskId]: result }))
   }, [])
 
-  const confirmDraft = useCallback((localId: string) => {
-    // TODO(W5): 换成 api.ai.confirmDraft({ localId })，用返回的 Task.id 回填
-    seq.current += 1
-    setConfirmed(prev => ({ ...prev, [localId]: `task-local-${seq.current}` }))
-  }, [])
+  const confirmDraft = useCallback(
+    (localId: string) => {
+      // W5 接线②：确认 → api.task.promoteDraft，成功后回填已确认态（卡片变灰、显示任务 id）
+      const draft = drafts[localId]
+      if (!draft) return
+      // preload 缺席（纯浏览器开发场景）时退回 W3 的本地标记，不假装调过通道
+      if (typeof window.api === 'undefined') {
+        seq.current += 1
+        setConfirmed(prev => ({ ...prev, [localId]: `task-local-${seq.current}` }))
+        return
+      }
+      const messageId = draftMessageIds[localId]
+      if (!messageId) return
+      void window.api.task
+        .promoteDraft({ messageId, localId, patch: promotePatchOf(draft) })
+        .then(res => {
+          if (res.ok) {
+            setConfirmed(prev => ({ ...prev, [localId]: res.data.id }))
+          } else {
+            console.error('[chat] 确认草稿失败', res.error)
+          }
+        })
+        .catch((e: unknown) => {
+          console.error('[chat] 确认草稿调用失败', e)
+        })
+    },
+    [draftMessageIds, drafts]
+  )
 
   const rejectDraft = useCallback((localId: string) => {
     // TODO(W5): 换成 api.ai.rejectDrafts({ localIds: [localId] })
