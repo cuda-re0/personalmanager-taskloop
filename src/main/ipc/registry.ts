@@ -142,7 +142,11 @@ const TABLE: Row[] = [
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw appError('INVALID_INPUT', '只允许打开 http/https 链接', { detail: input.url })
     }
-    return shell.openExternal(parsed.toString())
+    // fire-and-forget：handler 语义是 void，不把 shell 的 Promise 透传给信封；
+    // 失败只进主进程日志（信封已收口同步路径，异步路径这里自己兜）
+    void shell.openExternal(parsed.toString()).catch(e => {
+      console.error('[ipc] openExternal 失败', parsed.toString(), e)
+    })
   }),
   row(CH.app.quit, g.quit, () => {
     app.quit()
@@ -196,10 +200,16 @@ const TABLE: Row[] = [
     return after
   }),
   row(CH.task.reorder, g.reorder, input => {
+    // 与 update 同一条 diffKeys 路径：taskRepo.reorder 同时写 sort_key 和 updated_at，
+    // 硬编码 ['sortKey'] 会漏掉 updatedAt（审核 P2）
+    const before = taskService.getTask(input.id)
     taskService.reorderTask(input.id, input.beforeId)
-    // reorderTask 内部 requireById（id 不存在抛 NOT_FOUND），到这里一定存活
-    const task = taskService.requireTask(input.id)
-    broadcast({ type: 'task.updated', task, changed: ['sortKey'] })
+    const after = taskService.requireTask(input.id)
+    broadcast({
+      type: 'task.updated',
+      task: after,
+      changed: before ? diffKeys(before, after) : []
+    })
   }),
   row(CH.task.createManual, g.createManual, input => {
     const task = taskService.createTask({ type: input.type, title: input.title, ...input.patch })

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { shell } from 'electron'
 import { CH } from '@shared/channels'
 import type { Bootstrap } from '@shared/types/ipc'
 import type { DomainEvent } from '@shared/types/events'
@@ -9,6 +10,17 @@ import { todayLocalDay } from '../../src/main/db/localDay'
 import { createHandlers, WIRED_CHANNELS, type IpcLike } from '../../src/main/ipc/registry'
 import type { IpcResult } from '../../src/shared/types/ipc'
 import { closeTestDb, openMemoryDb } from '../db/helpers'
+
+/**
+ * ELECTRON_RUN_AS_NODE 下没有真实 electron 运行时：app/shell/BrowserWindow 都是 undefined。
+ * openExternal 的放行分支要断言真的调了 shell.openExternal，所以这里 mock 掉整个模块
+ * （本文件其余用例不依赖真实 electron 行为，替换无副作用）。
+ */
+vi.mock('electron', () => ({
+  app: { quit: vi.fn() },
+  shell: { openExternal: vi.fn(async () => undefined) },
+  BrowserWindow: { getAllWindows: () => [] }
+}))
 
 /**
  * 假 ipc：只实现 createHandlers 需要的 { handle }。
@@ -178,6 +190,8 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
     expect(events).toEqual([])
   })
 
+  // 两条背靠背 appendMessage 常落在同一毫秒；repo 的排序 tiebreaker 是 rowid（插入序），
+  // 排序是全序，不再依赖随机 id（同毫秒对与翻页的专项断言在 tests/db/message.test.ts）
   it('msg.list 返回消息（升序）', () => {
     messageService.appendMessage({ role: 'user', kind: 'text', contentMd: '第一句' })
     messageService.appendMessage({ role: 'assistant', kind: 'text', contentMd: '第二句' })
@@ -195,5 +209,64 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
     // W1 的 softRemove 对已删任务再删一次也成功（WHERE 只按 id，updated_at 变了照样命中），
     // 幂等 no-op，不算缺口但记录在案
     callOk(CH.task.remove, { id: task.id })
+  })
+
+  it('task.reorder 的 changed 走 diffKeys：sortKey 与 updatedAt 都在（审核 P2）', async () => {
+    const a = taskService.createTask({ type: 'deadline', title: '甲' })
+    taskService.createTask({ type: 'deadline', title: '乙' })
+    // updated_at 是毫秒级 ISO 字符串：同毫秒内 reorder 写的值与 before 相同，diffKeys 比不出差异。
+    // 跨过毫秒边界才能让真实差异显形
+    await new Promise(resolve => setTimeout(resolve, 5))
+    events = []
+
+    callOk(CH.task.reorder, { id: a.id, beforeId: null })
+    const updated = eventsOf('task.updated')
+    expect(updated.length).toBe(1)
+    const changed = (updated[0] as { changed: string[] }).changed
+    expect(changed).toContain('sortKey')
+    expect(changed).toContain('updatedAt')
+  })
+
+  it('app.setSetting 写入并广播 app.setting.changed', () => {
+    callOk(CH.app.setSetting, { key: 'app.theme', value: 'dark' })
+    const changed = eventsOf('app.setting.changed')
+    expect(changed.length).toBe(1)
+    expect(changed[0]).toMatchObject({ key: 'app.theme', value: 'dark' })
+    // 写进去了：getBootstrap 能读回
+    const boot = callOk(CH.app.getBootstrap) as Bootstrap
+    expect(boot.settings['app.theme']).toBe('dark')
+  })
+
+  it('app.setSetting 未登记的 key → INVALID_INPUT「未知的配置项」，不广播', () => {
+    const result = call(CH.app.setSetting, { key: 'nope.key', value: 1 })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_INPUT')
+      expect(result.error.message).toBe('未知的配置项')
+    }
+    expect(events).toEqual([])
+  })
+
+  it('app.openExternal：http/https 放行并调 shell.openExternal', async () => {
+    const mocked = vi.mocked(shell.openExternal)
+    mocked.mockClear()
+    callOk(CH.app.openExternal, { url: 'https://example.com/page?a=1' })
+    callOk(CH.app.openExternal, { url: 'http://example.com' })
+    expect(mocked).toHaveBeenCalledTimes(2)
+    expect(mocked).toHaveBeenNthCalledWith(1, 'https://example.com/page?a=1')
+    expect(mocked).toHaveBeenNthCalledWith(2, 'http://example.com/')
+  })
+
+  it('app.openExternal：ftp: 与 javascript: 拒绝为「只允许打开 http/https 链接」', () => {
+    for (const url of ['ftp://example.com/file', 'javascript:alert(1)']) {
+      const result = call(CH.app.openExternal, { url })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_INPUT')
+        expect(result.error.message).toBe('只允许打开 http/https 链接')
+      }
+    }
+    expect(vi.mocked(shell.openExternal)).not.toHaveBeenCalledWith('ftp://example.com/file')
+    expect(vi.mocked(shell.openExternal)).not.toHaveBeenCalledWith('javascript:alert(1)')
   })
 })

@@ -54,6 +54,14 @@ describe('guards（zod 形状校验）', () => {
     expectErrorCode(() => parseInput(g.getBootstrap, { hack: true }), 'INVALID_INPUT')
   })
 
+  it('limit 必须 ≥1（LIMIT 0 恒空、LIMIT -1 返回全表）', () => {
+    for (const schema of [g.msgList, g.ledger]) {
+      expectErrorCode(() => parseInput(schema, { limit: 0 }), 'INVALID_INPUT')
+      expectErrorCode(() => parseInput(schema, { limit: -1 }), 'INVALID_INPUT')
+      expect(parseInput(schema, { limit: 1 })).toEqual({ limit: 1 })
+    }
+  })
+
   it('未接的通道没有守卫（不放假 handler 的一部分）', () => {
     expect(guards[CH.task.complete]).toBeUndefined()
     expect(guards[CH.attachment.add]).toBeUndefined()

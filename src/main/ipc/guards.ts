@@ -104,13 +104,17 @@ export const g = {
   dayIndex: z.object(monthInput),
   dayDetail: z.object({ day: z.string() }),
   // msg
-  msgList: z.object({ before: z.string().optional(), limit: z.number().int().optional() }),
+  // limit 必须 ≥1：LIMIT 0 恒空、LIMIT -1 在 SQLite 里返回全表，都不该被当成合法分页
+  msgList: z.object({
+    before: z.string().optional(),
+    limit: z.number().int().min(1).optional()
+  }),
   // points
   balance: z.undefined(),
   ledger: z.object({
     from: z.string().optional(),
     to: z.string().optional(),
-    limit: z.number().int().optional()
+    limit: z.number().int().min(1).optional()
   }),
   monthStats: z.object(monthInput),
   adjust: z.object({ delta: z.number(), reason: z.string() }),
