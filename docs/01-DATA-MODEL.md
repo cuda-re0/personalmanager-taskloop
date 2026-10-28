@@ -303,7 +303,8 @@ CREATE TABLE settings (
 | `hud.mode` | `"dock-bar"` | `dock-bar` / `float-pod` |
 | `hud.displayId` | `null` | 所在显示器 |
 | `hud.position` | `{"x":null,"y":null}` | float-pod 的坐标 |
-| `hud.autoHideFullscreen` | `true` | 全屏应用时隐藏 |
+| `hud.expanded` | `{"dock-bar":false,"float-pod":false}` | 两模式各记一份展开态（v0.17 新增，05 W9 验收 2「重启保持」） |
+| `hud.autoHideFullscreen` | `true` | 全屏应用时隐藏。**v0.17：本轮不实现检测**（无原生依赖时不可靠，W10 真机评估），key 保留 |
 | `points.difficultyBase` | `{"trivial":5,"easy":10,"medium":20,"hard":35,"epic":50}` | ★ B 中档，已定 |
 | `points.dailyBase` | `1` | ★ 每日任务单日基础分，已定 |
 | `points.streakBonus` | `[{"days":7,"bonus":5},{"days":30,"bonus":20}]` | ★ 连续里程碑，已定 |

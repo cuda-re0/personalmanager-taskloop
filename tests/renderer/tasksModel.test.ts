@@ -132,6 +132,7 @@ describe('pointsConfigOf（02 §5.2b：settings 的 points.* → 完整 PointsCo
       'hud.mode': 'dock-bar',
       'hud.displayId': null,
       'hud.position': { x: null, y: null },
+      'hud.expanded': { 'dock-bar': false, 'float-pod': false },
       'hud.autoHideFullscreen': true,
       'points.difficultyBase': { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
       'points.dailyBase': 1,

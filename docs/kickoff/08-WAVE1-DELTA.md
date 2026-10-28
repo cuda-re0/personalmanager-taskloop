@@ -263,3 +263,27 @@ W5 收工复审 PASS（无 P0/P1，2 项 P2），处置如下：
 3. **W6B 授权收缩**：原写的 `src/main/ipc/handlers/calendar.ts` 不存在（registry 单片文件），且 calendar 两通道已接通——改为纯渲染层 + `index.tsx` 仅挂载。
 4. **W6B→W6 交接点**：浮层点行派发 `window CustomEvent('taskloop:focus-task', {detail:{id}})`，W6 在 TasksPanel 监听（授权内小改）；W6 未接通不阻塞 W6B 验收。
 5. 开工词：`kickoff/11-W6-积分.md`、`kickoff/12-W6B-日历.md`。
+
+### v0.17（W9 开工前，2026-10-28）
+
+1. **W9 时序修正（覆盖 v0.16 第 1 条里"W9 可并行"的措辞）**：W9 文件面确实独立，但功能验收依赖 W6——验收 1「主窗勾完任务，悬浮条 100ms 内更新」要 `task.complete` / `occurrence.complete` 与 `points.changed`，W6 未合入时四条通道仍在 NOT_WIRED，只能靠假数据"通过"。且三线同改 `registry.ts`（W6 四条 / W9 五条）、`guards.ts`、`index.tsx` 必撞。**裁决：W9 排在 W6 合入之后开工**，不并行。
+2. **05 W9 授权路径修正**：原写 `src/main/windows/hudWindow.ts`，该文件与 `windows/` 目录都不存在，HUD 窗体在 `src/main/windowManager.ts`。授权改为 windowManager.ts（仅 HUD 部分，`createMainWindow` 零改动），并补 `registry.ts` / `guards.ts`（5 条 hud）、`preload/index.ts`（`hud.getState` 返回形状）、新建 `src/renderer/main/components/AppHeader.tsx` 与 `index.tsx` 挂顶栏。
+3. **新增 settings key `hud.expanded`**（`{ 'dock-bar': boolean; 'float-pod': boolean }`）：05 W9 验收 2 要求"切换模式后位置与展开态各自记忆，重启保持"，而原有四个 `hud.*` key 没有存展开态的位置。同步改 01 §2.7、02 §3.0 `AppSettings`、`defaultSettings.ts`（14 → 15 key）、`settings.test.ts` 两处计数。
+4. **`hud.getState` 返回加 `visible`**：顶栏开关需要初态，原返回 `{mode, expanded, displayId}` 无法得知 HUD 是否可见。纯新增字段，向后兼容；02 §3.7b 表与 `ipc.ts` / `preload` 同步。
+5. **`hud.setExpanded` 语义扩为两模式通用**：02 原注"dock-bar 展开/收起"，但 float-pod 从 56×56 到 360×480 同样必须由主进程 `setBounds`。入参不变，仅改说明。
+6. **验收 4「全屏自动隐藏」降级顺延 W10**：纯 Electron 无原生依赖时无法可靠检测外部全屏（`isFullScreen()` 只对自己窗口；`bounds` vs `workArea` 只在任务栏自动隐藏场景有信号，borderless 全屏不触发）。本轮只做手动隐藏，`hud.autoHideFullscreen` key 保留标"未实现"，**明确禁止写永远为 false 的假检测**；W10 真机评估是否引入原生模块。
+7. **HUD 快速加任务改走 `task.createManual`**：04 §5.6 原写 `msg.send`，但 `msg.send` 归 W4 未接。W4 之前直建 `deadline / medium / 无 due_at`，W4 接上后升级为 AI 解析（04 §5.6 已注）。
+8. **不新增 `app.focusMain` 通道**：04 §5.2 图里的"最近待办标题 →"不实现——04 §5.6 的交互边界是权威条款，其中未列"跳转主窗"，为它开一条新通道不划算。HUD 只显示标题，不做跳转，也不放空按钮。
+9. **杂项修正**：`registry.ts` 里 `channels: []` 的注释原写"W9 落地前恒为空"，实为 W8（通知渠道），已改。
+10. 开工词：`kickoff/13-W9-悬浮窗.md`。
+
+### v0.18（W6 / W6B 交付审阅后，2026-10-28）
+
+W6 `f15ba01`、W6B `949747e` 双双合入，基线复核 **27 文件 / 341 条全绿**（typecheck / lint / build 零错）。W6B 报的四条处置：
+
+1. **文案登记补行（P2-1，成立）**：04 §1 原本没有日历相关的固定文案出处，W6B 用的月份标题、星期列头、浮层标题、行尾分值确实无登记。已在 §1「状态中文名」后新增「显示格式（已登记）」表，收五条（含类型标签与 §4① 同源），并重申格式串外面不许包解释性文字。
+2. **空态口径确认（P2-2，按 W6B 取舍定）**：只有 `total > 0` 的日期可点（与 05 验收一致），`dayDetail` 返回空时保留浮层标题、列表区留白 + 40px 最小高度，不造"暂无任务"文案。已写进 04 §4②。
+3. **分值语义（P3，按原值显示是对的）**：`dayDetail` 已完成给 `points_awarded`、未完成给 `points_planned`，两者可能因质量/效率系数不等；渲染层照原值显示、不重算、不标记。要区分需新增登记文案，本轮不做。已写进 04 §4②。
+4. **`toLocalDay` 三处重复实现（P2-3，认可但本轮不动）**：主进程 `db/localDay.ts`、`features/tasks/tasksModel.ts`、`features/calendar/calendarModel.ts` 各有一份同口径实现（都用 `getFullYear/getMonth/getDate`，都没用 `toISOString`）。**裁决：登记为待清理项，等 W9 收工后提到 `src/shared`**——理由：现在动 shared 会与 W9 的窗口/时间计算改动交叉，且三份当前口径一致、无 bug，不是正确性问题。
+5. **W6B 的 `focus-task` 交接点已验通**：W6 侧有 `features/tasks/focusTask.ts` + `useTasksData` 监听 + `scrollIntoView` + 1.2s 高亮，04 §4② 的"点行滚到并高亮"整条链路成立。
+6. **并行提交纪律执行到位**：W6B 用显式 `git add` 提交 6 个文件，W6 的 `<PointsPanel />` 与 `<CalendarPanel />` 在 `index.tsx` 里并列共存，没有互相冲掉。

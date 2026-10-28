@@ -93,6 +93,7 @@ export interface AppSettings {
   'hud.mode': HudMode
   'hud.displayId': number | null
   'hud.position': { x: number | null; y: number | null }
+  'hud.expanded': { 'dock-bar': boolean; 'float-pod': boolean }
   'hud.autoHideFullscreen': boolean
   'points.difficultyBase': Record<Difficulty, number>
   'points.dailyBase': number
@@ -246,7 +247,9 @@ export interface Api {
     setExpanded(input: { expanded: boolean }): Promise<IpcResult<void>>
     moveTo(input: { x: number; y: number }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
-    getState(): Promise<IpcResult<{ mode: HudMode; expanded: boolean; displayId: number }>>
+    getState(): Promise<
+      IpcResult<{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }>
+    >
   }
 
   /** 唯一事件入口，返回取消订阅函数 */

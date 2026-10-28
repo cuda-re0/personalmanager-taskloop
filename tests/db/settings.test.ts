@@ -14,9 +14,9 @@ afterEach(() => {
 })
 
 describe('settings', () => {
-  it('空表时 getAll 返回 AppSettings 全量 14 个 key（不返回 undefined）', () => {
+  it('空表时 getAll 返回 AppSettings 全量 15 个 key（不返回 undefined）', () => {
     const all = settingRepo.getAll()
-    expect(Object.keys(all)).toHaveLength(14)
+    expect(Object.keys(all)).toHaveLength(15)
     expect(Object.keys(all).sort()).toEqual([...SETTING_KEYS].sort())
     expect(all).toEqual(DEFAULT_SETTINGS)
     expect(SETTING_KEYS).not.toContain('ai.apiKey')
@@ -77,7 +77,7 @@ describe('settings', () => {
       )
       .run()
     const all = settingRepo.getAll()
-    expect(Object.keys(all)).toHaveLength(14)
+    expect(Object.keys(all)).toHaveLength(15)
     expect((all as unknown as Record<string, unknown>)['future.flag']).toBeUndefined()
   })
 })

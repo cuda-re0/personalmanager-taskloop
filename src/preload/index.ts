@@ -115,9 +115,12 @@ const api: Api = {
     moveTo: input => invoke<void>(CH.hud.moveTo, input),
     setVisible: input => invoke<void>(CH.hud.setVisible, input),
     getState: () =>
-      invoke<{ mode: 'dock-bar' | 'float-pod'; expanded: boolean; displayId: number }>(
-        CH.hud.getState
-      )
+      invoke<{
+        mode: 'dock-bar' | 'float-pod'
+        expanded: boolean
+        displayId: number
+        visible: boolean
+      }>(CH.hud.getState)
   },
 
   onEvent: cb => {

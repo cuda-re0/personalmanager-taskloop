@@ -1,7 +1,7 @@
 import type { AppSettings } from '../../shared/types/ipc'
 
 /**
- * settings 默认值。逐条对应 01 §2.7 的「默认值」列与 02 §3.0 的 `AppSettings` 封闭接口（14 个 key）。
+ * settings 默认值。逐条对应 01 §2.7 的「默认值」列与 02 §3.0 的 `AppSettings` 封闭接口（15 个 key）。
  *
  * `ai.apiKey` 故意不在这里：它存 `safeStorage`，既不入 settings 表也不在 `AppSettings` 里（02 §3.0 末段）。
  *
@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   'hud.mode': 'dock-bar',
   'hud.displayId': null,
   'hud.position': { x: null, y: null },
+  'hud.expanded': { 'dock-bar': false, 'float-pod': false },
   'hud.autoHideFullscreen': true,
   'points.difficultyBase': { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
   'points.dailyBase': 1,

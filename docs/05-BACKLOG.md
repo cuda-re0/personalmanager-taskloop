@@ -369,7 +369,7 @@
 
 ## W9 · 悬浮窗
 
-**只许改**：`src/renderer/hud/**`、`src/main/windows/hudWindow.ts`、`src/main/services/hudService.ts`
+**只许改**：`src/renderer/hud/**`、`src/main/windowManager.ts`（仅 HUD 部分，05 原写 `src/main/windows/hudWindow.ts` 不存在，见 v0.17）、`src/main/services/hudService.ts`、`src/main/ipc/registry.ts` + `guards.ts`（仅 5 条 hud）、`src/preload/index.ts`（仅 `hud.getState` 返回形状）、`src/renderer/main/components/AppHeader.tsx`（新建）、`src/renderer/main/index.tsx`（仅挂顶栏）
 
 **交付**
 
@@ -385,7 +385,7 @@
 - [ ] 主窗勾完一个任务，悬浮条上的完成数与积分在 100ms 内更新。
 - [ ] 切换模式后位置与展开态各自记忆，重启保持。
 - [ ] 拖动 float-pod 到屏幕边缘松开，吸附且不下沉到任务栏下面。
-- [ ] 打开全屏视频，悬浮条自动隐藏；退出后恢复。
+- [ ] ~~打开全屏视频，悬浮条自动隐藏；退出后恢复。~~ **（v0.17 顺延 W10：无原生依赖检测不可靠，本轮改为手动隐藏可用 + 该条 W10 真机评估）**
 - [ ] 拔掉副屏重启，悬浮条回到主屏顶部而不是屏幕外。
 - [ ] 125% / 150% 缩放下不掉字、不重叠。
 

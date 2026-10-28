@@ -364,7 +364,8 @@ export interface AppSettings {
   'hud.mode': HudMode;
   'hud.displayId': number | null;
   'hud.position': { x: number | null; y: number | null };
-  'hud.autoHideFullscreen': boolean;
+  'hud.expanded': { 'dock-bar': boolean; 'float-pod': boolean };  // v0.17：两模式各记一份展开态（05 W9 验收 2「重启保持」）
+  'hud.autoHideFullscreen': boolean;                              // 保留 key，本轮不实现检测（v0.17 降级，见 04 §5.2）
   'points.difficultyBase': Record<Difficulty, number>;
   'points.dailyBase': number;
   'points.streakBonus': { days: number; bonus: number }[];
@@ -543,10 +544,10 @@ export type CompleteTaskInput =
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
 | `hud.setMode` | `{ mode: 'dock-bar' \| 'float-pod' }` | `void` | 切换模式，同一窗口重建或缩放宽高 |
-| `hud.setExpanded` | `{ expanded: boolean }` | `void` | dock-bar 悬浮展开/收起，由渲染层 hover 触发 |
-| `hud.moveTo` | `{ x: number; y: number }` | `void` | float-pod 拖动结束调用，主进程负责 clamp 到可视区域 |
+| `hud.setExpanded` | `{ expanded: boolean }` | `void` | 展开/收起，**两种模式通用**（v0.17：dock-bar 由渲染层 hover 触发，float-pod 由点击/ESC 触发）；高度由主进程 `setBounds`，不走 CSS |
+| `hud.moveTo` | `{ x: number; y: number }` | `void` | 主进程 clamp 到该显示器 `workArea` 后落库。float-pod 拖动本身由主进程 `move` 事件去抖收尾，不依赖本通道（v0.17） |
 | `hud.setVisible` | `{ visible: boolean }` | `void` | |
-| `hud.getState` | — | `{ mode: HudMode; expanded: boolean; displayId: number }` | |
+| `hud.getState` | — | `{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }` | `visible` 取 `win.isVisible()`，v0.17 新增——顶栏开关需要初态 |
 
 ### 3.8 `api.onEvent`（唯一事件入口）
 
