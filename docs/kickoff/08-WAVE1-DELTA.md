@@ -4,8 +4,12 @@
 > 而开工词没有逐份重写（改 6 份会漂移 6 次）。下面每条都是**硬变更**：
 > 与你手上的模块开工词冲突时**以本文为准**，本文没提到的以 `docs/` 为准。
 >
-> **契约冻结**：git tag `contract-v0.7`（commit `c58e0c8`）。你读的 `docs/` 应为该 tag 的内容，
+> **契约冻结**：git tag `contract-v0.10`。你读的 `docs/` 应为该 tag 的内容，
 > 若不是（例如发现文档比你开工词还旧），停下来报告，不要按旧版实现。
+>
+> **架构方自己维护的文件**（不在任何施工会话的授权清单里，因此它们变化不算越界）：
+> `src/shared/**`、`src/main/windowManager.ts`、`docs/**`、`package.json` 的 `scripts` 段、
+> `scripts/**`、`tsconfig*.json`。施工方看到这些文件变了，**不要改回去、不要报越界**。
 
 ---
 
@@ -92,9 +96,12 @@ export type PublicSettings = AppSettings
 ```
 npm run typecheck
 npm run lint
+npm test
 ```
 
-两条都 exit 0 才算交付。只写"我认为没问题"不算。
+三条都 exit 0 才算交付。只写"我认为没问题"不算。
+
+`npm test` 走 `scripts/test.mjs`（用 Electron 内置 node 跑 vitest，绕开 better-sqlite3 的 ABI 差异），不是裸的 `vitest run`。`typecheck` 现在有三段，第三段 `tsconfig.test.json` 专门检查 `tests/`——**此前 tests 从未被 tsc 检查过**，这是 v0.9 之后补的。
 
 ---
 
@@ -106,8 +113,7 @@ npm run lint
 2. **新增交付项**：`tests/shared/rubric.test.ts`。按 `02 §5.2` 示例表逐行断言六组
    `computePlannedPoints` + `computeAwardedPoints` 的质量系数与逾期扣分。
    **只测不改**：`rubric.ts` 若与 02 不一致，报告，不要自行修正。
-   **`vitest@2.1.8` 已由调度方装好**，你不要跑 `npm i`；只需在 `package.json` 的 `scripts` 里加
-   `"test": "vitest run"`，让 `npm test` 能跑。
+   **`vitest@2.1.8` 已由调度方装好**，你不要跑 `npm i`。`"test": "node scripts/test.mjs"` 也已由架构方配好，**你不用再加**。
 3. **`settingRepo` 的读取必须返回 `AppSettings` 全量**：DB 里只存用户改过的 key，
    读出时用 `DEFAULT_SETTINGS` 合并补齐。渲染层不处理 `undefined`——缺 key 是你的 bug。
 4. **settings 的 value 是 JSON 字符串**：`JSON.parse` 失败要抛错，**不许静默返回默认值**。
