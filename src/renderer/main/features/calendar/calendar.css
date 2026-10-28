@@ -1,0 +1,237 @@
+/* 右栏②「日历」（04 §4②）。颜色只取 tokens.css 的变量，不新增色值。 */
+
+.calendar-panel {
+  position: relative;
+  flex: 0 0 auto;
+  height: 240px;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+  border-top: 1px solid var(--border);
+  box-sizing: border-box;
+  font-family: var(--font);
+}
+
+/* 顶部一行：‹  2026 年 10 月  › */
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 2px;
+}
+
+.calendar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-nav {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendar-nav:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.calendar-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 2px 16px 0;
+}
+
+/* 格子：日期数字 + 固定 6px 红点行（没点也占位，防止行高跳动） */
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-cell--marked {
+  cursor: pointer;
+}
+
+.calendar-cell--marked:hover {
+  background: var(--bg-hover);
+}
+
+.calendar-cell--today {
+  border-color: var(--text-sub);
+  font-weight: 600;
+}
+
+.calendar-cell--open {
+  background: var(--bg-hover);
+}
+
+.calendar-daynum {
+  line-height: 1.1;
+}
+
+.calendar-dotrow {
+  height: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.calendar-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.calendar-dot--solid {
+  background: var(--dot);
+}
+
+.calendar-dot--hollow {
+  border: 1.5px solid var(--dot);
+  background: transparent;
+}
+
+/* 按日展开的浮层：宽 400px（= 右栏宽）、最大高 200px、覆盖下方区块、不挤压布局 */
+.calendar-floor {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: 2px;
+  max-height: 200px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-float);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.calendar-floor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.calendar-floor-close {
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendar-floor-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.calendar-floor-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 空日留白，不写"暂无任务"（04 §7）；给一段高度，浮层不至缩成一条细边 */
+.calendar-floor-list--empty {
+  min-height: 40px;
+}
+
+.calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.calendar-row:hover {
+  background: var(--bg-hover);
+}
+
+.calendar-row--done {
+  opacity: 0.55;
+}
+
+.calendar-row--done .calendar-row-title {
+  text-decoration: line-through;
+}
+
+.calendar-row-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.calendar-row-meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
