@@ -316,9 +316,10 @@ export interface WebhookConfig {
 }
 
 /**
- * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应。
+ * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应
+ * —— 除去 `ai.apiKey`：它存 `safeStorage`，不入表，因此也不在此类型中，
+ * 从类型层面保证密钥不可能出现在 IPC 上。
  * **封闭接口**：新增 key 必须先改这里 + 01 §2.7，两边同时改。
- * 表里不含任何密钥（API Key / webhook token 只存 `safeStorage`），因此全量可暴露给渲染层。
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string };

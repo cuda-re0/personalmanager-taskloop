@@ -293,7 +293,7 @@ CREATE TABLE settings (
 | key | 默认值 | 说明 |
 |---|---|---|
 | `ai.provider` | `{"name":"zhipu","model":"glm-5.3-flash"}` | 接入前需真机验证该模型支持图片。**本版 `name` 只接受 `zhipu`**，`harness` 虽在契约里保留但未实现 |
-| `ai.apiKey` | `""` | 存 keytar / 安全存储，**不存明文 DB** |
+| `ai.apiKey` | `""` | 存 keytar / 安全存储，**不存明文 DB，也不在 `AppSettings` 里**（因此它永远不出现在 IPC 上） |
 | `hud.mode` | `"dock-bar"` | `dock-bar` / `float-pod` |
 | `hud.displayId` | `null` | 所在显示器 |
 | `hud.position` | `{"x":null,"y":null}` | float-pod 的坐标 |
