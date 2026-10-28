@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CH } from '@shared/channels'
-import type { Api, Bootstrap, IpcResult } from '@shared/types/ipc'
+import type { Api, AppSettings, Bootstrap, IpcResult } from '@shared/types/ipc'
 import type {
   DayIndexEntry,
   DayStat,
@@ -27,7 +27,8 @@ function invoke<T>(channel: string, payload?: unknown): Promise<IpcResult<T>> {
 const api: Api = {
   app: {
     getBootstrap: () => invoke<Bootstrap>(CH.app.getBootstrap),
-    setSetting: input => invoke<void>(CH.app.setSetting, input),
+    setSetting: <K extends keyof AppSettings>(input: { key: K; value: AppSettings[K] }) =>
+      invoke<void>(CH.app.setSetting, input),
     openExternal: input => invoke<void>(CH.app.openExternal, input),
     quit: () => invoke<void>(CH.app.quit)
   },

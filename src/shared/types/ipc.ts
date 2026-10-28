@@ -62,18 +62,51 @@ export interface Bootstrap {
   channels: { id: NotifyChannel; available: boolean }[] // 通知渠道可用性
 }
 
-/**
- * 渲染层可见的 settings 投影。
- * 02 文档只写了 `settings: PublicSettings` 没有给出结构，此处不预设任何字段：
- * 具体 key 由 W1 落库、由设置页按需读取（`app.setSetting` 的 key 是开放的）。
- */
-export type PublicSettings = Record<string, unknown>
-
 /* ------------------------------------------------------------------ *
- * §3.7 hud 模式（02 文档引用了 HudMode 但未定义）
+ * §3.0 补充类型
  * ------------------------------------------------------------------ */
 
+/** 悬浮形态：顶部贴边条 / 自由浮窗 */
 export type HudMode = 'dock-bar' | 'float-pod'
+
+/** webhook 渠道配置（非敏感部分；token 存 safeStorage，不在此） */
+export interface WebhookConfig {
+  url: string
+  method: 'POST'
+  /** 自定义 header，用于 `Authorization: Bearer <token>` 这类鉴权 */
+  headers: Record<string, string>
+  /** body 模板，可用变量：{{title}} {{detail}} {{offsetLabel}} {{dueAt}} {{level}} */
+  bodyTemplate: string
+}
+
+/**
+ * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应。
+ * **封闭接口**：新增 key 必须先改这里 + 01 §2.7，两边同时改。
+ * 表里不含任何密钥（API Key / webhook token 只存 `safeStorage`），因此全量可暴露给渲染层。
+ */
+export interface AppSettings {
+  'ai.provider': { name: 'zhipu'; model: string }
+  'hud.mode': HudMode
+  'hud.displayId': number | null
+  'hud.position': { x: number | null; y: number | null }
+  'hud.autoHideFullscreen': boolean
+  'points.difficultyBase': Record<Difficulty, number>
+  'points.dailyBase': number
+  'points.streakBonus': { days: number; bonus: number }[]
+  'points.dailyCap': number | null
+  'reminder.quietHours': { from: string; to: string } // 'HH:mm'
+  'reminder.channels': NotifyChannel[]
+  'channel.mail': { to: string } | null // null = 未配置，渠道 available()=false
+  'channel.webhook': WebhookConfig | null
+  'app.theme': 'light' | 'dark'
+}
+
+/**
+ * 渲染层可见的配置投影 = `AppSettings` 全量。
+ * **必须有全部字段**：`app.getBootstrap` 返回前要把 DB 里的值与 `DEFAULT_SETTINGS` 合并补齐，
+ * 渲染层不应处理 `undefined`。缺 key 视为 W1 的 bug，不是渲染层要兼容的情况。
+ */
+export type PublicSettings = AppSettings
 
 /* ------------------------------------------------------------------ *
  * §4 preload 暴露形状：window.api 的类型
@@ -82,7 +115,10 @@ export type HudMode = 'dock-bar' | 'float-pod'
 export interface Api {
   app: {
     getBootstrap(): Promise<IpcResult<Bootstrap>>
-    setSetting(input: { key: string; value: unknown }): Promise<IpcResult<void>>
+    setSetting<K extends keyof AppSettings>(input: {
+      key: K
+      value: AppSettings[K]
+    }): Promise<IpcResult<void>>
     openExternal(input: { url: string }): Promise<IpcResult<void>>
     quit(): Promise<IpcResult<void>>
   }
