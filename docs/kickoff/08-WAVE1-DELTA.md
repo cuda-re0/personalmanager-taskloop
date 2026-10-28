@@ -255,3 +255,11 @@ W5 收工复审 PASS（无 P0/P1，2 项 P2），处置如下：
 1. **02 §2 补 `TaskCreatePatch` 条目（架构方文档欠账）**：代码块里此前只有 `TaskPatch`，按 §2"源码契约"判据机器比对会红。已补接口定义（字段名/类型与 `domain.ts` 一致，注释注明只用于 promoteDraft、update 链路红线不变）。
 2. **幂等路径零广播（W5 补丁 `a8ebb93`）**：`promoteDraft` 内部返 `{ task, created }`（IPC 仍返 `Task`，契约不变），handler 在 `created=false` 时零广播——没有行被创建就不发 `created` 类事件。幂等用例补"第二次调用 events 为空"断言，新增 internal 形状用例；基线 22 文件 / 266 条全绿。
 3. 保留项：幂等路径仍读一次 `listRangeRaw`（只读无副作用），不为此移动差集取样的职责边界。
+
+### v0.16（W6 / W6B 并行开工前，2026-10-28）
+
+1. **并行结论**：W6 ∥ W6B 是设计好的组合，现状进一步简化——`calendar.dayIndex / dayDetail` 的 handler 与查询 W1/W2 已交，W6B 实际是**纯渲染层**，与 W6 零文件重叠。W9 也可与 W6 并行（05 已写），但属第三条线；W4 条件并行（需先过 03 §6 真机验证）；**W8 不可与 W6 并行**——`pointsService` 与 `reminderService` 都要改 `taskService`，05 点名的冲突高发区；W7 硬依赖 W6。
+2. **W6 授权扩展**：05 原只授权 `pointsService` + rubric（只读）+ points UI，但完成事务必须写 `taskService`（`completed_at` + `points_awarded` + ledger 同事务）、occurrence 三通道必须写 `occurrenceService`。扩为：taskService 仅 `completeTask/undoCompletion`、occurrenceService 仅 `complete/undo/skip`、registry+guards 仅四条通道、tasks UI 仅确认条接线。
+3. **W6B 授权收缩**：原写的 `src/main/ipc/handlers/calendar.ts` 不存在（registry 单片文件），且 calendar 两通道已接通——改为纯渲染层 + `index.tsx` 仅挂载。
+4. **W6B→W6 交接点**：浮层点行派发 `window CustomEvent('taskloop:focus-task', {detail:{id}})`，W6 在 TasksPanel 监听（授权内小改）；W6 未接通不阻塞 W6B 验收。
+5. 开工词：`kickoff/11-W6-积分.md`、`kickoff/12-W6B-日历.md`。

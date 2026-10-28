@@ -230,7 +230,7 @@
 
 ## W6 · 积分（含每日任务计分）
 
-**只许改**：`src/main/services/pointsService.ts`、`src/shared/points/rubric.ts`（**只读，公式不许改**）、`src/renderer/main/features/points/**`
+**只许改**：`src/main/services/pointsService.ts`、`src/main/services/taskService.ts`（仅 `completeTask` / `undoCompletion` 两个新函数）、`src/main/db/occurrenceService.ts`（仅 `complete` / `undo` / `skip` 三个新函数）、`src/main/ipc/registry.ts` 与 `guards.ts`（仅 `task.complete` + `occurrence.complete/undo/skip` 四条）、`src/shared/points/rubric.ts`（**只读，公式不许改**）、`src/renderer/main/features/points/**`、`src/renderer/main/features/tasks/**`（仅确认条接线）、`tests/**`（v0.16 授权扩展，理由见 kickoff/08 v0.16 与 kickoff/11）
 
 **交付**
 
@@ -259,7 +259,7 @@
 
 ## W6B · 日历（红点与按日展开）
 
-**只许改**：`src/main/services/occurrenceService.ts`、`src/main/ipc/handlers/calendar.ts`、`src/renderer/main/features/calendar/**`
+**只许改**：`src/renderer/main/features/calendar/**`、`src/renderer/main/index.tsx`（仅挂载日历区块）、`tests/renderer/**`。**主进程零改动**：`calendar.dayIndex / dayDetail` W1/W2 已接通并实现（v0.16 修正：原写的 `ipc/handlers/calendar.ts` 不存在），本线纯渲染层，口径问题只报告。
 
 **交付**
 
