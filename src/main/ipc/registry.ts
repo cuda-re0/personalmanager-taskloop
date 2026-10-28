@@ -32,12 +32,14 @@ export interface IpcLike {
 
 export type HandlerFn = (input: unknown) => unknown
 
-/** 未接通道的归属（05 W2 段的通道归属表） */
-export type NotWiredOwner = 'W4' | 'W6' | 'W8' | 'W9' | 'W11'
+/** 未接通道的归属（05 W2 段的通道归属表；promoteDraft 的改判见 kickoff/08 v0.14） */
+export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
 
 export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
-  // W6：草稿晋升 + 完成事务
-  [CH.task.promoteDraft]: { owner: 'W6' },
+  // W5：草稿晋升（v0.14 改判：原随"完成事务"成簇误标 W6，但 W6 授权目录不含 taskService，
+  // 且依赖链 W1→W5→W6 要求晋升先行。随 W5 开工词授权注册，见 kickoff/09）
+  [CH.task.promoteDraft]: { owner: 'W5' },
+  // W6：完成事务
   [CH.task.complete]: { owner: 'W6' },
   [CH.occurrence.complete]: { owner: 'W6' },
   [CH.occurrence.undo]: { owner: 'W6' },

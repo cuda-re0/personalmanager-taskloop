@@ -107,7 +107,8 @@
 | 归属 | 通道 | 数量 |
 |---|---|---|
 | **W2 本轮接** | `app` 全部 4 条；`task` 除 `promoteDraft` / `complete` 外 10 条；`occurrence.today` / `listByRange`；`calendar` 2 条；`msg.list`；`points` 全部 6 条 | 25 |
-| W6 | `task.complete`、`task.promoteDraft`、`occurrence.complete` / `undo` / `skip` | 5 |
+| W5 | `task.promoteDraft`（v0.14 改判，原误标 W6；理由见 kickoff/08 v0.14） | 1 |
+| W6 | `task.complete`、`occurrence.complete` / `undo` / `skip` | 4 |
 | W4 | `msg.send` / `retry`、`ai` 全部 4 条 | 6 |
 | W8 | `reminder` 全部 6 条（`reminders` 表在 W8 前恒为空，接上去也是空数据） | 6 |
 | W9 | `channel` 全部 3 条、`hud` 全部 5 条 | 8 |
@@ -197,7 +198,7 @@
 
 ## W5 · 草稿 → 任务
 
-**只许改**：`src/main/services/taskService.ts`、`src/renderer/main/features/tasks/**`
+**只许改**：`src/main/services/taskService.ts`、`src/renderer/main/features/tasks/**`、`src/renderer/main/features/chat/**`（仅限 v0.14 授权的两处接线，见 kickoff/09）、`src/main/ipc/registry.ts`（仅 promoteDraft 一条的注册与 guard）、`scripts/seed-dev-draft.mjs`（开发造数）、`tests/**`
 
 **交付**
 
@@ -205,7 +206,7 @@
 2. **按 type 分支落库**：
    - `deadline` / `event`：写 `due_at`，无 occurrence
    - `daily`：写 `daily_time` / `repeat_rule` / `active_from`，并立刻 `occurrenceService.ensureRange(今天, +3天)` 生成头几天
-3. **落库后立刻调 `reminderService.syncForTask(id)`**，让提醒在任务创建的那一刻就排好（不能等到 W8 才补）。
+3. **写操作广播**：promoteDraft / createManual 在 handler 层广播 `task.created`（含子任务各一条）+ `occurrence.created`（daily 的 `ensureRange` 差集）。**提醒的 `syncForTask` 归 W8**（05 W2 已知缺口）：W8 落地前 reminders 恒空，W5 不实现、不调用、渲染层不拼（v0.14 改判，原"落库后立刻调、不能等 W8"作废）。
 4. 草稿消息的 `meta_json` 里把该 draft 标记 `promoted: true`，避免重复确认。
 5. 右栏 ①「当前任务」列表（04 §4①）：三组分列、排序、就地展开详情、步骤勾选、完成按钮。
 6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。**注意（W2 交付时指出）：handler 层没有 sync 钩子**——`setReminderOffsets` / `createManual` / `update` 都只写 `tasks` 列、不建 `reminders` 行。这条"重新 sync"目前只能等 W8 的 `reminder.syncForTask` 落地后接线，W5 不许在渲染层自己拼提醒逻辑。
@@ -218,12 +219,12 @@
 
 **验收**
 
-- [ ] 确认草稿 → 会话卡片变已确认态 + 右栏列表立刻出现 + HUD 同步出现。
+- [ ] 确认草稿 → 会话卡片变已确认态 + 右栏列表立刻出现（HUD 同步出现顺延 W9——HUD 未开工）。
 - [ ] 同一 draft 点两次确认，只生成一个任务。
 - [ ] 确认一条"每天背单词"→ 右栏「每日」组出现，今日 occurrence 已生成，且**日历上不出红点**。
 - [ ] 展开任务、勾 2/3 个步骤、点完成 → 状态走 `reviewing`，出现确认条而非弹窗。
 - [ ] 拖动排序后重启应用顺序保持。
-- [ ] 把限时任务的截止时间从周五改到周六，`reminders` 表里的 `fire_at` 跟着变（不能残留旧行）。
+- [ ] 把限时任务的截止时间从周五改到周六，`reminders` 表里的 `fire_at` 跟着变（不能残留旧行）。**（v0.14：顺延 W8 验收——syncForTask 未落地前 reminders 恒空）**
 
 ---
 

@@ -31,14 +31,15 @@ describe('registry 通道覆盖', () => {
   })
 
   it('NOT_WIRED 每条都带 owner，且取值都是计划内的波次', () => {
-    const allowed = new Set(['W4', 'W6', 'W8', 'W9', 'W11'])
+    const allowed = new Set(['W4', 'W5', 'W6', 'W8', 'W9', 'W11'])
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
     expect(Object.keys(NOT_WIRED).length).toBe(26)
   })
 
-  it('关键归属抽查：task.complete→W6、ai.*→W4、hud.*→W9、attachment.add→W11', () => {
+  it('关键归属抽查：promoteDraft→W5（v0.14 改判）、task.complete→W6、ai.*→W4、hud.*→W9、attachment.add→W11', () => {
+    expect(NOT_WIRED[CH.task.promoteDraft]).toEqual({ owner: 'W5' })
     expect(NOT_WIRED[CH.task.complete]).toEqual({ owner: 'W6' })
     expect(NOT_WIRED[CH.ai.review]).toEqual({ owner: 'W4' })
     expect(NOT_WIRED[CH.hud.getState]).toEqual({ owner: 'W9' })

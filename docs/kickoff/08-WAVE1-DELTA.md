@@ -221,3 +221,13 @@ W11 报了七条，其中三条是我契约写错了，一条是我的任务书�
 7. `read()` 的 id 形状不合法与查不到行一样返回 `NOT_FOUND`，不在读盘前区分两种失败。
 
 另登记两条此前漏掉的文案（W11 实现里已经在用）：`INVALID_INPUT`「附件内容为空」「附件存放路径非法」、`FILE_TOO_LARGE`「附件超过 {N} MiB 上限」。
+
+### v0.14（W5 开工前，2026-10-28）
+
+三轮收工审核 PASS 后准备开 W5，写开工词时在代码与文档里核出两条归属矛盾，由架构方裁决如下：
+
+1. **`task.promoteDraft` 归属改判 W6 → W5。** 05 W2 归属表与 `registry.ts` 原把它随"完成事务"成簇标给 W6，但 W6 的授权目录不含 `taskService.ts`（promoteDraft 的业务实现只能写在 W5 的授权文件里），且依赖链 W1→W5→W6 要求晋升先行。已同步：05 W2 归属表（W6 剩 4 条、新增 W5 行）、`registry.ts` 的 `NotWiredOwner` 类型与 owner 标签、`tests/ipc/registry.test.ts` 的 owner 白名单与归属抽查。**通道仍在 NOT_WIRED（26 条不变）**，注册与 guard 随 W5 授权完成。
+2. **提醒 sync 顺延 W8。** 05 W5 段原交付 3 写"落库后立刻调 `syncForTask`、不能等到 W8"，与 v0.12 后的三处登记（05 W2 已知缺口、registry 注释、STATE 缺口表）矛盾。裁决：W5 不实现、不调用、渲染层不拼；05 W5 交付 3 改写为"写操作广播"要求，验收 6（改截止时间后 reminders 跟变）顺延 W8 验收，验收 1 的 HUD 部分顺延 W9。
+3. **重复确认幂等补定**：同一 draft 第二次 promoteDraft（含绕过 UI 直调通道）返回已生成的原 Task，不重复落库、不报错。02 §3.2 尚未回填，W5 交付报告会提醒。
+4. **W5 授权扩展**（先例同 W11 的小改豁免）：`chat/**` 仅限两处接线（PENDING_CONFIG 接真配置、确认按钮调 promoteDraft）、`registry.ts` 仅 promoteDraft 一条注册、`scripts/seed-dev-draft.mjs` 开发造数。超出即越界。
+5. W5 开工词：`kickoff/09-W5-草稿转任务.md`。
