@@ -87,7 +87,12 @@ export function isValidDay(day: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
 }
 
-export function assertDay(day: string, label = 'day'): string {
+/**
+ * 校验 `YYYY-MM-DD`。`label` 是会被 UI 直接渲染的中文日期字段名
+ * （04 §1.1 登记的文案：「{日期字段} 必须是 YYYY-MM-DD 格式的本地日期」），
+ * 所以默认值和调用点都不许传英文，否则用户看到「from 必须是 …」。
+ */
+export function assertDay(day: string, label = '日期'): string {
   if (!isValidDay(day)) {
     throw appError('INVALID_INPUT', `${label} 必须是 YYYY-MM-DD 格式的本地日期`, {
       detail: `收到 ${JSON.stringify(day)}`

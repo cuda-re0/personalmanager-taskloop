@@ -75,8 +75,8 @@ function bumpCounter(day: string, column: 'tasks_created' | 'tasks_done' | 'occu
  * ------------------------------------------------------------------ */
 
 export function dayIndex(from: string, to: string): DayIndexEntry[] {
-  assertDay(from, 'from')
-  assertDay(to, 'to')
+  assertDay(from, '起始日')
+  assertDay(to, '结束日')
   if (from > to) throw appError('INVALID_INPUT', '日期区间起点晚于终点', { detail: `${from} > ${to}` })
   const rows = getDb()
     .prepare(

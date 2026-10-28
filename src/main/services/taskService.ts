@@ -9,6 +9,7 @@ import type {
   TaskType
 } from '../../shared/types/domain'
 import { computePlannedPoints } from '../../shared/points/rubric'
+import { isDifficultyAllowed } from '../../shared/taskRules'
 import { tx } from '../db/connection'
 import { appError } from '../db/errors'
 import { isoToLocalDay, nowIso } from '../db/localDay'
@@ -84,9 +85,18 @@ export function createTask(input: CreateTaskInput): Task {
     ? []
     : (input.reminderOffsets ?? DEFAULT_OFFSETS[input.type] ?? [])
 
-  // 难度：DDL 的默认值是 'easy'（01 §2.1）。写库与算分必须取同一个值，
-  // 否则会出现"卡片显示 easy、分数按 medium 算"的两套口径（02 §5.2 的 DraftTask 注记）。
-  const difficulty = input.difficulty ?? 'easy'
+  // 默认难度是 medium，不是 DDL 里的 'easy'：01 §2.1 的 DEFAULT 'easy' 只是 SQL 兜底，
+  // 应用层默认档由 02 §5.2b 定。easy 对 event 非法（ALLOWED_DIFFICULTIES.event 从 medium 起），
+  // 用 'easy' 当默认会落一条 10 分的 event 任务，而 04 §3.2 的下拉里根本没有这一项。
+  const difficulty = input.difficulty ?? 'medium'
+
+  // 主进程只拒绝、不归位：归位（snapDifficulty）是渲染层的事（02 §5.2b）。
+  // 这里悄悄换档会让卡面与库里两套口径，所以非法组合一律报错。
+  if (!isDifficultyAllowed(input.type, difficulty)) {
+    throw appError('INVALID_INPUT', '该任务类型不支持所选难度', {
+      detail: `${input.type} + ${difficulty}`
+    })
+  }
 
   // 显式给了就必须合法：planned=0 会让 clamp(hi=0 < lo=1) 恒返回 0，做完永远 0 分（02 §5.2）
   if (input.pointsPlanned !== undefined && !(input.pointsPlanned >= 1)) {
@@ -159,9 +169,36 @@ export function listTasks(input: ListTasksInput = {}): Task[] {
   return taskRepo.list(input)
 }
 
+/**
+ * 改任务。`patch.difficulty` 会连带重算 `points_planned`（02 §5.2b）：
+ * 难度从 hard(35) 改成 easy(10) 之后应得分必须同步，否则完成时按旧值 35 发分。
+ * 两次写入在同一事务里，中间失败不会留下"难度改了、分值没改"的行。
+ *
+ * `TaskPatch` 没有 `pointsPlanned` 也不该加——应得分是派生值，唯一来源是 difficulty × type。
+ */
 export function updateTask(id: string, patch: TaskPatch): Task {
   if (patch.title !== undefined) assertTitle(patch.title)
-  return taskRepo.update(id, patch, nowIso())
+  const now = nowIso()
+
+  return tx(() => {
+    const current = taskRepo.requireById(id)
+    if (patch.difficulty === undefined) return taskRepo.update(id, patch, now)
+
+    // 同一处做 type × difficulty 校验，规则同 createTask（主进程只拒绝，不归位）
+    const difficulty = patch.difficulty
+    if (!isDifficultyAllowed(current.type, difficulty)) {
+      throw appError('INVALID_INPUT', '该任务类型不支持所选难度', {
+        detail: `${current.type} + ${difficulty}`
+      })
+    }
+
+    const cfg = pointsConfig()
+    const pointsPlanned =
+      current.type === 'daily' ? cfg.dailyBase : computePlannedPoints(difficulty, cfg)
+
+    taskRepo.update(id, patch, now)
+    return taskRepo.updateColumns(id, { points_planned: pointsPlanned }, now)
+  })
 }
 
 export function setRequiresEvidence(id: string, value: boolean): Task {

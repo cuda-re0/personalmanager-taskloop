@@ -94,15 +94,15 @@ describe('tasks 建/查/改', () => {
     const task = taskService.createTask({ type: 'deadline', title: '缴费', estimateMin: null })
     expect(task.estimateMin).toBeNull()
     expect('estimateMin' in task).toBe(true)
-    expect(task.difficulty).toBe('easy')
+    expect(task.difficulty).toBe('medium')
   })
 
   it('没给 pointsPlanned 时按 type 分派现算，不用 0 兜底（契约 v0.10 P1-1）', () => {
     // createManual 的 TaskPatch 根本没有 pointsPlanned 字段，走的就是这条路径
-    const easy = taskService.createTask({ type: 'deadline', title: '手建-默认难度' })
-    expect(easy.difficulty).toBe('easy') // DDL 默认值
-    expect(easy.pointsPlanned).toBe(10) // 与 difficulty 同一个口径：easy = 10
-    expect(easy.pointsPlanned).not.toBe(0)
+    const created = taskService.createTask({ type: 'deadline', title: '手建-默认难度' })
+    expect(created.difficulty).toBe('medium') // 02 §5.2b：应用层默认档是 medium
+    expect(created.pointsPlanned).toBe(20)
+    expect(created.pointsPlanned).not.toBe(0)
 
     const hard = taskService.createTask({ type: 'event', title: '手建-hard', difficulty: 'hard' })
     expect(hard.pointsPlanned).toBe(35)
@@ -123,6 +123,27 @@ describe('tasks 建/查/改', () => {
       () => taskService.createTask({ type: 'deadline', title: '0 分', pointsPlanned: 0 }),
       'INVALID_INPUT'
     )
+  })
+
+  it('event 的默认难度是 medium（20 分），不是 easy——下拉里没有 easy（契约 v0.11）', () => {
+    const event = taskService.createTask({ type: 'event', title: '面试' })
+    expect(event.difficulty).toBe('medium')
+    expect(event.pointsPlanned).toBe(20)
+  })
+
+  it('类型不支持的难度直接被拒，不静默归位，也不落库', () => {
+    const before = taskRepo.countAll()
+    // daily 允许 trivial/easy/medium；hard 越界
+    expectErrorCode(
+      () => taskService.createTask({ type: 'daily', title: '背单词', difficulty: 'hard' }),
+      'INVALID_INPUT'
+    )
+    // event 从 medium 起；easy 越界
+    expectErrorCode(
+      () => taskService.createTask({ type: 'event', title: '面试', difficulty: 'easy' }),
+      'INVALID_INPUT'
+    )
+    expect(taskRepo.countAll()).toBe(before)
   })
 
   it('默认提醒偏移按类型补齐（deadline / event）', () => {
@@ -146,6 +167,46 @@ describe('tasks 建/查/改', () => {
     expect(patched.title).toBe('交作业（改）')
     expect(patched.dueAt).toBe('2026-10-30T14:00:00.000Z')
     expect(patched.updatedAt >= task.updatedAt).toBe(true)
+  })
+
+  it('改难度必须重算 points_planned（hard 35 → easy 10），且与难度同事务落库', () => {
+    const task = taskService.createTask({ type: 'deadline', title: '交作业', difficulty: 'hard' })
+    expect(task.pointsPlanned).toBe(35)
+
+    const patched = taskService.updateTask(task.id, { difficulty: 'easy' })
+    expect(patched.difficulty).toBe('easy')
+    expect(patched.pointsPlanned).toBe(10)
+
+    // 重新查一遍：库里也得是 10，不能只是返回值对
+    const fetched = taskService.requireTask(task.id)
+    expect(fetched.difficulty).toBe('easy')
+    expect(fetched.pointsPlanned).toBe(10)
+  })
+
+  it('daily 改难度后 points_planned 恒为 cfg.dailyBase，不跟着难度走', () => {
+    const daily = taskService.createTask({ type: 'daily', title: '背单词', pointsPlanned: 99 })
+    expect(daily.pointsPlanned).toBe(99) // 显式给了就先照用
+
+    const patched = taskService.updateTask(daily.id, { difficulty: 'easy' })
+    expect(patched.difficulty).toBe('easy')
+    expect(patched.pointsPlanned).toBe(1) // cfg.dailyBase，不是 easy 的 10
+
+    // hard 对 daily 非法：拒绝、不归位、不改库
+    expectErrorCode(
+      () => taskService.updateTask(daily.id, { difficulty: 'hard' }),
+      'INVALID_INPUT'
+    )
+    const after = taskService.requireTask(daily.id)
+    expect(after.difficulty).toBe('easy')
+    expect(after.pointsPlanned).toBe(1)
+
+    // event 同理：easy 非法（这条正是 04 §3.2 下拉空白那个组合）
+    const event = taskService.createTask({ type: 'event', title: '面试' })
+    expectErrorCode(
+      () => taskService.updateTask(event.id, { difficulty: 'easy' }),
+      'INVALID_INPUT'
+    )
+    expect(taskService.requireTask(event.id).difficulty).toBe('medium')
   })
 
   it('标题校验：空标题与超 40 字被拒', () => {

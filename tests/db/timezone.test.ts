@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getDb } from '../../src/main/db/connection'
-import { isoToLocalDay, isoToLocalTime, toLocalDay } from '../../src/main/db/localDay'
+import { assertDay, isoToLocalDay, isoToLocalTime, toLocalDay } from '../../src/main/db/localDay'
+import * as occurrenceService from '../../src/main/db/occurrenceService'
 import * as ledgerRepo from '../../src/main/db/repositories/ledgerRepo'
 import * as statsRepo from '../../src/main/db/repositories/statsRepo'
 import * as pointsService from '../../src/main/services/pointsService'
@@ -97,5 +98,36 @@ describe('本地日历日', () => {
       expect(localDay).toBe('2026-10-28')
       expect(statsRepo.dayIndex('2026-10-27', '2026-10-27')).toHaveLength(0)
     }
+  })
+})
+
+describe('日期校验的文案（04 §1：这条消息会被 UI 直接渲染）', () => {
+  function caught(fn: () => unknown): Error {
+    try {
+      fn()
+    } catch (e) {
+      return e as Error
+    }
+    throw new Error('预期抛错，实际没有')
+  }
+
+  it('默认标签是「日期」，不出现 day', () => {
+    const err = caught(() => assertDay('2026-13-01'))
+    expect(err.message).toContain('日期')
+    expect(err.message).not.toMatch(/\bday\b/)
+    expect(err.message).not.toContain('from')
+  })
+
+  it('ensureRange / dayIndex 的 from、to 用「起始日」「结束日」', () => {
+    const start = caught(() => occurrenceService.ensureRange('2026-13-01', '2026-12-31')).message
+    expect(start).toContain('起始日')
+    expect(start).not.toContain('from')
+
+    const statsStart = caught(() => statsRepo.dayIndex('2026-13-01', '2026-12-31')).message
+    expect(statsStart).toContain('起始日')
+
+    const statsEnd = caught(() => statsRepo.dayIndex('2026-11-01', '2026-13-01')).message
+    expect(statsEnd).toContain('结束日')
+    expect(statsEnd).not.toContain('to ')
   })
 })

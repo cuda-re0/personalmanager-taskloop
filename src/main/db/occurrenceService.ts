@@ -57,8 +57,8 @@ function minDay(a: string, b: string): string {
  * 会先把区间夹到「今天 ~ min(to, active_to, 今天+3个月)」，夹完为空则什么都不做。
  */
 export function ensureRange(from: string, to: string): EnsureRangeResult {
-  assertDay(from, 'from')
-  assertDay(to, 'to')
+  assertDay(from, '起始日')
+  assertDay(to, '结束日')
 
   const today = todayLocalDay()
   const horizon = addMonths(today, OCCURRENCE_HORIZON_MONTHS)
