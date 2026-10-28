@@ -86,10 +86,9 @@ export function ChatInput({ sending, onSend }: Props): ReactElement {
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
-    // W5 之前只接受图片：非 image/* 直接忽略，别让用户拖进来白等。
-    // 全被过滤掉就什么都不做，也不提示（不加自造文案）。
-    const images = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/'))
-    if (images.length > 0) addFiles(images)
+    // 与 onPick 同一口径：入口不按 mime 过滤，是不是图片交给 toAttachment 判 kind。
+    // mime 白名单与 UNSUPPORTED_MIME 留到附件功能那一轮。
+    addFiles(event.dataTransfer.files)
   }
 
   const onPick = (event: ChangeEvent<HTMLInputElement>): void => {

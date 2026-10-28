@@ -1,4 +1,6 @@
-import { computePlannedPoints } from '@shared/points/rubric'
+import { DEFAULT_CONFIG, computePlannedPoints } from '@shared/points/rubric'
+import type { PointsConfig } from '@shared/points/rubric'
+import { snapDifficulty } from '@shared/taskRules'
 import type { Difficulty, TaskDraft, TaskType } from '@shared/types/domain'
 
 /** 类型标签。三个词来自 04 §4① 的分组标题，不是新文案。 */
@@ -27,16 +29,41 @@ export const TYPE_DEFAULT_OFFSETS: Record<TaskType, number[]> = {
 }
 
 /**
- * pointsPlanned 的唯一口径：daily 取调用方给的当日基数，deadline / event 看难度。
+ * 草稿分值与难度归位的临时配置来源。
  *
- * 显示、切类型重算、W5 写库都必须是这一个数——显示 1 却存 20，每日任务
- * 就会变成每天 20 分。基数不在这里写死：模块级常量 W2 接上 settings 后替换不掉。
+ * TODO(W2): 换成 bootstrap.settings 的 points.*（主进程 pointsConfig() 读的就是 settings，
+ * 用户把 hard 从 35 改成 30 之后卡面必须跟着变）。只此一处：调用点各写一份 DEFAULT_CONFIG，
+ * 接 settings 时必然漏改。
+ */
+export const PENDING_CONFIG: PointsConfig = DEFAULT_CONFIG
+
+/**
+ * pointsPlanned 的唯一口径（02 §5.2b）：daily 取 cfg.dailyBase，deadline / event 看难度。
+ *
+ * 显示、切类型重算、草稿归一化、W5 写库都必须是这一个数——显示 1 却存 20，每日任务
+ * 就会变成每天 20 分。cfg 是必填参数、不许省略：省了会落回 DEFAULT_CONFIG，
+ * 用户改过 points.difficultyBase 之后卡面 35 / 落库 30 就是同一类 bug 的另一种形态。
  */
 export function draftPointsOf(
   draft: Pick<TaskDraft, 'type' | 'difficulty'>,
-  dailyBase: number
+  cfg: PointsConfig
 ): number {
-  return draft.type === 'daily' ? dailyBase : computePlannedPoints(draft.difficulty)
+  return draft.type === 'daily' ? cfg.dailyBase : computePlannedPoints(draft.difficulty, cfg)
+}
+
+/**
+ * 草稿的唯一入口。fixture 与将来从 IPC 拿到的草稿都先过这里：先把难度归位到该类型
+ * 允许的档（AI 会给出 daily + hard 这种非法组合，卡面 <select> 匹配不到 option 就是空白，
+ * W5 还会照着写库），再按归位后的难度重算分值——两件事必须同序，反过来会按 35 分算完
+ * 再改成 medium。
+ */
+export function normalizeDraft(draft: TaskDraft, cfg: PointsConfig): TaskDraft {
+  const difficulty = snapDifficulty(draft.type, draft.difficulty)
+  return {
+    ...draft,
+    difficulty,
+    pointsPlanned: draftPointsOf({ type: draft.type, difficulty }, cfg)
+  }
 }
 
 /** 偏移分钟 → 只读小字。04 §3.2 的例子是「前 1 天 · 前 1 小时」 */
@@ -85,13 +112,24 @@ export function mimeExt(mime: string | null): string {
 }
 
 /**
+ * dueHint 的合法形状（02 §1）：完整 ISO8601，必须带年月日与时分。
+ *
+ * 读侧先验形状再交给 Date。V8 会把 '10-30 18:00' 静默当成 2001 年（实测，不报错）：
+ * 本地时间 2001-10-30 18:00，toISOString 是 2001-10-30T10:00:00.000Z（UTC+8）。
+ * 这个值会一路喂给提醒、逾期判定与效率系数。
+ */
+const ISO_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
+/**
  * TaskDraft.dueHint（完整 ISO8601 UTC，02 §1）→ datetime-local 值。
  *
  * 必须走 Date 再取本地字段：直接 slice(0,16) 切出来的是 UTC 字符串，
- * 和用户眼里的本地时间差 8 小时。空值/非法值一律返回 ''，不 fallback 到今天。
+ * 和用户眼里的本地时间差 8 小时。空值/形状不合法/日期不存在一律返回 ''，
+ * 不 fallback 到今天，也不把非法值交给 new Date。
  */
 export function dueHintToLocal(hint: string | null): string {
   if (!hint) return ''
+  if (!ISO_SHAPE.test(hint)) return ''
   const d = new Date(hint)
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n: number): string => String(n).padStart(2, '0')

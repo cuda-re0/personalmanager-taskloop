@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { computeAwardedPoints } from '@shared/points/rubric'
+import type { PointsConfig } from '@shared/points/rubric'
 import { snapDifficulty } from '@shared/taskRules'
 import type {
   Attachment,
@@ -11,7 +12,14 @@ import type {
   TaskDraft
 } from '@shared/types/domain'
 import type { ChatActions, ChatData, DraftPatch, DraftView, EvidenceView, ReviewView } from './chatTypes'
-import { TYPE_DEFAULT_OFFSETS, draftPointsOf, dueHintToLocal, leadLabel } from './chatViewModel'
+import {
+  PENDING_CONFIG,
+  TYPE_DEFAULT_OFFSETS,
+  draftPointsOf,
+  dueHintToLocal,
+  leadLabel,
+  normalizeDraft
+} from './chatViewModel'
 import {
   FIXTURE_DRAFTS,
   FIXTURE_MESSAGES,
@@ -29,18 +37,6 @@ import {
  */
 const PAGE = 20
 const THREAD = 'thread-demo'
-
-/** 每日任务单日分值。TODO(W2): 换成 bootstrap.settings['points.dailyBase'] */
-const DAILY_BASE = 1
-
-/**
- * 草稿的唯一入口。fixture 与将来从 IPC 拿到的草稿都先过这里，
- * pointsPlanned 归一成 draftPointsOf 的结果——之后卡面读它、W5 写库也写它，
- * 只有这一个函数、一个字段，不会出现"显示值和入库值恰好相等"。
- */
-function normalizeDraft(draft: TaskDraft): TaskDraft {
-  return { ...draft, pointsPlanned: draftPointsOf(draft, DAILY_BASE) }
-}
 
 /**
  * 压测入口：?bulk=1000（03 验收：1000 条滚动 60fps）。仅开发构建生效，
@@ -136,7 +132,7 @@ function toEvidenceViews(evidence: Evidence[]): EvidenceView[] {
 export function applyDraftPatch(
   current: TaskDraft,
   patch: DraftPatch,
-  dailyBase: number
+  cfg: PointsConfig
 ): TaskDraft {
   const offsets =
     patch.type && patch.reminderOffsets === undefined
@@ -150,7 +146,7 @@ export function applyDraftPatch(
   // pointsPlanned 必须与卡面同值（W5 直接写库）。难度或类型一变就按唯一口径重算，
   // 这里不再做 type 判断——draftPointsOf 就是那唯一一处。
   if (next.difficulty !== current.difficulty || next.type !== current.type) {
-    next.pointsPlanned = draftPointsOf(next, dailyBase)
+    next.pointsPlanned = draftPointsOf(next, cfg)
   }
   return next
 }
@@ -162,7 +158,7 @@ export function useChatData(): ChatData {
   })
   const [drafts, setDrafts] = useState<Record<string, TaskDraft>>(() => {
     const map: Record<string, TaskDraft> = {}
-    for (const draft of FIXTURE_DRAFTS) map[draft.localId] = normalizeDraft(draft)
+    for (const draft of FIXTURE_DRAFTS) map[draft.localId] = normalizeDraft(draft, PENDING_CONFIG)
     return map
   })
   const [confirmed, setConfirmed] = useState<Record<string, string>>({})
@@ -232,7 +228,7 @@ export function useChatData(): ChatData {
     setDrafts(prev => {
       const current = prev[localId]
       if (!current) return prev
-      return { ...prev, [localId]: applyDraftPatch(current, patch, DAILY_BASE) }
+      return { ...prev, [localId]: applyDraftPatch(current, patch, PENDING_CONFIG) }
     })
   }, [])
 
