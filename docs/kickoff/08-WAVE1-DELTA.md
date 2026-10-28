@@ -18,7 +18,7 @@
 | 位置 | 值 |
 |---|---|
 | DDL 字段类型 | `tasks.points_planned` / `tasks.points_awarded` / `task_occurrences.points_awarded` / `point_ledger.delta` / `daily_stats.points` 全部 **`REAL`**，不是 `INTEGER` |
-| 精度收敛 | `roundPoints(v) = Math.round(v * 100) / 100`，**全项目只允许这一处**出现 `Math.round` / `toFixed` |
+| 精度收敛 | `roundPoints(v) = Math.round(v * 100) / 100`。**对积分值的取整只允许这一处**；别处若出现 `Math.round`/`toFixed`/`Math.floor`，必须同时满足"不产出积分值"且"注释写明用途"（目前只有日期整除与逾期天数两类），否则算违规 |
 | 公式里不再取整 | `computePlannedPoints` 返回 `clamp(roundPoints(cfg.difficultyBase[d]), 1, 100)`，不 `Math.round` 成整数 |
 | `RUBRIC_VERSION` | `'v0.7'`（v0.9 契约起。若你读到 `v0.6-b`，说明看的是旧文档） |
 
