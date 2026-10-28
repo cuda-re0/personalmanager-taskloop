@@ -22,13 +22,13 @@ const webPreferences = {
   sandbox: true
 } as const
 
-/** 主窗：1440×920，普通可缩放窗口（04 §2 最小 1180×760） */
+/** 主窗：1440×920，普通可缩放窗口（04 §2 最小 680×520；< 1000px 时右栏收起为图标条） */
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 1180,
-    minHeight: 760,
+    minWidth: 680,
+    minHeight: 520,
     show: false,
     backgroundColor: '#ffffff',
     autoHideMenuBar: true,

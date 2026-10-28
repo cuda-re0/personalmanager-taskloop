@@ -52,6 +52,8 @@ export type TaskType    = 'daily' | 'deadline' | 'event';
 export type TaskStatus  = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived';
 export type Difficulty  = 'trivial' | 'easy' | 'medium' | 'hard' | 'epic';
 export type Quality     = 'partial' | 'met' | 'exceeded';
+/** 活动任务的结果档（v0.7 起参与积分）；与 Quality 分开：Quality 是"做没做完"，这是"做出什么结果" */
+export type EventResult = 'exceeded' | 'met' | 'below';
 export type Priority    = 0 | 1 | 2;
 export type NotifyChannel = 'inapp' | 'toast' | 'mail' | 'webhook';
 export type ReminderLevel = 'normal' | 'strong';
@@ -274,6 +276,8 @@ export interface ReviewVerdict {
   /** need_evidence = 判断不了，需要用户补证据后再判 */
   verdict: 'pass' | 'partial' | 'fail' | 'need_evidence';
   quality: Quality | null;
+  /** 仅 type='event' 有意义，其他类型传 null。event 的 quality 恒为 'met'，结果由 result 表达 */
+  result: EventResult | null;
   reason: string;                    // 一句话，面向用户
   followup: string | null;           // 证据不足时的追问，可能为 null
   gaps: string[];                    // partial 时逐条列出未完成项，供卡片内展示；其他 verdict 为空数组
@@ -448,7 +452,7 @@ export interface Bootstrap {
 | `points.ledger` | `{ from?: string; to?: string; limit?: number }` | `PointEntry[]` |
 | `points.monthStats` | `{ year: number; month: number }` | `DayStat[]` |
 | `points.adjust` | `{ delta: number; reason: string }` | `PointEntry` | 手动调整，`kind='adjust'` |
-| `points.preview` | `{ type: TaskType; difficulty: Difficulty; estimateMin: number \| null }` | `number` | 纯计算，无副作用，UI 改难度时实时显示；`type='daily'` 返回单日分值 |
+| `points.preview` | `{ type: TaskType; difficulty: Difficulty }` | `number` | 纯计算，无副作用，UI 改难度/类型时实时显示；`type='daily'` 返回单日分值。**不传 `estimateMin`**——v0.7 起时长不进分值 |
 | `points.streakPreview` | `{ current: number; nextDayWillReach: number }` | `number` | 明天完成能拿到的里程碑奖励，0 表示无 |
 
 ### 3.6 `api.reminder`
@@ -577,10 +581,24 @@ export const DEFAULT_CONFIG: PointsConfig = {
 ### 5.2 限时 / 活动任务
 
 ```ts
-/** 工作量系数：0 min → 1.0，≥240 min → 1.6，线性 */
-export function effortFactor(estimateMin: number | null): number {
-  const m = Math.min(Math.max(estimateMin ?? 0, 0), 240);
-  return 1 + (m / 240) * 0.6;
+/** 完成度系数：任务本身做到什么程度 */
+export const QUALITY_FACTOR: Record<Quality, number> = {
+  partial: 0.6, met: 1.0, exceeded: 1.15,
+};
+
+/** 限时任务的完成效率系数：距截止越早越高，封顶 1.2。leadHours 负数=逾期 */
+export function efficiencyFactor(leadHours: number | null): number {
+  if (leadHours === null) return 1;
+  if (leadHours < 24) return 1;
+  if (leadHours < 72) return 1.1;
+  return 1.2;
+}
+
+/** 活动任务的结果系数：考试排名、比赛名次、作品评价 */
+export function resultFactor(result: EventResult | null): number {
+  if (result === 'exceeded') return 1.2;
+  if (result === 'below') return 0.85;
+  return 1;
 }
 
 /**
@@ -593,20 +611,29 @@ export function roundPoints(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
-/** 应得分。不取整：5 分档在 60 分钟时是 5.75，与 5 分有可见差别 */
-export function computePlannedPoints(
-  d: Difficulty, estimateMin: number | null, cfg = DEFAULT_CONFIG,
-): number {
-  const raw = cfg.difficultyBase[d] * effortFactor(estimateMin);
-  return clamp(roundPoints(raw), 1, 100);
+/** 应得分：只由难度决定，v0.7 起与时长无关 */
+export function computePlannedPoints(d: Difficulty, cfg = DEFAULT_CONFIG): number {
+  return clamp(roundPoints(cfg.difficultyBase[d]), 1, 100);
 }
 
-export function computeAwardedPoints(
-  planned: number, quality: Quality, overdueDays: number,
-): number {
-  const q = { partial: 0.6, met: 1.0, exceeded: 1.15 }[quality];
-  const penalty = Math.min(overdueDays * 2, 20);
-  return clamp(roundPoints(planned * q - penalty), 1, roundPoints(planned * 1.2));
+export interface AwardInput {
+  type: TaskType;
+  planned: number;
+  quality: Quality;          // event 不使用，由 result 表达
+  overdueDays: number;       // 仅 deadline 扣分
+  leadHours?: number | null; // 仅 deadline：(dueAt - completedAt) / 3600000
+  result?: EventResult | null; // 仅 event
+}
+
+export function computeAwardedPoints(input: AwardInput): number {
+  const { type, planned, quality, overdueDays } = input;
+  const q = type === 'event' ? 1 : QUALITY_FACTOR[quality];
+  const typeCoeff =
+    type === 'deadline' ? efficiencyFactor(input.leadHours ?? null)
+    : type === 'event'  ? resultFactor(input.result ?? null)
+    : 1;
+  const penalty = type === 'deadline' ? Math.min(overdueDays * 2, 20) : 0;
+  return clamp(roundPoints(planned * q * typeCoeff - penalty), 1, roundPoints(planned * 1.4));
 }
 
 function clamp(v: number, lo: number, hi: number) {
@@ -616,20 +643,49 @@ function clamp(v: number, lo: number, hi: number) {
 
 **积分一律是小数（2 位），全链路不做整数化。** 这一点会传导到数据库字段类型（01 §2 的 `REAL`）、`point_ledger.delta`、`daily_stats.points`、余额展示与日历热力分档，实现方不要在任何一层"顺手取整"。
 
-举例（B 档）：
+**为什么时长不进公式（v0.7，2026-10-28 拍板）：** 旧版是 `难度基数 × 工作量系数`（0 min → 1.0，≥240 min → 1.6）。时长是用户或 AI 自己填的，等于"填得越长分越高"——磨洋工能刷分。现在时长只做两件事：给 AI 判定难度当输入、算提醒与逾期。分值只由难度决定。
 
-| 难度 | 预估 | 应得分 | 算式 |
+应得分（B 档，**与时长无关**）：
+
+| 难度 | trivial | easy | medium | hard | epic |
+|---|---|---|---|---|---|
+| 应得分 | 5 | 10 | 20 | 35 | 50 |
+
+实得分举例（以 medium 20 分为例）：
+
+| 类型 | 情形 | 算式 | 实得 |
 |---|---|---|---|
-| trivial | 5 min | 5.06 | 5 × 1.0125 |
-| trivial | 60 min | 5.75 | 5 × 1.15 |
-| easy | 30 min | 10.75 | 10 × 1.075 |
-| medium | 60 min | 23 | 20 × 1.15 |
-| hard | 120 min | 45.5 | 35 × 1.3 |
-| epic | 240 min | 80 | 50 × 1.6 |
+| 限时 | 提前 4 天完成，达标 | 20 × 1.0 × 1.2 | 24 |
+| 限时 | 提前 30 小时，达标 | 20 × 1.0 × 1.1 | 22 |
+| 限时 | 当天卡点完成 | 20 × 1.0 × 1.0 | 20 |
+| 限时 | 逾期 3 天完成 | 20 × 1.0 × 1.0 − 6 | 14 |
+| 限时 | 提前 4 天且超预期 | 20 × 1.15 × 1.2 | 27.6 |
+| 活动 | 结果达标 | 20 × 1.0 | 20 |
+| 活动 | 结果超预期 | 20 × 1.2 | 24 |
+| 活动 | 结果不佳 | 20 × 0.85 | 17 |
 
-（`effortFactor(m) = 1 + m/240 × 0.6`，结果一律 `roundPoints` 到 2 位。上表每一行都应该能被实现方徒手复算，复算不出来就是文档错了。）
+上表每一行都应能被实现方徒手复算，复算不出来就是文档错了。
 
-`trivial` 不设特殊分支：它和其他档走同一个公式，只是基数最小。原来那句"trivial 不吃时长系数"已撤销——它会和 `difficulty` 的语义冲突（标了 trivial 又填 240 分钟本身就是矛盾数据，不该用一条隐藏规则去兜）。
+**几个刻意的取舍：**
+
+- **效率系数用绝对提前量，不用提前比例。** 用比例会让"截止日写得越远、立刻做完越赚"，等于把刚拆掉的时长口子从另一边开回来。三档、封顶 20%。
+- **活动不看完成度，只看结果。** 考试你去了就是去了，分数才是有信息量的东西。两个系数叠乘会让"去考了但考砸"算出奇怪的数。
+- **逾期扣分只对限时生效。** 活动的日期事前就固定，事后隔几天才确认不代表没做。
+- **`leadHours = (dueAt − completedAt) / 3600000`，负数表示逾期。** 注意 `completedAt` 只能取"用户点确认 / 审核通过"的时刻，不是真正做完的时刻——晚点再点会拉低系数，这个偏差方向是对的（鼓励及时确认）。
+
+### 5.2b 难度档与任务类型的对应
+
+难度不是五档随便选，按类型限定（2026-10-28 定稿，权威实现在 `src/shared/taskRules.ts`）：
+
+| 类型 | 可选难度 |
+|---|---|
+| 每日 | `trivial` / `easy` / `medium` |
+| 限时 | `easy` / `medium` / `hard` |
+| 活动 | `medium` / `hard` / `epic` |
+
+- `medium` 三类都允许，所以新建任务的默认难度用它不会越界。
+- 切换类型时若当前难度不合法，用 `snapDifficulty(type, d)` 归位到最近合法档，**平手取低档**——切个类型就白涨几十分，用户会认为系统算错了。
+- 校验落在两处：AI 输出（W4 的 parse pipeline）与草稿确认（W5 的 `confirmDraft`）。**数据库不设 CHECK**：条件约束以后要改就得写迁移，而历史数据不该因为规则收紧就读不出来。
 
 ### 5.3 每日任务（这是需要你拍板的核心）
 

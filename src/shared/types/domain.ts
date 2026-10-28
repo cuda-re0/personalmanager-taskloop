@@ -4,6 +4,11 @@ export type TaskType = 'daily' | 'deadline' | 'event'
 export type TaskStatus = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived'
 export type Difficulty = 'trivial' | 'easy' | 'medium' | 'hard' | 'epic'
 export type Quality = 'partial' | 'met' | 'exceeded'
+/**
+ * 活动任务的结果档：考试排名、比赛名次、作品是否好用（v0.7 起参与积分）。
+ * 与 Quality 分开：Quality 是"做没做完"，EventResult 是"做出来什么结果"。
+ */
+export type EventResult = 'exceeded' | 'met' | 'below'
 export type Priority = 0 | 1 | 2
 export type NotifyChannel = 'inapp' | 'toast' | 'mail' | 'webhook'
 export type ReminderLevel = 'normal' | 'strong'
@@ -223,6 +228,8 @@ export interface ReviewVerdict {
   /** need_evidence = 判断不了，需要用户补证据后再判 */
   verdict: 'pass' | 'partial' | 'fail' | 'need_evidence'
   quality: Quality | null
+  /** 仅 type='event' 有意义；其他类型传 null。event 的 quality 恒为 'met'，由 result 表达结果 */
+  result: EventResult | null
   reason: string // 一句话，面向用户
   followup: string | null // 证据不足时的追问，可能为 null
   gaps: string[] // partial 时逐条列出未完成项，供卡片内展示；其他 verdict 为空数组

@@ -195,7 +195,6 @@ export interface Api {
     preview(input: {
       type: TaskType
       difficulty: Difficulty
-      estimateMin: number | null
     }): Promise<IpcResult<number>>
     streakPreview(input: { current: number; nextDayWillReach: number }): Promise<IpcResult<number>>
   }

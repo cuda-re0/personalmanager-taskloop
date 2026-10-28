@@ -176,12 +176,23 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
   - `medium`：0.5-2 小时，或需要 2-3 个步骤
   - `hard`：半天以上，或跨人协作、有明显阻碍
   - `epic`：多天、有明显不确定性
+- **`difficulty` 还受 type 限制（2026-10-28 定稿，见 02 §5.2b）**，模型给出的档位必须落在下表内，越界视为无效输出：
+
+| type | 允许的 difficulty |
+|---|---|
+| `daily` | `trivial` / `easy` / `medium` |
+| `deadline` | `easy` / `medium` / `hard` |
+| `event` | `medium` / `hard` / `epic` |
+
+  校验用 `ALLOWED_DIFFICULTIES`（`src/shared/taskRules.ts`）。zod 里直接 `refine`，**不要静默改成合法值**——越界说明模型判错了类型或判错了难度，静默修正会让错误藏起来。返回 `AI_SCHEMA` 错误并重试一次。
+  
+  另外：`estimate_min` 只用于提示与判定难度，**不再参与积分计算**（02 §5.2，v0.7 起）。所以不要把"估时长"当作抬分的理由。
 - 图片中没有任务信息（纯风景、无字截图）→ `intent='chat'`，`tasks=[]`，正常对话回复。
 - 图中出现的是**已完成事项**（如打卡记录、完成的清单截图）→ `intent='review_task'`，不要重复建任务。
 - 用户说"做完了 / 交了 / 搞定了" → `intent='review_task'`。
 - `reply` 是给用户看的，不要复述 JSON，不要列字段名。
 
-映射到 `TaskDraft` 时，主进程补齐：`localId = nanoid(8)`、`pointsPlanned = computePlannedPoints(type, difficulty, estimate_min)`（`daily` 取 `cfg.dailyBase`）、`reminderOffsets` 按 type 取 §4.1 默认值。
+映射到 `TaskDraft` 时，主进程补齐：`localId = nanoid(8)`、`pointsPlanned = computePlannedPoints(difficulty)`（v0.7 起只看难度；`daily` 取 `cfg.dailyBase`）、`reminderOffsets` 按 type 取 §4.1 默认值。
 
 ### 4.2 `review` — 完成审核（R5 + S4）
 
@@ -208,10 +219,13 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 {
   "verdict": "pass | partial | fail | need_evidence",
   "quality": "partial | met | exceeded | null",
+  "result": "exceeded | met | below | null",
   "reason": "一句话说明判断依据，≤50字",
   "followup": "要补什么证据，≤40字，verdict=need_evidence 时必填"
 }
 ```
+
+`result` 只对 `type='event'` 有意义，其他类型必须为 `null`；而 event 的 `quality` 恒为 `met`（活动不看"做没做完"，看结果）。判定依据：用户说了排名/名次/分数/评价就据此判，什么都没说就填 `met`（不猜）。
 
 判定标准（写进 prompt）：
 
