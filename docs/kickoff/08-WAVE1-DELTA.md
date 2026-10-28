@@ -98,7 +98,8 @@ npm run lint
 2. **新增交付项**：`tests/shared/rubric.test.ts`。按 `02 §5.2` 示例表逐行断言六组
    `computePlannedPoints` + `computeAwardedPoints` 的质量系数与逾期扣分。
    **只测不改**：`rubric.ts` 若与 02 不一致，报告，不要自行修正。
-   配 vitest，`npm test` 要能跑。
+   **`vitest@2.1.8` 已由调度方装好**，你不要跑 `npm i`；只需在 `package.json` 的 `scripts` 里加
+   `"test": "vitest run"`，让 `npm test` 能跑。
 3. **`settingRepo` 的读取必须返回 `AppSettings` 全量**：DB 里只存用户改过的 key，
    读出时用 `DEFAULT_SETTINGS` 合并补齐。渲染层不处理 `undefined`——缺 key 是你的 bug。
 4. **settings 的 value 是 JSON 字符串**：`JSON.parse` 失败要抛错，**不许静默返回默认值**。

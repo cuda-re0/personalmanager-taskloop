@@ -376,6 +376,7 @@ GROUP BY day;
 ## 5. 迁移规范
 
 - 文件：`src/main/db/migrations/001_init.sql`、`002_xxx.sql`，**只增不改**。
-- `connection.ts` 启动时读 `schema_meta.migrations`，按序执行未应用的迁移，整体包在一个事务里。
+- `connection.ts` 启动时以 `PRAGMA user_version` 为**权威版本号**，顺序执行 `user_version` 之后的迁移文件，整体包在一个事务里。
+- `schema_meta` **不参与版本判定**，只记迁移历史明细：`key = 'migration.001_init'`、`value = 应用时刻的 ISO 字符串`。版本号只认 `user_version`——它是整数、与 DDL 同事务原子提交，不会被业务代码误改；而 key/value 表要判断"已应用到第几号"得存数组再解析，多一层易错逻辑。两份记录不一致时以 `user_version` 为准。
 - 迁移内禁止写业务数据（除 `settings` 默认值）。
 - 破坏性变更（删列/改类型）必须走「建新表 → 拷数据 → 删旧表 → 改名」，且提供回滚脚本。
