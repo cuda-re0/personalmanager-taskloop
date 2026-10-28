@@ -81,7 +81,7 @@ export type PublicSettings = AppSettings
 ### D3 · 完成审核必须带证据
 
 - `tasks` 有 `requires_evidence`（0/1）与 `evidence_json` 两个字段，建表不能漏。
-- `task.complete` 入参是 `{ id: string; quality: Quality; evidence?: string[] }`。
+- `task.complete` 入参是 `{ id: string; quality: Quality; evidence?: Evidence[] }`——是 `Evidence[]`，不是 `string[]`（v0.8 起 `Evidence` 是 `{kind:'text'}|{kind:'attachment'}` 的联合），以 02 §3.2 为准。
 - **硬校验在 service 层**：`requiresEvidence === true` 且 `evidence` 为空 → **停在 `reviewing`、不入账**，
   返回 `AppError{ code: 'EVIDENCE_REQUIRED' }`。不能只在 UI 拦——绕过界面直接调 IPC 也拿不到分。
 - 连续 3 次补不上证据，UI 给一个 `[直接标记完成（不计分）]` 出口。这是防死锁，点了就是 0 分。

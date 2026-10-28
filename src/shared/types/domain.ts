@@ -4,16 +4,17 @@ export type TaskType = 'daily' | 'deadline' | 'event'
 export type TaskStatus = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived'
 export type Difficulty = 'trivial' | 'easy' | 'medium' | 'hard' | 'epic'
 export type Quality = 'partial' | 'met' | 'exceeded'
-/**
- * 活动任务的结果档：考试排名、比赛名次、作品是否好用（v0.7 起参与积分）。
- * 与 Quality 分开：Quality 是"做没做完"，EventResult 是"做出来什么结果"。
- */
+/** 活动任务的结果档（v0.7 起参与积分）；与 Quality 分开：Quality 是"做没做完"，这是"做出什么结果" */
 export type EventResult = 'exceeded' | 'met' | 'below'
 export type Priority = 0 | 1 | 2
 export type NotifyChannel = 'inapp' | 'toast' | 'mail' | 'webhook'
 export type ReminderLevel = 'normal' | 'strong'
 
-/** 完成证据（S4 已定） */
+/**
+ * 完成证据（S4 已定）。
+ * 图片与文件都走 attachment——是截图还是 PDF 由 Attachment.kind 决定，Evidence 不再区分。
+ * 早先的 `kind:'image'` 让 `报告.pdf` 这类证据无处表达（04 §3.3 的示例里就有），故改为联合。
+ */
 export type Evidence =
   | { kind: 'text'; text: string; addedAt: string }
   | { kind: 'attachment'; attachmentId: string; addedAt: string }
@@ -205,7 +206,11 @@ export interface TaskDraft {
   detailMd: string
   difficulty: Difficulty
   estimateMin: number | null
-  dueHint: string | null // deadline=截止 / event=发生时刻 / daily=null
+  dueHint: string | null // 完整 ISO8601 UTC（03 §4.1 的 due_hint 原样），daily=null
+  // deadline=截止 / event=发生时刻
+  // **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，
+  // 而 due_at 同时喂提醒、逾期判定与效率系数三条链路。
+  // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO
   dailyTimeHint: string | null // 'HH:mm'，仅 daily
   activeToHint: string | null // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[] // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改
@@ -214,13 +219,11 @@ export interface TaskDraft {
   missingInfo: string[] // 信息不足时列出要问用户的点，可能为空
   requiresEvidence: boolean // AI 判定这项完成时是否需要证据
   confidence: number // 0~1
-  /**
-   * 小数（2 位）。AI 不给这个数，由主进程按 type 分派填充：
-   * daily → settings['points.dailyBase']；deadline/event → computePlannedPoints(difficulty)。
-   * **必须与卡片上显示的分值完全一致**——W5 确认草稿时把它直接写入 tasks.points_planned，
-   * 若显示口径与存入值不同（例如显示 1 却存 20），每日任务就成了每天 20 分。
-   */
-  pointsPlanned: number
+  pointsPlanned: number // 小数（2 位）。AI 不给。按 type 分派：
+  //   daily → settings['points.dailyBase']
+  //   deadline / event → computePlannedPoints(difficulty)
+  // **必须与卡片显示值完全一致**：W5 确认时直接写入
+  // tasks.points_planned，两套口径会让每日任务变成每天 20 分
 }
 
 export interface DraftStep {
@@ -234,7 +237,7 @@ export interface ReviewVerdict {
   /** need_evidence = 判断不了，需要用户补证据后再判 */
   verdict: 'pass' | 'partial' | 'fail' | 'need_evidence'
   quality: Quality | null
-  /** 仅 type='event' 有意义；其他类型传 null。event 的 quality 恒为 'met'，由 result 表达结果 */
+  /** 仅 type='event' 有意义，其他类型传 null。event 的 quality 恒为 'met'，结果由 result 表达 */
   result: EventResult | null
   reason: string // 一句话，面向用户
   followup: string | null // 证据不足时的追问，可能为 null

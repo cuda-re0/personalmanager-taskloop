@@ -20,7 +20,7 @@ CREATE TABLE tasks (
   sort_key        REAL NOT NULL DEFAULT 0,        -- 同级排序，插入取中值避免重排
   priority        INTEGER NOT NULL DEFAULT 0,     -- 0 普通 / 1 高 / 2 紧急
   difficulty      TEXT NOT NULL DEFAULT 'easy',   -- trivial|easy|medium|hard|epic
-  estimate_min    INTEGER,                        -- 预估分钟，影响积分
+  estimate_min    INTEGER,                        -- 预估分钟。v0.9 起不进积分公式，只用于判难度/排提醒/算逾期
 
   -- 时间语义按 type 解释，见 §2.1.1
   due_at          TEXT,                           -- deadline: 截止时刻 / event: 发生时刻 / daily: NULL
@@ -159,7 +159,7 @@ CREATE UNIQUE INDEX uq_reminder_task_offset
 CREATE TABLE daily_stats (
   day             TEXT PRIMARY KEY,   -- YYYY-MM-DD
   points          REAL NOT NULL DEFAULT 0,     -- 2 位小数，不做整数化
-  tasks_done      INTEGER NOT NULL DEFAULT 0,  -- 含每日任务当天完成数
+  tasks_done      INTEGER NOT NULL DEFAULT 0,  -- 只算 tasks 表当日 done 数；每日任务看 occurrences_done，不要加进来
   tasks_created   INTEGER NOT NULL DEFAULT 0,
   occurrences_done INTEGER NOT NULL DEFAULT 0  -- 每日任务完成数
 );

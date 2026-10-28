@@ -24,9 +24,12 @@ export interface AppError {
 
 export type AppErrorCode =
   | 'DB_ERROR' | 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT'
+  | 'EVIDENCE_REQUIRED'
   | 'AI_NOT_CONFIGURED' | 'AI_UPSTREAM_ERROR' | 'AI_PARSE_FAILED' | 'AI_RATE_LIMITED'
   | 'FILE_TOO_LARGE' | 'UNSUPPORTED_MIME' | 'UNKNOWN';
 ```
+
+`EVIDENCE_REQUIRED` 是 v0.9 补的：`requires_evidence` 的任务在缺证据时 `task.complete` 停在 `reviewing`、不入账，这个状态既不是 `CONFLICT`（不是状态冲突，是缺资料）也不是 `INVALID_INPUT`（输入合法，只是不完整）。单列一个码，UI 才能据此把卡片切到"补证据"而不是弹一条通用错误。它与 `retryable: false` 搭配。
 
 3. **渲染进程只能通过 `window.api` 访问**，`contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。preload 用白名单暴露，禁止 `ipcRenderer` 直传。
 4. **事件单向**：主进程 → 渲染。渲染进程订阅统一入口 `window.api.onEvent(cb)`，不需要按通道分别订阅。
@@ -253,7 +256,11 @@ export interface TaskDraft {
   detailMd: string;
   difficulty: Difficulty;
   estimateMin: number | null;
-  dueHint: string | null;            // deadline=截止 / event=发生时刻 / daily=null
+  dueHint: string | null;            // 完整 ISO8601 UTC（03 §4.1 的 due_hint 原样），daily=null
+                                     // deadline=截止 / event=发生时刻
+                                     // **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，
+                                     // 而 due_at 同时喂提醒、逾期判定与效率系数三条链路。
+                                     // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO
   dailyTimeHint: string | null;      // 'HH:mm'，仅 daily
   activeToHint: string | null;       // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[];         // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改
@@ -644,6 +651,8 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.min(Math.max(v, lo), hi);
 }
 ```
+
+**`planned` 必须 ≥ 1，这是调用方的前置条件，不是本函数负责兜的。** `planned = 0` 时 `hi = roundPoints(0 * 1.4) = 0 < lo = 1`，`clamp` 退化成恒返回 0，而 `Math.max(v, 1)` 的结果会被 `Math.min(..., 0)` 吃掉——§5.6 承诺的"完成即正反馈、下限 1 分"当场失效。保证它 ≥1 是 `computePlannedPoints` 的职责（它自己 `clamp(..., 1, 100)`），**建任务时不许用 `pointsPlanned ?? 0` 兜底**，必须按 type 分派算出真值（见 §3.2 的 `task.createManual`）。
 
 **积分一律是小数（2 位），全链路不做整数化。** 这一点会传导到数据库字段类型（01 §2 的 `REAL`）、`point_ledger.delta`、`daily_stats.points`、余额展示与日历热力分档，实现方不要在任何一层"顺手取整"。
 

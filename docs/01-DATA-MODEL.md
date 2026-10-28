@@ -63,7 +63,7 @@ CREATE TABLE tasks (
   sort_key        REAL NOT NULL DEFAULT 0,        -- 同级排序，插入取中值避免重排
   priority        INTEGER NOT NULL DEFAULT 0,     -- 0 普通 / 1 高 / 2 紧急
   difficulty      TEXT NOT NULL DEFAULT 'easy',   -- trivial|easy|medium|hard|epic
-  estimate_min    INTEGER,                        -- 预估分钟，影响积分
+  estimate_min    INTEGER,                        -- 预估分钟。v0.9 起**不进积分公式**，只用于 AI 判难度、排提醒、算逾期
 
   -- ★ 时间语义按 type 解释，见 §2.1.1
   due_at          TEXT,                           -- deadline: 截止时刻 / event: 发生时刻 / daily: NULL
@@ -185,8 +185,8 @@ CREATE INDEX idx_messages_thread ON messages(thread_id, created_at);
 |---|---|---|
 | `text` | user / assistant | — |
 | `task_draft` | assistant | `{ drafts: TaskDraft[] }`，见 02 §5 |
-| `task_review` | assistant | `{ taskId, verdict, quality, awarded, reason, followup? }` |
-| `reminder` | system | `{ reminderId, taskId, title, fireAt }` |
+| `task_review` | assistant | `{ taskId, verdict }`——`verdict` 就是 02 §2 的 `ReviewVerdict` 对象（内含 verdict/quality/result/reason/followup/gaps），**不是扁平字段**。v0.8 起不要再在 meta 顶层写 `quality`/`awarded`/`reason` |
+| `reminder` | system | `{ reminderId, taskId, title, fireAt, offsetMin }`——`offsetMin` 是写入侧从 `reminders.offset_min` 抄进来的**快照**，读取侧不现算（02 §2） |
 | `error` | system | `{ code, message, retryable }` |
 
 ### 2.3 attachments — 附件
@@ -348,7 +348,7 @@ CREATE TABLE settings (
 | 今日积分 | `SUM(delta) WHERE day = 本地今日` | ledger |
 | 今日完成数 | `COUNT(DISTINCT task_id) WHERE status='done' AND completed_at 为今日` + `COUNT(occurrences WHERE day=今日 AND status='done')` | tasks + occurrences |
 | 今日待办数 | `COUNT(tasks WHERE type!='daily' AND status IN ('todo','doing'))` + `COUNT(occurrences WHERE day=今日 AND status='pending')` | 两表 |
-| 当前任务 | 限时/活动：`status IN ('doing','todo')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
+| 当前任务 | 限时/活动：`status IN ('todo','doing','reviewing')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
 | **日历红点** | **只算 `deadline` / `event`**：`tasks(type IN ('deadline','event') AND date(due_at)=d AND status NOT IN ('discarded','archived'))`。**每日任务不参与红点**（Q2 已定） | 见 §4.1 |
 | 连续天数 streak | `COUNT` 从今天（或昨天）向前连续 `occurrence.status='done'` 的天数 | occurrences |
 

@@ -38,6 +38,7 @@ export type AppErrorCode =
   | 'NOT_FOUND'
   | 'INVALID_INPUT'
   | 'CONFLICT'
+  | 'EVIDENCE_REQUIRED'
   | 'AI_NOT_CONFIGURED'
   | 'AI_UPSTREAM_ERROR'
   | 'AI_PARSE_FAILED'
