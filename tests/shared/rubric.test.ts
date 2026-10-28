@@ -57,13 +57,14 @@ describe('computePlannedPoints：应得分只看难度（02 §5.2 表）', () =>
    * 也就是说：这条断言在**当前实现**下绿、在**退步之后**红，方向是对的。
    *
    * 上面那行 @ts-expect-error 是编译期那一半：签名一旦多出可选参数，实参 240 就合法了，
-   * 指令变成"未使用"，tsc 报错。注意它只在 tests 进入某个 tsconfig 的 include 时才生效
-   * （目前 tsconfig.node / tsconfig.web 都不含 tests，见交付说明）。
+   * 指令变成"未使用"，tsc 报 TS2578。它生效的前提是 tests 被某个 tsconfig 覆盖——
+   * 自契约 v0.9 起由 tsconfig.test.json 承担（已接进 npm run typecheck），此前是死代码。
    */
   it('estimateMin 不能作为参数回来：编译报错，运行时也当场崩（不静默算错）', () => {
     // @ts-expect-error 第二参数已删除，传了必须编译报错
     expect(() => computePlannedPoints('epic', 240)).toThrow(TypeError)
-    // 必填参数被加回来时 length 会变；可选参数靠上面那条 toThrow 兜住
+    // 实测：把 estimateMin 加回第二参数后 length 由 1 变 2
+    // （TS 的可选参数擦除成无默认值形参，会计入 length），两道一起兜
     expect(computePlannedPoints.length).toBe(1)
   })
 

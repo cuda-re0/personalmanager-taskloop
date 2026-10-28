@@ -21,6 +21,8 @@ const draft = (localId: string): TaskDraft => ({
   estimateMin: 60,
   dueHint: '周五',
   dailyTimeHint: null,
+  activeToHint: null, // 仅 daily 有可选结束日期（04 §3.2）
+  reminderOffsets: [1440, 60], // 提前一天 + 提前一小时
   tags: [],
   steps: [],
   missingInfo: [],
@@ -175,7 +177,14 @@ describe('messages', () => {
       meta: {
         kind: 'task_review',
         taskId: task.id,
-        verdict: { verdict: 'partial', quality: 'partial', reason: '再补一句', followup: null }
+        verdict: {
+          verdict: 'partial',
+          quality: 'partial',
+          result: null, // 仅 event 有意义，限时任务恒为 null
+          reason: '再补一句',
+          followup: null,
+          gaps: ['结论段缺失'] // partial 逐条列未完成项，其他 verdict 才是空数组
+        }
       },
       linkedTaskId: task.id
     })
