@@ -1,0 +1,293 @@
+/*
+ * 悬浮窗样式（04 §5）。窗口本身是透明的（index.html 置了 background: transparent），
+ * 这里只画"条"和"面板"的实底，颜色全部取自 tokens.css，不写死色值。
+ *
+ * 高度由主进程 setBounds 决定（收起 32 / 展开 260 / 面板 480），
+ * **这里一律 height: 100%，不写死窗口高度**——用 CSS 改高度会被窗口裁切。
+ */
+
+.hud-root {
+  width: 100%;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* ---------------- 通用面板 ---------------- */
+
+.hud-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.hud-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--text);
+}
+
+.hud-panel--bar:not(.is-open) .hud-head {
+  height: 100%;
+}
+
+.hud-panel--bar.is-open .hud-head,
+.hud-panel--panel .hud-head {
+  height: 30px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hud-ratio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.hud-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.hud-points {
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-grow {
+  flex: 1 1 auto;
+}
+
+.hud-recent {
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--text-sub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 形态切换（04 §5.2 图里的 `⋯`）：只有字形，不加标签 */
+.hud-mode {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.hud-mode:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ---------------- 列表 ---------------- */
+
+.hud-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 6px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+}
+
+.hud-row:hover {
+  background: var(--bg-hover);
+}
+
+.hud-check {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hud-check:hover {
+  border-color: var(--accent);
+}
+
+.hud-check.is-done {
+  border-color: var(--accent);
+  background: var(--accent);
+  cursor: default;
+}
+
+.hud-check.is-done::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-bottom: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.hud-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-row-title.is-done {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+/* ---------------- 一句话加任务 ---------------- */
+
+.hud-add {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hud-input {
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.hud-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* ---------------- 轻提示（错误 message 原样） ---------------- */
+
+.hud-tip {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* ---------------- dock-bar 外壳 ---------------- */
+
+.dock-bar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* ---------------- float-pod 外壳 ---------------- */
+
+/* 整块可拖：drag 区域收不到 click，点击热区是里面的 .pod-hot */
+.pod {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  -webkit-app-region: drag;
+}
+
+.pod-ring {
+  position: absolute;
+  inset: 0;
+}
+
+.pod-ring-track {
+  fill: var(--bg);
+  stroke: var(--border);
+  stroke-width: 3;
+}
+
+.pod-ring-value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+/* 圆心 34px（≈60% 直径）的 no-drag 热区 */
+.pod-hot {
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.pod-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--dot);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  -webkit-app-region: no-drag;
+}
+
+.pod-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}

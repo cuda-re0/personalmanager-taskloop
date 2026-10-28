@@ -12,6 +12,7 @@ import * as settingRepo from '../db/repositories/settingRepo'
 import * as messageService from '../services/messageService'
 import * as pointsService from '../services/pointsService'
 import * as taskService from '../services/taskService'
+import * as hudService from '../services/hudService'
 import { runEnvelope } from './envelope'
 import { g, parseInput } from './guards'
 
@@ -22,8 +23,8 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 30 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条接通，
- * 见 kickoff/09、kickoff/11）；NOT_WIRED 一律不注册
+ * **只接 WIRED 里的 35 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * W9 起 hud 五条接通，见 kickoff/09、kickoff/11、kickoff/13）；NOT_WIRED 一律不注册
  * （不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -52,15 +53,10 @@ export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
   [CH.reminder.snooze]: { owner: 'W8' },
   [CH.reminder.syncForTask]: { owner: 'W8' },
   [CH.reminder.testChannel]: { owner: 'W8' },
-  // W9：通知渠道 + 悬浮窗
+  // W9：通知渠道 + 悬浮窗（悬浮窗五条已随 W9 接通，不在表内）
   [CH.channel.list]: { owner: 'W9' },
   [CH.channel.setConfig]: { owner: 'W9' },
   [CH.channel.setGlobal]: { owner: 'W9' },
-  [CH.hud.setMode]: { owner: 'W9' },
-  [CH.hud.setExpanded]: { owner: 'W9' },
-  [CH.hud.moveTo]: { owner: 'W9' },
-  [CH.hud.setVisible]: { owner: 'W9' },
-  [CH.hud.getState]: { owner: 'W9' },
   // W11：附件存储
   [CH.attachment.add]: { owner: 'W11' }
 }
@@ -379,7 +375,16 @@ const TABLE: Row[] = [
   // 入参里的 current 不参与计算（奖励只由 nextDayWillReach 决定），透传仅为契约形状
   row(CH.points.streakPreview, g.streakPreview, input =>
     pointsService.streakBonusAt(input.nextDayWillReach)
-  )
+  ),
+
+  /* ---------------- hud（5，W9） ---------------- */
+  // 状态与坐标全在 hudService：handler 只做入参校验 + 转发，不在这里算 bounds。
+  // setMode 的 `hud.mode.changed` 广播也在 hudService 里（同一处改动同一个广播，避免漏发）。
+  row(CH.hud.setMode, g.hudSetMode, input => hudService.setMode(input.mode)),
+  row(CH.hud.setExpanded, g.hudSetExpanded, input => hudService.setExpanded(input.expanded)),
+  row(CH.hud.moveTo, g.hudMoveTo, input => hudService.moveTo(input.x, input.y)),
+  row(CH.hud.setVisible, g.hudSetVisible, input => hudService.setVisible(input.visible)),
+  row(CH.hud.getState, g.hudGetState, () => hudService.getState())
 ]
 
 /** 已接通的通道名（代码里的数据，供覆盖测试用） */

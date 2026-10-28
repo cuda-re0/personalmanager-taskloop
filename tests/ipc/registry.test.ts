@@ -11,12 +11,21 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 30 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(30)
-    expect(new Set(WIRED_CHANNELS).size).toBe(30)
+  it('WIRED 有 35 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条）', () => {
+    expect(WIRED_CHANNELS.length).toBe(35)
+    expect(new Set(WIRED_CHANNELS).size).toBe(35)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     for (const ch of [CH.occurrence.complete, CH.occurrence.undo, CH.occurrence.skip]) {
+      expect(WIRED_CHANNELS).toContain(ch)
+    }
+    for (const ch of [
+      CH.hud.setMode,
+      CH.hud.setExpanded,
+      CH.hud.moveTo,
+      CH.hud.setVisible,
+      CH.hud.getState
+    ]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
   })
@@ -40,17 +49,19 @@ describe('registry 通道覆盖', () => {
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
-    expect(Object.keys(NOT_WIRED).length).toBe(21)
+    expect(Object.keys(NOT_WIRED).length).toBe(16)
   })
 
-  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、ai.*→W4、hud.*→W9、attachment.add→W11', () => {
+  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、ai.*→W4、channel.*→W9、attachment.add→W11', () => {
     expect(NOT_WIRED[CH.task.promoteDraft]).toBeUndefined()
     expect(NOT_WIRED[CH.task.complete]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.complete]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.undo]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.skip]).toBeUndefined()
+    expect(NOT_WIRED[CH.hud.getState]).toBeUndefined()
+    expect(NOT_WIRED[CH.hud.setMode]).toBeUndefined()
     expect(NOT_WIRED[CH.ai.review]).toEqual({ owner: 'W4' })
-    expect(NOT_WIRED[CH.hud.getState]).toEqual({ owner: 'W9' })
+    expect(NOT_WIRED[CH.channel.list]).toEqual({ owner: 'W9' })
     expect(NOT_WIRED[CH.attachment.add]).toEqual({ owner: 'W11' })
   })
 })

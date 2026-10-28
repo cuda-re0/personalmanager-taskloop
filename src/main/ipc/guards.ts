@@ -19,6 +19,8 @@ const difficultySchema = z.enum(['trivial', 'easy', 'medium', 'hard', 'epic'])
 const notifyChannelSchema = z.enum(['inapp', 'toast', 'mail', 'webhook'])
 /** Priority 是 0|1|2 的字面量联合，schema 用 literal 而不是 min/max，输出类型才能对上 TaskPatch */
 const prioritySchema = z.union([z.literal(0), z.literal(1), z.literal(2)])
+/** 悬浮形态（02 §3.0 `HudMode`）：两个模式名写死，与契约同步 */
+const hudModeSchema = z.enum(['dock-bar', 'float-pod'])
 const monthSchema = z.number().int().min(1).max(12)
 const yearSchema = z.number().int()
 
@@ -172,7 +174,13 @@ export const g = {
   monthStats: z.object(monthInput),
   adjust: z.object({ delta: z.number(), reason: z.string() }),
   preview: z.object({ type: taskTypeSchema, difficulty: difficultySchema }),
-  streakPreview: z.object({ current: z.number(), nextDayWillReach: z.number() })
+  streakPreview: z.object({ current: z.number(), nextDayWillReach: z.number() }),
+  // hud（W9）：坐标必须有限值——NaN/Infinity 会让 setBounds 抛出，且会写进 hud.position
+  hudSetMode: z.object({ mode: hudModeSchema }),
+  hudSetExpanded: z.object({ expanded: z.boolean() }),
+  hudMoveTo: z.object({ x: z.number().finite(), y: z.number().finite() }),
+  hudSetVisible: z.object({ visible: z.boolean() }),
+  hudGetState: z.undefined()
 }
 
 /** 校验失败 → AppErrorException(INVALID_INPUT)，由 envelope 转成 ok:false */
@@ -217,5 +225,10 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.points.monthStats]: g.monthStats,
   [CH.points.adjust]: g.adjust,
   [CH.points.preview]: g.preview,
-  [CH.points.streakPreview]: g.streakPreview
+  [CH.points.streakPreview]: g.streakPreview,
+  [CH.hud.setMode]: g.hudSetMode,
+  [CH.hud.setExpanded]: g.hudSetExpanded,
+  [CH.hud.moveTo]: g.hudMoveTo,
+  [CH.hud.setVisible]: g.hudSetVisible,
+  [CH.hud.getState]: g.hudGetState
 }
