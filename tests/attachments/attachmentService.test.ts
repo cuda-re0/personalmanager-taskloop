@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Attachment } from '../../src/shared/types/domain'
+import { MAX_ATTACHMENT_BYTES } from '../../src/main/attachments/constants'
 import { getDb } from '../../src/main/db/connection'
 import { todayLocalDay } from '../../src/main/db/localDay'
 import * as attachmentRepo from '../../src/main/db/repositories/attachmentRepo'
@@ -251,12 +252,37 @@ describe('attachmentService.add · 拒绝', () => {
     expect(filesUnder(env.root)).toEqual([])
   })
 
-  it('base64 解码后超过 25 MiB → FILE_TOO_LARGE', () => {
+  it('base64 解码后超过 25 MiB → FILE_TOO_LARGE，且不落盘不插行', () => {
     const big = fakePdf(26 * 1024 * 1024).toString('base64')
     expectErrorCode(
       () => attachmentService.add({ name: 'big.pdf', mime: 'application/pdf', base64: big }),
       'FILE_TOO_LARGE'
     )
+    expect(filesUnder(env.root)).toEqual([])
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM attachments').get()).toEqual({ n: 0 })
+  })
+
+  it('超长 base64 串在解码之前就被拒：非法字符也报 FILE_TOO_LARGE 而非 INVALID_INPUT', () => {
+    // 串里全是解码器必然拒绝的字符——若预检不存在，会先走到 base64 字母表校验报
+    // INVALID_INPUT；报 FILE_TOO_LARGE 本身就证明预检发生在解码之前，
+    // 26 MiB 的附件不会先在内存里解开 ~35 MB 再被扔掉
+    const oversized = '$'.repeat(Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 100)
+    expectErrorCode(
+      () => attachmentService.add({ name: 'big.png', mime: 'image/png', base64: oversized }),
+      'FILE_TOO_LARGE'
+    )
+    expect(filesUnder(env.root)).toEqual([])
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM attachments').get()).toEqual({ n: 0 })
+  })
+
+  it('串长预检不误杀：整 25 MiB 的 base64 能正常落盘', () => {
+    const att = attachmentService.add({
+      name: 'edge.pdf',
+      mime: 'application/pdf',
+      base64: fakePdf(MAX_ATTACHMENT_BYTES).toString('base64')
+    })
+    expect(att.bytes).toBe(MAX_ATTACHMENT_BYTES)
+    expect(statSync(absOf(att)).size).toBe(MAX_ATTACHMENT_BYTES)
   })
 
   it('空内容 → INVALID_INPUT', () => {

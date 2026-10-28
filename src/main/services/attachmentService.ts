@@ -64,6 +64,12 @@ function logName(raw: string): string {
   return oneLine.length > 120 ? `${oneLine.slice(0, 120)}…` : oneLine
 }
 
+/**
+ * base64 串长预检的余量：`data:` 前缀、空白、padding 最多占几十字符，
+ * 而上界估计（串长 × 3/4）本身只会高估解码字节数，多留这点余量不可能误杀合法文件。
+ */
+const BASE64_PRECHECK_SLACK = 64
+
 function assertSize(size: number, label: string): number {
   if (size > MAX_ATTACHMENT_BYTES) {
     throw appError('FILE_TOO_LARGE', `附件超过 ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MiB 上限`, {
@@ -116,7 +122,16 @@ function resolvePayload(input: AddAttachmentInput): Payload {
   // 02 §3.3b：两个都给以 sourcePath 为准（它是 webUtils 拿到的真实路径，比 base64 更接近原文件）
   if (hasSource) return fromSourcePath(input.sourcePath as string)
   if (hasBase64) {
-    const buffer = decodeBase64(input.base64 as string)
+    const raw = input.base64 as string
+    // 解码**前**按串长预检：base64 每 4 字符对应 3 字节，串长 × 3/4 只会**高估**解码结果
+    // （padding 与空白只减不增），所以这个上界不会误杀合法的 25 MiB。
+    // 否则 26 MiB 的附件要先在内存里解开 ~35 MB 再拒——白吃一次峰值。
+    if (raw.length > Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + BASE64_PRECHECK_SLACK) {
+      throw appError('FILE_TOO_LARGE', `附件超过 ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MiB 上限`, {
+        detail: `base64 串长约 ${raw.length} 字符，解码后必超上限`
+      })
+    }
+    const buffer = decodeBase64(raw)
     return { kind: 'buffer', buffer, size: assertSize(buffer.byteLength, 'base64 解码结果') }
   }
   throw appError('INVALID_INPUT', '附件缺少内容：sourcePath 与 base64 至少给一个')
