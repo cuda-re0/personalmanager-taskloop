@@ -111,7 +111,7 @@
 | W4 | `msg.send` / `retry`、`ai` 全部 4 条 | 6 |
 | W8 | `reminder` 全部 6 条（`reminders` 表在 W8 前恒为空，接上去也是空数据） | 6 |
 | W9 | `channel` 全部 3 条、`hud` 全部 5 条 | 8 |
-| W11 | `attachment.add` | 1 |
+| W11 | `attachment.add`（service 已由 W11 交付；handler 在 `registry.ts`，归附件 UI 轮随 W2 补丁注册） | 1 |
 
 **未接的通道一律不注册**（不放假 handler、不返回假数据）。渲染层调它们会当场收到 Electron 的 "No handler registered"，这是开发期错误、不该被伪装成业务错误。`WIRED` / `NOT_WIRED` 两张表要作为**代码里的数据**导出，并配一条覆盖测试：两张表的键集合并集必须等于 `CH` 的全部叶子、且不交叠——这样下一个新通道加进 `channels.ts` 却没人接，测试会红。
 
