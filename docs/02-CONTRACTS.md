@@ -413,7 +413,7 @@ export interface Bootstrap {
 |---|---|---|
 | `task.list` | `{ status?: TaskStatus[]; includeSubtasks?: boolean }` | `Task[]` |
 | `task.get` | `{ id: string }` | `Task & { subtasks: Task[] }` |
-| `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskPatch }` | `Task` |
+| `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskCreatePatch }` | `Task` | 同一 draft 重复确认返回已生成的原 Task（幂等），不重复落库 |
 | `task.update` | `{ id: string; patch: TaskPatch }` | `Task` |
 | `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` |
 | `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时返回 `CONFLICT`，不抛异常 |
@@ -440,6 +440,8 @@ export type CompleteTaskInput =
 **`TaskPatch` 没有 `type`，落库后不支持改类型。** 04 §3.2 那句"类型可就地修改"说的是**草稿卡片**（还没落库的 `TaskDraft`，纯渲染层状态）；右栏任务详情（04 §4①）只有 `detail_md` / 步骤勾选 / 提醒偏移 / `[完成]` 四项，本来就没有类型入口。任务一旦落库，类型不可改——要换类型就 `task.remove`（软删 → `discarded`）再建一条，旧任务连同它的流水与 occurrence 一起留在历史里。
 
 **不要给 `TaskPatch` 加 `type`。** 改类型会连带四件事：难度要 `snapDifficulty` 归位、目标类型不适用的字段（`due_at` / `daily_time` / `repeat_rule` / `active_*`）要清、`reminders` 行要按新类型重排、切到每日后当天的 occurrence 要补。其中重排提醒依赖 W8 的同步逻辑，现在做只会留下"按旧类型排好的提醒"——那比不能改类型糟得多。
+
+**`promoteDraft` 的 `patch` 用创建侧形状 `TaskCreatePatch`：`TaskPatch` 的全部字段 + 可选 `type`。** draft 尚未落库，"落库后不可改类型"约束的是 update 链路；确认本质是创建，`createTask` 本来就收 type，允许用户在确认那一刻定类型。主进程收到 `type` 时：按新 type 落库，`pointsPlanned` 按新 type 口径重算（`daily` 恒 `cfg.dailyBase`，`deadline/event` 走 `computePlannedPoints(difficulty, cfg)`），due 字段按 type 映射（`daily` → `daily_time`/`repeat_rule`/`active_from`，否则 → `due_at`）；非法 type×difficulty 照旧只拒 `INVALID_INPUT`、不归位——草稿卡就地改 type 时渲染层 `applyDraftPatch` 已做过 `snapDifficulty`，正常路径到主进程必然合法。落库之后依旧不可改：`task.update` 的 `TaskPatch` 没有也不许有 `type`。
 
 ### 3.2b `api.occurrence`（每日任务）
 

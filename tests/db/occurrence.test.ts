@@ -36,6 +36,23 @@ describe('ensureRange', () => {
     expect(occurrenceRepo.countByTask(daily.id)).toBe(countAfterFirst)
   })
 
+  it('daily 的同类型子任务不生成 occurrence（v0.15：listDailyActive 排除 parent_id 非空）', () => {
+    const parent = taskService.createTask({ type: 'daily', title: '背单词' })
+    const sub = taskService.createTask({
+      type: 'daily',
+      title: '背单词·步骤',
+      parentId: parent.id
+    })
+    const today = todayLocalDay()
+
+    const first = ensureRange(today, addDays(today, 6))
+
+    // 子任务未被排除时这里会是 14
+    expect(first.created).toBe(7)
+    expect(occurrenceRepo.countByTask(parent.id)).toBe(7)
+    expect(occurrenceRepo.countByTask(sub.id)).toBe(0)
+  })
+
   it('不生成过去日期：区间从 2020 年开始也只补今天', () => {
     const daily = taskService.createTask({
       type: 'daily',

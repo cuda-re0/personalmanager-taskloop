@@ -89,10 +89,11 @@ export function listSubtasks(parentId: string): Task[] {
     .all(parentId) as TaskRow[]).map(mapTask)
 }
 
-/** occurrence 生成只看这批任务（01 §2.1.3：daily 且 todo/doing） */
+/** occurrence 生成只看这批任务（01 §2.1.3：daily 且 todo/doing）。排除子任务：
+ *  子步骤若与父任务同为 daily，会各自被 ensureRange 生成 occurrence、污染 streak（W5 交付报告上报，v0.15 修复） */
 export function listDailyActive(): Task[] {
   return (getDb()
-    .prepare(`${SELECT_TASK} WHERE type = 'daily' AND status IN ('todo','doing') ORDER BY sort_key ASC`)
+    .prepare(`${SELECT_TASK} WHERE type = 'daily' AND status IN ('todo','doing') AND parent_id IS NULL ORDER BY sort_key ASC`)
     .all() as TaskRow[]).map(mapTask)
 }
 

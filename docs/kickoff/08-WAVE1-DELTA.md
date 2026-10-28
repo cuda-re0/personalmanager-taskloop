@@ -231,3 +231,13 @@ W11 报了七条，其中三条是我契约写错了，一条是我的任务书�
 3. **重复确认幂等补定**：同一 draft 第二次 promoteDraft（含绕过 UI 直调通道）返回已生成的原 Task，不重复落库、不报错。02 §3.2 尚未回填，W5 交付报告会提醒。
 4. **W5 授权扩展**（先例同 W11 的小改豁免）：`chat/**` 仅限两处接线（PENDING_CONFIG 接真配置、确认按钮调 promoteDraft）、`registry.ts` 仅 promoteDraft 一条注册、`scripts/seed-dev-draft.mjs` 开发造数。超出即越界。
 5. W5 开工词：`kickoff/09-W5-草稿转任务.md`。
+
+### v0.15（W5 交付 `025849c` 审阅后，2026-10-28）
+
+W5 交付报告上报 5 项，架构方裁决与落盘：
+
+1. **幂等回填 02 §3.2**：`task.promoteDraft` 表行补"同一 draft 重复确认返回已生成的原 Task（幂等），不重复落库"。v0.14.4 的补定正式入契约。
+2. **`listDailyActive` 排除子任务（真缺陷修复）**：原 SQL 无 `parent_id IS NULL`，daily 父任务的同类型子任务会被 `ensureRange` 各自生成 occurrence、污染 streak。已修 + 防回归测试（occurrence.test.ts：子任务 count=0、总数恒 7）。W5 的"子步骤落 `deadline`（due_at 恒 NULL）"绕法保留作双保险。
+3. **`promoteDraft` 的 patch 改为创建侧形状 `TaskCreatePatch`**（`TaskPatch` 全字段 + 可选 `type`）：draft 尚未落库，"落库后不可改类型"约束的是 update 链路；确认本质是创建。规则写入 02 §3.2：按新 type 落库 + `pointsPlanned` 按新 type 口径重算 + due 字段按 type 映射；非法 type×difficulty 照旧只拒不归位（渲染层 `applyDraftPatch` 已 snapDifficulty）；落库后依旧不可改。**实现打通归 W5 补丁**（guards.ts 的 patch schema + taskService 传 type，均在 W5 授权内）。此裁决解决 04 §3.2"草稿卡可就地改 type"与确认链路的断路。
+4. **两处授权外小改准予备案**（W11 先例）：`src/renderer/main/index.tsx`（右栏布局挂载）、`src/renderer/main/api.d.ts`（`window.api` 全局声明——渲染层此前无 IPC 类型入口，属基础设施缺口）。
+5. W5 三条语义取舍认可：每日勾选框视觉先行（`occurrence.complete` 归 W6）、步骤勾选走 todo↔doing、提醒偏移只读（编辑入口归 W8）。
