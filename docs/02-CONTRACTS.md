@@ -747,7 +747,7 @@ function clamp(v: number, lo: number, hi: number) {
 - 切换类型时若当前难度不合法，用 `snapDifficulty(type, d)` 归位到最近合法档，**平手取低档**——切个类型就白涨几十分，用户会认为系统算错了。
 - **校验落在三处**：AI 输出（W4 的 parse pipeline）、草稿归一化（渲染层 `normalizeDraft`）、主进程 `createTask`。前两处**归位**（`snapDifficulty`），保证卡面显示的就是合法档；主进程**不归位，直接 `INVALID_INPUT`**——它若悄悄换一个难度，卡面 35 分、库里 20 分，又变回两套口径。正常路径渲染层已经归过位，主进程报错只会发生在绕过 UI 的调用上。
 - **草稿卡面分值与落库值必须同源**：`draftPointsOf(draft, cfg)` 的 `cfg` 必须是 `bootstrap.settings` 的 `points.*`（完整 `PointsConfig`），不许省略参数落回 `DEFAULT_CONFIG`，也不许只传 `dailyBase`。渲染层目前是 `dailyBase: number` 加一个写死的 `const DAILY_BASE = 1`，W2 的 bootstrap 接上后必须整条换掉：用户改过 `points.difficultyBase` 之后，卡面 +35 / 落库 +30 是同一类 bug 的另一种形态。
-- **改难度必须同步应得分。** `TaskPatch` 含 `difficulty`，而 `updateTask` 目前只写 patch：难度从 `hard` 改成 `easy` 之后 `points_planned` 还是 35，完成时会按 35 发分。`task.update` 收到 `difficulty` 时必须在**同一事务**里按本节规则重算 `points_planned`（daily 除外，它恒为 `cfg.dailyBase`），并做 type×difficulty 校验；渲染层的 `applyDraftPatch` 已经这么做了，主进程还缺这一步。
+- **改难度必须同步应得分。** `TaskPatch` 含 `difficulty`，`updateTask` 收到 `difficulty` 时必须在**同一事务**里按本节规则重算 `points_planned`（daily 除外，它恒为 `cfg.dailyBase`），并做 type×difficulty 校验——难度从 `hard` 改成 `easy` 后 `points_planned` 若还是 35，完成时会按 35 发分。此条主进程已落地（v0.11 起，含历史脏值纠回测试）；渲染层的 `applyDraftPatch` 同样已实现。
 - **daily 的 `points_planned` 只有一个来源：`cfg.dailyBase`。** `createTask` 收到 `{type:'daily', pointsPlanned: 99}` 时必须**忽略这个值**，不能原样落库——每日任务的应得分是定义出来的，不是调用方给的，`points_awarded` 也从不看它（走 `computeDailyPoints`）。`pointsPlanned < 1` 的入参校验照旧（显式给了就必须 ≥1），忽略只发生在"值合法但不用"。
 - **数据库不设 CHECK**：条件约束以后要改就得写迁移，而历史数据不该因为规则收紧就读不出来。
 
