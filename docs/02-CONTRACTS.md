@@ -81,8 +81,9 @@ export interface Task {
   reminderChannels: NotifyChannel[];
 
   tags: string[];
+  /** ★ 小数（2 位）。由 computePlannedPoints 算，不是整数，UI 用 fmtPoints 显示 */
   pointsPlanned: number;
-  /** deadline/event 才有值；daily 恒为 null，看 occurrences */
+  /** deadline/event 才有值；daily 恒为 null，看 occurrences。同为小数 */
   pointsAwarded: number | null;
   quality: Quality | null;
 
@@ -127,6 +128,7 @@ export interface Occurrence {
   taskId: string;
   day: string;                          // YYYY-MM-DD 本地
   status: 'pending' | 'done' | 'skipped' | 'missed';
+  /** 小数（2 位），未完成为 null */
   pointsAwarded: number | null;
   completedAt: string | null;
   note: string | null;
@@ -487,12 +489,22 @@ export function effortFactor(estimateMin: number | null): number {
   return 1 + (m / 240) * 0.6;
 }
 
+/**
+ * 统一精度：保留 2 位小数。
+ * 不是为了"取整好看"，而是浮点乘除会累积误差（5.750000000000001），
+ * 不收敛的话余额 SUM 几十次之后会出现 319.99999999999994 这种数。
+ * 除这一个函数外，全项目任何地方都不许再对积分做 round / toFixed。
+ */
+export function roundPoints(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** 应得分。不取整：5 分档在 60 分钟时是 5.75，与 5 分有可见差别 */
 export function computePlannedPoints(
   d: Difficulty, estimateMin: number | null, cfg = DEFAULT_CONFIG,
 ): number {
-  if (d === 'trivial') return cfg.difficultyBase.trivial;   // trivial 不吃时长系数
   const raw = cfg.difficultyBase[d] * effortFactor(estimateMin);
-  return clamp(Math.round(raw), 1, 100);
+  return clamp(roundPoints(raw), 1, 100);
 }
 
 export function computeAwardedPoints(
@@ -500,13 +512,28 @@ export function computeAwardedPoints(
 ): number {
   const q = { partial: 0.6, met: 1.0, exceeded: 1.15 }[quality];
   const penalty = Math.min(overdueDays * 2, 20);
-  return clamp(Math.round(planned * q) - penalty, 1, Math.round(planned * 1.2));
+  return clamp(roundPoints(planned * q - penalty), 1, roundPoints(planned * 1.2));
 }
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.min(Math.max(v, lo), hi);
 }
 ```
+
+**积分一律是小数（2 位），全链路不做整数化。** 这一点会传导到数据库字段类型（01 §2 的 `REAL`）、`point_ledger.delta`、`daily_stats.points`、余额展示与日历热力分档，实现方不要在任何一层"顺手取整"。
+
+举例（B 档）：
+
+| 难度 | 预估 | 应得分 |
+|---|---|---|
+| trivial | 5 min | 5.06 |
+| trivial | 60 min | 5.75 |
+| easy | 30 min | 10.75 |
+| medium | 60 min | 23 |
+| hard | 120 min | 42 |
+| epic | 240 min | 80 |
+
+`trivial` 不设特殊分支：它和其他档走同一个公式，只是基数最小。原来那句"trivial 不吃时长系数"已撤销——它会和 `difficulty` 的语义冲突（标了 trivial 又填 240 分钟本身就是矛盾数据，不该用一条隐藏规则去兜）。
 
 ### 5.3 每日任务（这是需要你拍板的核心）
 

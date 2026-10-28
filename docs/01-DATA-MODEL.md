@@ -72,8 +72,8 @@ CREATE TABLE tasks (
   reminder_channels_json TEXT NOT NULL DEFAULT '["inapp"]', -- ★ inapp|toast|mail|webhook
 
   tags_json       TEXT NOT NULL DEFAULT '[]',
-  points_planned  INTEGER NOT NULL DEFAULT 0,     -- 单次应得分（daily 为单日分值）
-  points_awarded  INTEGER,                        -- 限时/活动：实际入账；daily 恒为 NULL（看 occurrences）
+  points_planned  REAL NOT NULL DEFAULT 0,        -- ★ 单次应得分（daily 为单日分值），2 位小数
+  points_awarded  REAL,                           -- ★ 限时/活动：实际入账；daily 恒为 NULL（看 occurrences）
   quality         TEXT,                           -- partial|met|exceeded
 
   requires_evidence INTEGER NOT NULL DEFAULT 0,   -- ★ 1 = 完成时必须附证据才计分（S4 已定）
@@ -127,7 +127,7 @@ CREATE TABLE task_occurrences (
   task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   day            TEXT NOT NULL,                -- YYYY-MM-DD 本地日
   status         TEXT NOT NULL DEFAULT 'pending', -- pending|done|skipped|missed
-  points_awarded INTEGER,
+  points_awarded REAL,                         -- ★ 2 位小数，单日实得
   completed_at   TEXT,
   note           TEXT,
   created_at     TEXT NOT NULL,
@@ -211,7 +211,7 @@ CREATE TABLE point_ledger (
   id            TEXT PRIMARY KEY,
   task_id       TEXT REFERENCES tasks(id) ON DELETE SET NULL,
   occurrence_id TEXT REFERENCES task_occurrences(id) ON DELETE SET NULL,
-  delta         INTEGER NOT NULL,           -- 正为得，负为扣
+  delta         REAL NOT NULL,              -- ★ 正为得，负为扣；2 位小数，不做整数化
   kind          TEXT NOT NULL,              -- award|penalty|adjust
   reason_code   TEXT NOT NULL,              -- task_done|quality_bonus|overdue_penalty|manual_adjust|streak_bonus
   reason_text   TEXT NOT NULL DEFAULT '',
@@ -265,7 +265,7 @@ CREATE UNIQUE INDEX uq_reminder_task_offset
 ```sql
 CREATE TABLE daily_stats (
   day             TEXT PRIMARY KEY,   -- YYYY-MM-DD
-  points          INTEGER NOT NULL DEFAULT 0,
+  points          REAL NOT NULL DEFAULT 0,     -- ★ 2 位小数，不做整数化
   tasks_done      INTEGER NOT NULL DEFAULT 0,  -- 含每日任务当天完成数
   tasks_created   INTEGER NOT NULL DEFAULT 0,
   occurrences_done INTEGER NOT NULL DEFAULT 0  -- ★ 每日任务完成数
@@ -343,6 +343,8 @@ CREATE TABLE settings (
 | 当前任务 | 限时/活动：`status IN ('doing','todo')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
 | **日历红点** | **只算 `deadline` / `event`**：`tasks(type IN ('deadline','event') AND date(due_at)=d AND status NOT IN ('discarded','archived'))`。**每日任务不参与红点**（Q2 已定） | 见 §4.1 |
 | 连续天数 streak | `COUNT` 从今天（或昨天）向前连续 `occurrence.status='done'` 的天数 | occurrences |
+
+**积分是小数（2 位），不是整数。** 余额、今日积分、`daily_stats.points` 全部按 `REAL` 存、按小数算，展示层用 `fmtPoints()` 格式化（04 §4③）。任何一层做 `Math.round` / `INTEGER` 转换都会让余额与流水对不上，属于 P0 缺陷。
 
 ### 4.1 日历查询的唯一实现（`calendarService.dayIndex`）
 

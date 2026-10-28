@@ -188,7 +188,7 @@ taskloop/
 | Q2 | 红点标哪些任务 | **只标限时 + 活动**；每日任务不进红点（否则整月全红，失去信息量） |
 | Q3 | 每日任务提醒时间 | 每个每日任务自带 `dailyTime`，默认 `21:00`，草稿卡片上可改 |
 | Q4 | 外部提醒通道 | **邮件为主**（`mail`，可发 QQ 邮箱，手机有提示）。`webhook` 留接口不接真实服务；harness 暂缓（02 §6.3） |
-| Q5 | 积分额度档位 | **B 中档**：5/10/20/35/50，每日 1 分，月典型 ≈ 320 分 |
+| Q5 | 积分额度档位 | **B 中档**：5/10/20/35/50，每日 1 分，月典型 ≈ 320 分。**积分保留 2 位小数，不做整数化** |
 | Q6 | 完成是否必须附证据（S4） | **必须**。`requiresEvidence` 由 AI 判定，缺证据停在 `reviewing` 不入账 |
 | Q7 | 模型与推送是否走自建 harness | **暂不实施，设计保留。** 用户 2026-10-28 决定：harness 想法留着，通知走邮箱即可。模型走 `zhipu` 直连，外部提醒走 `mail`；`AiProvider` / `NotificationChannel` 两个接口按可插拔设计，以后接 harness 不改上层 |
 
@@ -218,3 +218,4 @@ taskloop/
 | 2026-10-27 | v0.3 | 拍板 Q1-Q5：每日 1 分 + 连续里程碑、红点只标限时与活动、每日提醒默认 21:00、B 中档额度、外部提醒走 `mail → webhook` 路线（不做 QQ 官方机器人）。W8B 范围据此收敛 |
 | 2026-10-27 | v0.4 | 拍板 Q6/Q7：完成审核强制证据（`requiresEvidence` + `evidence_json`，缺证据停在 reviewing 不入账，取消"先入账再追问"的口子）；模型接入改为 `AiProvider` 双实现（`zhipu` / `harness`），新增 06 文档。通知渠道 id `qq` 改为 `webhook`（QQ 由 harness 在下游实现） |
 | 2026-10-28 | v0.5 | 用户决定：**harness 保留想法、暂不实施**，通知走邮箱。据此收敛范围：W4 只实现 `zhipu` 直连（`harnessClient` 不写，接口保留）；W8B 验收只到 `mail`（`webhookChannel` 只做最小实现，不接真实服务）；06 文档转为参考设计。**接口无破坏性变更**，`AiProvider` / `NotifyChannel` 签名不变 |
+| 2026-10-28 | v0.6 | **积分改为小数（2 位）**，撤销 W0 擅自加入的「trivial 不吃时长系数」分支，回到统一公式。**破坏性变更**：`tasks.points_planned` / `points_awarded`、`task_occurrences.points_awarded`、`point_ledger.delta`、`daily_stats.points` 全部 `INTEGER → REAL`；`RUBRIC_VERSION` 升 `v0.6-b`。因 W1 尚未建表，此时改为零成本；一旦建表需写迁移 |
