@@ -37,6 +37,9 @@ export type AppErrorCode =
 
 ## 2. 领域类型（`src/shared/types/domain.ts`）
 
+**本节代码块就是源码契约：`src/shared/types/domain.ts` 必须与它逐字一致（含注释），可以整段复制。**
+因此这里不出现任何标记符号。`★` 只出现在 01 的 DDL 与 00 的表格中，作为文档层变更标记；抄进代码时必须删除 `★` 及其后空格。交付审核时同样按"去除 `★` 后逐字比对"执行。
+
 ```ts
 export type TaskType    = 'daily' | 'deadline' | 'event';
 export type TaskStatus  = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived';
@@ -81,7 +84,7 @@ export interface Task {
   reminderChannels: NotifyChannel[];
 
   tags: string[];
-  /** ★ 小数（2 位）。由 computePlannedPoints 算，不是整数，UI 用 fmtPoints 显示 */
+  /** 小数（2 位）。由 computePlannedPoints 算，不是整数，UI 用 fmtPoints 显示 */
   pointsPlanned: number;
   /** deadline/event 才有值；daily 恒为 null，看 occurrences。同为小数 */
   pointsAwarded: number | null;
@@ -240,7 +243,7 @@ export interface TaskDraft {
   missingInfo: string[];             // 信息不足时列出要问用户的点，可能为空
   requiresEvidence: boolean;         // AI 判定这项完成时是否需要证据
   confidence: number;                // 0~1
-  pointsPlanned: number;             // 由 rubric 计算填充，AI 不给这个数
+  pointsPlanned: number;             // 小数（2 位）。由 rubric 计算填充，AI 不给这个数
 }
 
 export interface DraftStep {
