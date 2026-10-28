@@ -196,3 +196,14 @@ npm test
 
 - **附件存储单开一条 W11**（见 05 的授权目录与验收）。`attachment:add` 通道、`Api.attachment`、preload 已在契约里声明；W2 只注册 handler，W11 只写 `attachmentService` / `attachmentRepo` / `app://attach` 协议，两边不抢文件。渲染层在 W3 接入前继续用假附件。
 - **落库后不可改类型。** `TaskPatch` 不加 `type`。04 §3.2 的"类型可就地改"只指草稿卡片（渲染层状态，已实现）；建错类型走 `task.remove` + 重建。理由：改类型要连带难度归位、清字段、重排 `reminders` 行、补 occurrence，而提醒重排要等 W8。
+
+### v0.12（W2 开工前，2026-10-28）
+
+W2 的开工词写在波次 1 之前，当时假设"W1 还没落地、handler 先返假数据"。W1 已收工，那一版**作废**，按 05 的 W2 段执行。以下四条是写开工词时在代码里核出来的。
+
+1. **52 条通道只有 25 条现在能接。** 其余缺 service 函数或整条线未开工（`task.complete`、`task.promoteDraft`、`occurrence.complete/undo/skip`、`msg.send/retry`、`ai.*`、`reminder.*`、`channel.*`、`hud.*`、`attachment.add`）。未接的**一律不注册**，不放假 handler。归属表见 05 W2 段。
+2. **`occurrence.today` / `listByRange` 会写库**（内部 `ensureRange`），必须广播 `occurrence.created`；`app.getBootstrap` 例外，不广播。
+3. **`Bootstrap.channels` 在 W9 前恒为 `[]`**，不许返回假的可用性。`04 §1.1` 新增「请求参数格式不正确」（IPC 入参形状校验）、`04 §1.2` 新增「未知错误」（`UNKNOWN` 兜底）。
+4. **`PENDING_CONFIG` 的 `TODO(W2)` 改挂 W5。** W2 不碰渲染层，草稿分值接 `bootstrap.settings` 是 W5 接线时的事。在那之前它只能是 `DEFAULT_CONFIG`。
+5. **`reminder.cancel` / `snooze` 是写操作，但 `DomainEvent` 里没有对应事件类型**（只有 `reminder.fired` / `failed`）。§3.8 要求"任何写操作必须至少广播一条事件"，所以 `reminder.*` 整块划给 W8，由 W8 一并补 `reminder.updated`。本轮不提前造一个用不上的事件类型。
+6. `04 §1.1` 另加「只允许打开 http/https 链接」——`app.openExternal` 拒绝非 http(s) 时要用，原先没有登记过。

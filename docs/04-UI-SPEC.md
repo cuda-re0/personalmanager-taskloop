@@ -45,6 +45,8 @@
 | `INVALID_INPUT` | 重复规则格式不正确 | — |
 | `INVALID_INPUT` | 未知的配置项 | — |
 | `INVALID_INPUT` | 该任务类型不支持所选难度 | — |
+| `INVALID_INPUT` | 请求参数格式不正确 | — |
+| `INVALID_INPUT` | 只允许打开 http/https 链接 | — |
 | `INVALID_INPUT` | {日期字段} 必须是 YYYY-MM-DD 格式的本地日期 | 日期字段中文名 |
 | `CONFLICT` | 任务不能从「{状态}」直接变为「{状态}」 | 状态中文名 ×2 |
 | `CONFLICT` | 每日任务不进入审核/完成状态，请完成当天的打卡 | — |
@@ -71,6 +73,7 @@
 | `DB_ERROR` | 字段 {列名} 应为数组 |
 | `DB_ERROR` | 字段 messages.meta_json 的 task_review 缺少 verdict |
 | `DB_ERROR` | 事务回调不能是 async 函数 |
+| `UNKNOWN` | 未知错误 |
 | `INVALID_INPUT` | 配置值不能是 undefined |
 | `CONFLICT` | 迁移 {名称} 执行失败 |
 | `CONFLICT` | 无法打开数据库 {路径} |

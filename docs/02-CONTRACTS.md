@@ -380,6 +380,8 @@ export type PublicSettings = AppSettings;
 
 **关于 `AppSettings` 的 key 数量**：01 §2.7 列出 15 条，本节定型 **14 条**——少的那条是 `ai.apiKey`，它存 `safeStorage`、不入 settings 表，因此不进类型。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
 
+**`Bootstrap.channels` 在 W9（外部通知渠道）落地前恒为 `[]`。** 不许为了凑形状返回一个 `available: true` 的假渠道——那会让设置页显示"可用"，用户配完发不出任何通知。
+
 **本节代码块一旦被施工方抄走，就不再改动其内部注释。** 需要补充说明时写在代码块外（就像上面这段），否则每个抄过旧版的施工方都会被判"与文档不一致"。这是本项目已实际踩过的坑。
 
 ### 3.1 `api.app`
@@ -448,6 +450,8 @@ export type CompleteTaskInput =
 | `occurrence.complete` | `{ id: string }` | `{ occurrence: Occurrence; entry: PointEntry; streakAfter: number }` | 完成今天这一次，入账 + 更新 streak |
 | `occurrence.undo` | `{ id: string }` | `{ occurrence: Occurrence; balanceAfter: number }` | 撤销，写负流水冲销，streak 回退 |
 | `occurrence.skip` | `{ id: string; note?: string }` | `Occurrence` | 标记"今天跳过"，不计分、断 streak |
+
+**`occurrence.today` / `listByRange` 是"读起来像读、实际会写"的通道。** 两者内部都会 `ensureRange` 补当天/区间的行，所以它们**必须广播 `occurrence.created`**（携带真正新建的那几条）。做法：调用前后各 `listRangeRaw` 一次、按 id 求差集，不要为了省一次查询而改成不广播——另一个窗口的今日列表就靠这条事件刷新。`app.getBootstrap` 例外：它返回的就是当前全量快照，不广播。
 
 ### 3.2c `api.calendar`
 

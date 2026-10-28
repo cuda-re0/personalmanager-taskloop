@@ -92,24 +92,44 @@
 
 ## W2 · IPC 与事件总线
 
-**只许改**：`src/main/ipc/**`、`src/main/bus.ts`、`src/preload/index.ts`、`electron.vite.config.ts` 的入口配置
+**只许改**：`src/main/ipc/**`、`src/main/bus.ts`、`src/preload/index.ts`、`package.json`（仅加 `zod`）
 
 **交付**
 
-1. `bus.ts`：持有所有 `BrowserWindow` 引用，`broadcast(event: DomainEvent)` 向全部存活窗口 `webContents.send('bus:event', event)`。
-2. `registerHandlers.ts`：按 02 §3 注册全部通道，统一封装 `handle(channel, fn)` —— 把异常转成 `AppError`、未知异常转 `UNKNOWN`、并打日志。
-3. `guards.ts`：入参 zod 校验，失败返回 `INVALID_INPUT`。
-4. preload：按 02 §4 暴露 `window.api`，`onEvent` 返回取消订阅函数，且要处理窗口卸载时自动清理。
-5. `window.api` 类型 `Api` 在 `shared/types/ipc.ts` 导出，preload 与渲染层共享。
+1. `bus.ts`：`broadcast(event: DomainEvent)` 向全部存活窗口 `webContents.send('bus:event', event)`。传输层可注入（测试用），默认实现枚举 `BrowserWindow.getAllWindows()`。
+2. `createHandlers(ipc)`：**不直接吃 `ipcMain`，而是接收一个 `{ handle(ch, fn) }` 接口**——测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的 `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
+3. `envelope.ts`：纯函数，`AppErrorException → {ok:false,error}`、未知异常 → `UNKNOWN` + `console.error` 全量堆栈。**永远不 throw 到 ipcMain 外面**。
+4. `guards.ts`：zod 校验入参，失败返回 `INVALID_INPUT` /「请求参数格式不正确」（04 §1.1 已登记）。只拦形状，业务规则仍归 service。
+5. preload：`window.api` 形状与 02 §4 一致（已在 `src/preload/index.ts` 声明好，本轮只补缺口）。
+
+**通道归属（51 个 api 方法 + 1 条 bus 事件 = 52，本轮只接 25 条）**
+
+| 归属 | 通道 | 数量 |
+|---|---|---|
+| **W2 本轮接** | `app` 全部 4 条；`task` 除 `promoteDraft` / `complete` 外 10 条；`occurrence.today` / `listByRange`；`calendar` 2 条；`msg.list`；`points` 全部 6 条 | 25 |
+| W6 | `task.complete`、`task.promoteDraft`、`occurrence.complete` / `undo` / `skip` | 5 |
+| W4 | `msg.send` / `retry`、`ai` 全部 4 条 | 6 |
+| W8 | `reminder` 全部 6 条（`reminders` 表在 W8 前恒为空，接上去也是空数据） | 6 |
+| W9 | `channel` 全部 3 条、`hud` 全部 5 条 | 8 |
+| W11 | `attachment.add` | 1 |
+
+**未接的通道一律不注册**（不放假 handler、不返回假数据）。渲染层调它们会当场收到 Electron 的 "No handler registered"，这是开发期错误、不该被伪装成业务错误。`WIRED` / `NOT_WIRED` 两张表要作为**代码里的数据**导出，并配一条覆盖测试：两张表的键集合并集必须等于 `CH` 的全部叶子、且不交叠——这样下一个新通道加进 `channels.ts` 却没人接，测试会红。
+
+**已知缺口（不阻塞，但要写进交付报告）**
+
+- `task.setReminderOffsets` 只写 `tasks.reminder_offsets`，**不创建 `reminders` 行**。W8 的 `syncForTask` 落地前，`reminders` 表恒为空——这也是 `reminder.*` 六条整块划给 W8 的原因。
+- `Bootstrap.channels` 恒为 `[]`（W9 前，见 02 §3.1）。
 
 **验收**
 
-- [ ] 主窗调用 `api.app.getBootstrap` 拿到正确形状（此时数据可全空）。
-- [ ] 主窗发 `task.createManual` → HUD 通过 `onEvent` 收到 `task.created`，HUD 页面上显示该标题。
-- [ ] 传入错误类型参数 → 返回 `{ok:false, error:{code:'INVALID_INPUT'}}`，**不抛异常、不白屏**。
-- [ ] 关闭 HUD 后再发事件不报错（引用的窗口不销毁崩溃）。
+- [ ] 主窗调用 `api.app.getBootstrap` 拿到真实数据（不是假对象），字段一个不少。
+- [ ] 主窗发 `task.createManual` → HUD 通过 `onEvent` 收到 `task.created`，HUD 显示该标题。
+- [ ] 传 `{ id: 123 }` → `{ok:false, error:{code:'INVALID_INPUT'}}`，不抛异常、不白屏。
+- [ ] 关闭 HUD 后再广播事件 → 不报错、主进程不崩。
+- [ ] `occurrence.today` 首次调用（会补行）广播了 `occurrence.created`；第二次调用不广播。
+- [ ] 通道覆盖测试：`WIRED ∪ NOT_WIRED == CH 全部叶子`。
 
-**禁止**：渲染层不许出现 `require('electron')`；不许在 handler 里直接写 SQL（走 service）。
+**禁止**：渲染层不许出现 `require('electron')`；不许在 handler 里直接写 SQL（走 service）；不许在未接的通道上造返回值。
 
 ---
 
