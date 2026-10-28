@@ -316,10 +316,9 @@ export interface WebhookConfig {
 }
 
 /**
- * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应
- * —— 除去 `ai.apiKey`：它存 `safeStorage`，不入表，因此也不在此类型中，
- * 从类型层面保证密钥不可能出现在 IPC 上。
+ * settings 表的完整 key 集合，键名与 `01-DATA-MODEL.md` §2.7 逐条对应。
  * **封闭接口**：新增 key 必须先改这里 + 01 §2.7，两边同时改。
+ * 表里不含任何密钥（API Key / webhook token 只存 `safeStorage`），因此全量可暴露给渲染层。
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string };
@@ -347,6 +346,10 @@ export type PublicSettings = AppSettings;
 ```
 
 `Difficulty` 与 `NotifyChannel` 从 `domain.ts` 引入，`ipc.ts` 可以 import，不算循环依赖（`domain.ts` 不反向引用 `ipc.ts`）。
+
+**关于 `AppSettings` 的 key 数量**：01 §2.7 列出 15 条，本节定型 **14 条**——少的那条是 `ai.apiKey`，它存 `safeStorage`、不入 settings 表，因此不进类型。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
+
+**本节代码块一旦被施工方抄走，就不再改动其内部注释。** 需要补充说明时写在代码块外（就像上面这段），否则每个抄过旧版的施工方都会被判"与文档不一致"。这是本项目已实际踩过的坑。
 
 ### 3.1 `api.app`
 
