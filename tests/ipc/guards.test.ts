@@ -98,4 +98,32 @@ describe('guards（zod 形状校验）', () => {
     })
     expectErrorCode(() => parseInput(g.occurrenceSkip, { id: 'o1', note: 1 }), 'INVALID_INPUT')
   })
+
+  it('task.undo 只有 id（与 task.get 同款 idInput）', () => {
+    expect(parseInput(g.taskUndo, { id: 't1' })).toEqual({ id: 't1' })
+    expectErrorCode(() => parseInput(g.taskUndo, { id: 1 }), 'INVALID_INPUT')
+    expectErrorCode(() => parseInput(g.taskUndo, undefined), 'INVALID_INPUT')
+    expect(guards[CH.task.undo]).toBe(g.taskUndo)
+  })
+
+  it('task.complete 的 result 只收 EventResult 三档，且只在计分分支上', () => {
+    // 三档都放行
+    for (const result of ['exceeded', 'met', 'below'] as const) {
+      expect(parseInput(g.taskComplete, { id: 't1', quality: 'met', result })).toEqual({
+        id: 't1',
+        quality: 'met',
+        result
+      })
+    }
+    // 不是 EventResult 的取值被拒（domain.ts 的档位，别手写别的字符串）
+    expectErrorCode(
+      () => parseInput(g.taskComplete, { id: 't1', quality: 'met', result: 'perfect' }),
+      'INVALID_INPUT'
+    )
+    // noPoints 分支没有 result：传了被 zod 剥掉，不会渗到不计分出口
+    expect(parseInput(g.taskComplete, { id: 't1', noPoints: true, result: 'exceeded' })).toEqual({
+      id: 't1',
+      noPoints: true
+    })
+  })
 })

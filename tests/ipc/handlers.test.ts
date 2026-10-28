@@ -71,8 +71,8 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
     closeTestDb()
   })
 
-  it('把 WIRED 全部 35 条注册进注入的 ipc', () => {
-    expect(wired.size).toBe(35)
+  it('把 WIRED 全部 36 条注册进注入的 ipc', () => {
+    expect(wired.size).toBe(36)
     for (const ch of WIRED_CHANNELS) expect(wired.has(ch)).toBe(true)
   })
 

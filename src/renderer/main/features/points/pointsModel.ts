@@ -1,4 +1,4 @@
-import type { DayStat } from '@shared/types/domain'
+import type { DayStat, PointEntry } from '@shared/types/domain'
 import { fmtPoints } from '@shared/format'
 
 /**
@@ -109,4 +109,19 @@ export function timeLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/**
+ * 04 §4④ 的 `[撤销]` 三条件，缺一不可：
+ * - `reasonCode === 'task_done'`：只有完成发分有撤销入口（冲销行、奖励行、手工调整都没有）；
+ * - `occurrenceId === null`：非空的是每日打卡，撤销在 ① 的勾选框（走 `occurrence.undo`）；
+ * - `reversedAt === null`：已冲销的行再撤就是重复冲销。
+ *
+ * **不判 24h 窗口**（04 §4④）：窗口要读 `completed_at`，渲染层不重复算主进程的规则，
+ * 超窗的行照常显示 `[撤销]`，点下去由 `task.undo` 报「超过 24 小时的完成记录不能撤销」。
+ */
+export function canUndoEntry(entry: PointEntry): boolean {
+  return (
+    entry.reasonCode === 'task_done' && entry.occurrenceId === null && entry.reversedAt === null
+  )
 }

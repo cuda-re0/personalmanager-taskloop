@@ -4,6 +4,7 @@ import type {
   DayStat,
   DayTaskItem,
   Difficulty,
+  EventResult,
   Evidence,
   Message,
   NotifyChannel,
@@ -118,9 +119,12 @@ export type PublicSettings = AppSettings
  *
  * 做成可辨识联合而不是 `noPoints?: boolean`：两种模式一个给 `quality`、一个不给，
  * 用可选开关会同时允许"给了 quality 又声明不计分"，到实现里就变成谁先读谁算数。
+ *
+ * `result`（v0.19）只在计分分支上：活动的得分由 `resultFactor(result)` 决定，
+ * `quality` 对 event 不进公式（02 §5）。给 `deadline` / `daily` 传了一律忽略，不报错。
  */
 export type CompleteTaskInput =
-  | { id: string; quality: Quality; evidence?: Evidence[]; noPoints?: false }
+  | { id: string; quality: Quality; result?: EventResult; evidence?: Evidence[]; noPoints?: false }
   | { id: string; noPoints: true; evidence?: Evidence[] }
 
 /* ------------------------------------------------------------------ *
@@ -151,6 +155,8 @@ export interface Api {
     complete(
       input: CompleteTaskInput
     ): Promise<IpcResult<{ task: Task; entry: PointEntry | null }>>
+    /** 24h 内撤销完成（02 §3.2）：非 done 任务按同态 no-op 返回，entry 恒 null */
+    undo(input: { id: string }): Promise<IpcResult<{ task: Task; entry: PointEntry | null }>>
     addEvidence(input: { id: string; evidence: Evidence }): Promise<IpcResult<Task>>
     setRequiresEvidence(input: { id: string; value: boolean }): Promise<IpcResult<Task>>
     reorder(input: { id: string; beforeId: string | null }): Promise<IpcResult<void>>

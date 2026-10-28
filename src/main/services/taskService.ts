@@ -1,5 +1,6 @@
 import type {
   Difficulty,
+  EventResult,
   Evidence,
   NotifyChannel,
   PointEntry,
@@ -535,24 +536,26 @@ function overdueDaysOf(task: Task, leadHours: number | null): number {
 export function completeTask(input: CompleteTaskInput): CompleteTaskResult {
   return input.noPoints === true
     ? completeWithoutPoints(input.id, input.evidence)
-    : completeWithPoints(input.id, input.quality, input.evidence)
+    : completeWithPoints(input.id, input.quality, input.evidence, input.result)
 }
 
 /** 计分完成：状态 + 发分 + 统计同事务（失败整体回滚，不留"入账了但状态没改"） */
 function completeWithPoints(
   id: string,
   quality: Quality,
-  evidence: Evidence[] | undefined
+  evidence: Evidence[] | undefined,
+  result: EventResult | undefined
 ): CompleteTaskResult {
   const completedAt = nowIso()
   return tx(() => {
     const task = taskRepo.requireById(id)
     assertCompletable(task)
 
-    // 证据闸门（01 §3）：任务上已存的证据也算，缺了停在原地，不靠 UI 拦
+    // 证据闸门（01 §3）：任务上已存的证据也算，缺了停在原地，不靠 UI 拦。
+    // 错误码是 EVIDENCE_REQUIRED（02 §1/§3.2、04 §1.1）：状态与入参都合法，只是缺资料
     const provided = evidence ?? []
     if (task.requiresEvidence && task.evidence.length === 0 && provided.length === 0) {
-      throw appError('CONFLICT', '证据不能为空', {
+      throw appError('EVIDENCE_REQUIRED', '证据不能为空', {
         detail: 'requiresEvidence=true 且任务与入参都没有证据'
       })
     }
@@ -566,8 +569,8 @@ function completeWithPoints(
       quality,
       overdueDays: overdueDaysOf(task, leadHours),
       leadHours,
-      // 活动的结果档不在 CompleteTaskInput 里（契约缺口，已在交付报告登记），按"未给"处理
-      result: null
+      // `result` 只对 event 生效（02 §5）；deadline / daily 传了忽略，不报错、也不落库
+      result: task.type === 'event' ? (result ?? null) : null
     })
     const day = isoToLocalDay(completedAt)
 
@@ -613,9 +616,26 @@ function completeWithoutPoints(id: string, evidence: Evidence[] | undefined): Co
 }
 
 /**
+ * 撤销窗口（01 §3：`done ──24h 内撤销──→ doing`）。
+ * 窗口外的分已进当日统计与 streak，回退会连带改写已经"结账"的历史。
+ */
+const UNDO_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/** 完成距现在多久（毫秒）；`completed_at` 缺失或坏值返回 null（无法判定，按未超窗处理） */
+function completionAgeMs(task: Task): number | null {
+  if (task.completedAt === null) return null
+  const at = new Date(task.completedAt).getTime()
+  if (Number.isNaN(at)) return null
+  return Date.now() - at
+}
+
+/**
  * 撤销限时/活动的完成（01 §3：`done → doing` + 负流水冲销 + `completed_at` 清空）。
  *
- * 三条实现约束：
+ * 四条实现约束：
+ * - **24h 窗口**（02 §3.2）：`completed_at` 距今超过 24 小时报 `CONFLICT`「超过 24 小时的
+ *   完成记录不能撤销」，状态与余额都不动。窗口按 `completed_at` 判，不看 `created_at`；
+ *   `daily` 的撤销走 `occurrence.undo`，不吃这个窗口；
  * - 冲销走 `pointsService.rollback()`：原发分行标 `reversed_at` + 写一条负行，**不删流水**
  *   （唯一真相是 ledger）；只标时间戳不改金额，于是撤销后能重做，审计也查得出哪条被冲了（01 §2.4）；
  * - 找原发分行时要带 `reversedAt === null`——撤销后重做会留下"旧行已冲销 + 新行有效"两行，
@@ -628,6 +648,13 @@ export function undoCompletion(id: string): UndoCompletionResult {
   return tx(() => {
     const task = taskRepo.requireById(id)
     if (task.status !== 'done') return { task, entry: null }
+
+    const age = completionAgeMs(task)
+    if (age !== null && age > UNDO_WINDOW_MS) {
+      throw appError('CONFLICT', '超过 24 小时的完成记录不能撤销', {
+        detail: `id=${id} completed_at=${task.completedAt} 距今 ${Math.round(age / 3600000)}h`
+      })
+    }
 
     const original =
       ledgerRepo

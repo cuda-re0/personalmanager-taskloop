@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CH } from '@shared/channels'
+import type { EventResult } from '@shared/types/domain'
 import { appError } from '../db/errors'
 
 /**
@@ -72,6 +73,14 @@ const monthInput = { year: yearSchema, month: monthSchema }
 const qualitySchema = z.enum(['partial', 'met', 'exceeded'])
 
 /**
+ * 活动结果档（domain.ts 的 `EventResult`，02 §5）。zod 要的是运行期数组、无法从类型派生，
+ * 所以在这里复写一份——`satisfies` 保证每个值都是合法的 `EventResult`（拼错即编译失败，
+ * 例如写成 `'exceed'` 就不会被静默放行）。domain.ts 增删档位时两处同改。
+ */
+const EVENT_RESULTS = ['exceeded', 'met', 'below'] as const satisfies readonly EventResult[]
+const eventResultSchema = z.enum(EVENT_RESULTS)
+
+/**
  * `task.complete` 的入参（02 §3.2 的 `CompleteTaskInput` 可辨识联合）。
  *
  * 两个分支互斥：给了 `quality` 就是计分，`noPoints:true` 就是不计分。
@@ -91,6 +100,8 @@ const completeTaskSchema = z.preprocess(
     z.object({
       id: z.string(),
       quality: qualitySchema,
+      // 仅 event 生效（v0.19）：deadline / daily 传了由 service 忽略，不报错
+      result: eventResultSchema.optional(),
       evidence: z.array(evidenceSchema).optional(),
       noPoints: z.literal(false).optional()
     }),
@@ -151,6 +162,8 @@ export const g = {
   listByRange: z.object({ from: z.string(), to: z.string() }),
   // task.complete（W6）
   taskComplete: completeTaskSchema,
+  // task.undo（v0.19）：与 task.get 同款 idInput
+  taskUndo: z.object(idInput),
   // occurrence.complete / undo / skip（W6）
   occurrenceComplete: z.object(idInput),
   occurrenceUndo: z.object(idInput),
@@ -212,6 +225,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.task.remove]: g.remove,
   [CH.task.setReminderOffsets]: g.setReminderOffsets,
   [CH.task.complete]: g.taskComplete,
+  [CH.task.undo]: g.taskUndo,
   [CH.occurrence.today]: g.occurrenceToday,
   [CH.occurrence.listByRange]: g.listByRange,
   [CH.occurrence.complete]: g.occurrenceComplete,

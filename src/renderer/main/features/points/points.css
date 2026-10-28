@@ -107,14 +107,33 @@
   overflow-y: auto;
 }
 
+/* 一行 = 主按钮（时刻/标题/±N）+ 行尾 [撤销]；整行可点跳任务，撤销按钮独立可点 */
 .ledger-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
-  border: none;
+  padding: 0 8px;
   border-radius: var(--r-sm);
+}
+
+.ledger-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 已冲销（reversedAt 非空）：视觉上退后，[撤销] 同时按三条件消失（04 §4④） */
+.ledger-row--reversed {
+  opacity: 0.5;
+}
+
+.ledger-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 0;
+  border: none;
   background: transparent;
   color: var(--text);
   font-family: var(--font);
@@ -123,8 +142,20 @@
   cursor: pointer;
 }
 
-.ledger-row:hover {
-  background: var(--bg-hover);
+.ledger-undo {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ledger-undo:hover {
+  color: var(--danger);
 }
 
 .ledger-time {
@@ -150,4 +181,12 @@
 
 .ledger-delta--neg {
   color: var(--danger);
+}
+
+/* 撤销失败（如超 24h）时就地显示主进程的中文短句，不新增前缀文案 */
+.points-notice {
+  flex: 0 0 auto;
+  padding: 0 16px 8px;
+  color: var(--danger);
+  font-size: 12px;
 }

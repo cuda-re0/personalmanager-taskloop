@@ -5,7 +5,7 @@ import type { AppSettings, Bootstrap } from '@shared/types/ipc'
 import type { Occurrence, Task } from '@shared/types/domain'
 import { broadcast } from '../bus'
 import { appError } from '../db/errors'
-import { monthBounds, addDays, todayLocalDay } from '../db/localDay'
+import { monthBounds, addDays, isoToLocalDay, todayLocalDay } from '../db/localDay'
 import * as occurrenceService from '../db/occurrenceService'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
@@ -23,9 +23,9 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 35 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
- * W9 起 hud 五条接通，见 kickoff/09、kickoff/11、kickoff/13）；NOT_WIRED 一律不注册
- * （不放假 handler、不返假数据），
+ * **只接 WIRED 里的 36 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * W9 起 hud 五条、v0.19 起 task.undo 接通，见 kickoff/09、kickoff/11、kickoff/13、kickoff/14）；
+ * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
 
@@ -101,7 +101,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 25 条
+ * WIRED：本轮接通的 36 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -224,6 +224,28 @@ const TABLE: Row[] = [
       today: pointsService.todayStat()
     })
     broadcastDayStats(todayLocalDay())
+    return { task, entry }
+  }),
+  /* ---------------- task.undo（1，v0.19） ---------------- */
+  row(CH.task.undo, g.taskUndo, input => {
+    const before = taskService.getTask(input.id)
+    const { task, entry } = taskService.undoCompletion(input.id)
+    // 不是 done 的任务是同态 no-op（02 §3.2）：本次零写入，零广播——
+    // 与 occurrence.skip 对已完成打卡的处理同一条口径，不推内容没变的 task.updated
+    if (before === null || before.status !== 'done') return { task, entry }
+
+    broadcast({ type: 'task.updated', task, changed: diffKeys(before, task) })
+    // entry 为 null = 这次没有可冲销的行（noPoints 完成的），余额没动
+    broadcast({
+      type: 'points.changed',
+      balance: pointsService.balance(),
+      entry,
+      today: pointsService.todayStat()
+    })
+    // 冲销行落在今天（回滚是"现在"发生的事实），tasks_done 减在**原完成日**——两天都要推
+    const doneDay = before.completedAt === null ? null : isoToLocalDay(before.completedAt)
+    if (doneDay !== null) broadcastDayStats(doneDay)
+    if (doneDay !== todayLocalDay()) broadcastDayStats(todayLocalDay())
     return { task, entry }
   }),
   row(CH.task.addEvidence, g.addEvidence, input => {

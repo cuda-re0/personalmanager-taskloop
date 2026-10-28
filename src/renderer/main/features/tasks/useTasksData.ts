@@ -175,7 +175,8 @@ export function useTasksData(): TasksData {
    * 先 `transition('reviewing')`（同状态时是幂等 no-op，不会 409），再走唯一完成入口
    * `task.complete`。两步分开调是刻意的：完成需要 `reviewing` 这个前置状态，
    * 而 `task.complete` 内部要保证「状态 + 入账 + 统计」同事务，不该由渲染层拼事务。
-   * 证据不足时第二步返回 CONFLICT，任务就停在「待确认」——这正是 01 §3 要的语义。
+   * 证据不足时第二步返回 EVIDENCE_REQUIRED（02 §1/§3.2），任务就停在「待确认」——
+   * 这正是 01 §3 要的语义；出口是确认条上的「直接标记完成（不计分）」。
    */
   const submitAndComplete = useCallback((task: Task, noPoints: boolean): void => {
     void window.api.task

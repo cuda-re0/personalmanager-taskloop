@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Difficulty, Task } from '../../src/shared/types/domain'
 import { fmtPoints } from '../../src/shared/format'
-import { isoToLocalDay, todayLocalDay } from '../../src/main/db/localDay'
+import { isoToLocalDay, nowIso, todayLocalDay } from '../../src/main/db/localDay'
 import * as ledgerRepo from '../../src/main/db/repositories/ledgerRepo'
 import * as settingRepo from '../../src/main/db/repositories/settingRepo'
 import * as statsRepo from '../../src/main/db/repositories/statsRepo'
+import * as taskRepo from '../../src/main/db/repositories/taskRepo'
 import * as pointsService from '../../src/main/services/pointsService'
 import * as taskService from '../../src/main/services/taskService'
 import { closeTestDb, expectErrorCode, openMemoryDb } from './helpers'
@@ -107,12 +108,13 @@ describe('task.complete · 计分', () => {
     expect(taskService.requireTask(task.id).status).toBe('done')
   })
 
-  it('撤销后再完成 → 被 uq_ledger_task_done 挡住（索引兜底，不是先查后插）', () => {
+  it('撤销后从 doing 直接再完成 → CONFLICT（状态机要求先走回 reviewing）', () => {
     const task = deadlineInProgress({ difficulty: 'medium' })
     taskService.completeTask({ id: task.id, quality: 'met' })
     taskService.undoCompletion(task.id)
 
-    // 状态已回到 doing，所以这次不会被状态校验拦下，是唯一索引在挡
+    // 挡住这次的是状态机（doing → done 不是合法边，01 §3），不是唯一索引：
+    // **重做**必须先 transition 回 reviewing，那条路径由 tests/db/undoRedo.test.ts 锁
     expectErrorCode(() => taskService.completeTask({ id: task.id, quality: 'met' }), 'CONFLICT')
     expect(pointsService.balance()).toBe(0)
   })
@@ -136,15 +138,33 @@ describe('task.complete · 计分', () => {
 })
 
 describe('task.complete · 证据闸门（01 §3）', () => {
-  it('requiresEvidence 且无证据 → CONFLICT，库无新流水、状态不变', () => {
+  it('requiresEvidence 且无证据 → EVIDENCE_REQUIRED，库无新流水、状态停在 reviewing', () => {
     const task = deadlineInProgress({ requiresEvidence: true })
-    expectErrorCode(() => taskService.completeTask({ id: task.id, quality: 'met' }), 'CONFLICT')
+    expectErrorCode(
+      () => taskService.completeTask({ id: task.id, quality: 'met' }),
+      'EVIDENCE_REQUIRED'
+    )
 
     expect(ledgerRepo.countAll()).toBe(0)
     const after = taskService.requireTask(task.id)
     expect(after.status).toBe('reviewing')
     expect(after.completedAt).toBeNull()
     expect(after.pointsAwarded).toBeNull()
+  })
+
+  it('证据闸门的文案与 detail 保持 04 §1.1 的登记，只换了码名', () => {
+    const task = deadlineInProgress({ requiresEvidence: true })
+    let thrown: unknown
+    try {
+      taskService.completeTask({ id: task.id, quality: 'met' })
+    } catch (e) {
+      thrown = e
+    }
+    expect((thrown as { code?: string }).code).toBe('EVIDENCE_REQUIRED')
+    expect((thrown as Error).message).toBe('证据不能为空')
+    expect((thrown as { detail?: string }).detail).toBe('requiresEvidence=true 且任务与入参都没有证据')
+    // retryable: false（02 §1：缺资料，重试同一次请求不会变）
+    expect((thrown as { retryable?: boolean }).retryable).toBe(false)
   })
 
   it('requiresEvidence 但入参带证据 → 通过，并把证据落到任务上', () => {
@@ -157,6 +177,50 @@ describe('task.complete · 证据闸门（01 §3）', () => {
 
     expect(done.evidence).toHaveLength(1)
     expect(done.evidence[0].kind).toBe('text')
+    expect(entry?.delta).toBe(20)
+  })
+})
+
+describe('task.complete · 活动 result（02 §3.2 v0.19）', () => {
+  /** 待确认的活动任务（medium 应得分 20，event 的 quality 不进公式） */
+  function eventInReview(): Task {
+    const task = taskService.createTask({ type: 'event', title: '期中考试', difficulty: 'medium' })
+    taskService.transitionTask(task.id, 'doing')
+    return taskService.transitionTask(task.id, 'reviewing')
+  }
+
+  it("result: 'exceeded' → 20 × 1.2 = 24", () => {
+    const task = eventInReview()
+    const { entry } = taskService.completeTask({
+      id: task.id,
+      quality: 'met',
+      result: 'exceeded'
+    })
+    expect(entry?.delta).toBe(24)
+    expect(pointsService.balance()).toBe(24)
+  })
+
+  it("result: 'below' → 20 × 0.85 = 17", () => {
+    const task = eventInReview()
+    const { entry } = taskService.completeTask({ id: task.id, quality: 'met', result: 'below' })
+    expect(entry?.delta).toBe(17)
+  })
+
+  it('不给 result → 按 ×1.0 结算（"没有结果信息"的合法值），quality 也不参与', () => {
+    const task = eventInReview()
+    // event 的 q 恒 1（02 §5）：给 partial 也是 20，不会 12
+    const { entry } = taskService.completeTask({ id: task.id, quality: 'partial' })
+    expect(entry?.delta).toBe(20)
+  })
+
+  it('deadline 传 result 一律忽略（契约是"忽略"，不是"拒绝"）', () => {
+    const task = deadlineInProgress({ difficulty: 'medium' })
+    const { entry } = taskService.completeTask({
+      id: task.id,
+      quality: 'met',
+      result: 'exceeded'
+    })
+    // 没有 due_at → 效率系数 1.0，result 不该再乘一次
     expect(entry?.delta).toBe(20)
   })
 })
@@ -227,6 +291,39 @@ describe('task.undoCompletion（done → doing，01 §3）', () => {
     expect(undone.entry).toBeNull()
     expect(undone.task.status).toBe('reviewing')
     expect(ledgerRepo.countAll()).toBe(0)
+  })
+
+  it('completed_at 距今超 24h → CONFLICT「超过 24 小时的完成记录不能撤销」，状态与余额都不动', () => {
+    const task = deadlineInProgress({ difficulty: 'medium' })
+    taskService.completeTask({ id: task.id, quality: 'met' })
+
+    // 把完成时刻拨到 25 小时前（窗口按 completed_at 判，不看 created_at）
+    const old = new Date(Date.now() - 25 * 3600000).toISOString()
+    taskRepo.updateColumns(task.id, { completed_at: old }, nowIso())
+
+    let thrown: unknown
+    try {
+      taskService.undoCompletion(task.id)
+    } catch (e) {
+      thrown = e
+    }
+    expect((thrown as { code?: string }).code).toBe('CONFLICT')
+    expect((thrown as Error).message).toBe('超过 24 小时的完成记录不能撤销')
+    expect(taskService.requireTask(task.id).status).toBe('done')
+    expect(pointsService.balance()).toBe(20)
+    expect(ledgerRepo.countAll()).toBe(1)
+  })
+
+  it('23 小时前的完成记录仍可撤销（窗口是开区间，边界不过度收紧）', () => {
+    const task = deadlineInProgress({ difficulty: 'medium' })
+    taskService.completeTask({ id: task.id, quality: 'met' })
+
+    const recent = new Date(Date.now() - 23 * 3600000).toISOString()
+    taskRepo.updateColumns(task.id, { completed_at: recent }, nowIso())
+
+    const undone = taskService.undoCompletion(task.id)
+    expect(undone.task.status).toBe('doing')
+    expect(pointsService.balance()).toBe(0)
   })
 })
 

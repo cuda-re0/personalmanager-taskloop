@@ -17,6 +17,7 @@ export const CH = {
     update: 'task:update',
     transition: 'task:transition',
     complete: 'task:complete',
+    undo: 'task:undo',
     addEvidence: 'task:addEvidence',
     setRequiresEvidence: 'task:setRequiresEvidence',
     reorder: 'task:reorder',

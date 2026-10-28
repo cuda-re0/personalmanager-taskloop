@@ -11,11 +11,12 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 35 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(35)
-    expect(new Set(WIRED_CHANNELS).size).toBe(35)
+  it('WIRED 有 36 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条、v0.19 起 task.undo）', () => {
+    expect(WIRED_CHANNELS.length).toBe(36)
+    expect(new Set(WIRED_CHANNELS).size).toBe(36)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
+    expect(WIRED_CHANNELS).toContain(CH.task.undo)
     for (const ch of [CH.occurrence.complete, CH.occurrence.undo, CH.occurrence.skip]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
@@ -52,9 +53,11 @@ describe('registry 通道覆盖', () => {
     expect(Object.keys(NOT_WIRED).length).toBe(16)
   })
 
-  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、ai.*→W4、channel.*→W9、attachment.add→W11', () => {
+  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、ai.*→W4、channel.*→W9、attachment.add→W11', () => {
     expect(NOT_WIRED[CH.task.promoteDraft]).toBeUndefined()
     expect(NOT_WIRED[CH.task.complete]).toBeUndefined()
+    // task.undo 不在 NOT_WIRED 里：它不是"待接的既有通道"，而是 v0.19 新增的一条
+    expect(NOT_WIRED[CH.task.undo]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.complete]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.undo]).toBeUndefined()
     expect(NOT_WIRED[CH.occurrence.skip]).toBeUndefined()
