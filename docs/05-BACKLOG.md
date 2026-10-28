@@ -35,7 +35,7 @@
 
 **目标**：两个窗口能同时起来，`shared` 契约能编译，SQLite 能写能读。
 
-**只许改**：`package.json`、`electron.vite.config.ts`、`tsconfig*.json`、`src/main/index.ts`、`src/main/windowManager.ts`、`src/preload/index.ts`、`src/renderer/{main,hud}/index.tsx` 空壳、`.gitignore`
+**只许改**：以 `docs/kickoff/00-W0-脚手架.md` 的「你能改的文件」清单为**唯一权威**（含 `package.json`、`package-lock.json`、各配置文件、`.gitattributes`、两个窗口入口、`src/shared/**`、`src/renderer/shared/styles/tokens.css`）。本节不另列一份，避免两处清单不一致、每轮审核都要解释越界。
 
 **必须做到**
 
@@ -43,7 +43,7 @@
 2. TS `strict: true`，路径别名 `@shared → src/shared`，两个渲染进程都能用。
 3. ESLint + Prettier，`npm run lint` 干净。
 4. `better-sqlite3` 装上并 `electron-rebuild`，能在 main 里 `new Database(':memory:')` 跑通。
-5. 主窗开一个 1440×920 空窗口；HUD 开一个 300×32 透明置顶空窗口。
+5. 主窗开一个 1440×920 空窗口；HUD 开一个 300×32 透明置顶空窗口（**这是骨架占位尺寸，不是最终形态**；`dock-bar` 的全宽规格在 `04-UI-SPEC.md` §5.2，由 W9 实现）。
 6. `src/shared/types/*.ts`、`channels.ts`、`points/rubric.ts` 按 02 文档建好，能编译。
 7. `postinstall` 包含 rebuild；`npm run dev` / `npm run build` 都可用。
 8. **预留接线点**（并行调度必需）：`src/main/index.ts` 里写好 `initDb()` 与 `registerIpcHandlers()` 的调用行，并各自建一个空实现文件（`src/main/db/index.ts`、`src/main/ipc/index.ts`，函数体只有 `// TODO(W1)` / `// TODO(W2)`）。这样 W1、W2 各改自己的文件，**不需要动 `src/main/index.ts`，避免两人抢同一个文件**。

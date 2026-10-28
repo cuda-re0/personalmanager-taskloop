@@ -37,8 +37,15 @@ export type AppErrorCode =
 
 ## 2. 领域类型（`src/shared/types/domain.ts`）
 
-**本节代码块就是源码契约：`src/shared/types/domain.ts` 必须与它逐字一致（含注释），可以整段复制。**
-因此这里不出现任何标记符号。`★` 只出现在 01 的 DDL 与 00 的表格中，作为文档层变更标记；抄进代码时必须删除 `★` 及其后空格。交付审核时同样按"去除 `★` 后逐字比对"执行。
+**本节代码块就是源码契约，`src/shared/types/domain.ts` 与它是同一份东西。** 一致性判据：
+
+> 两者经本项目 `.prettierrc` 格式化后**完全一致（含注释文字）**。
+
+也就是说，差异只允许出现在格式化器管辖的部分——行尾分号、缩进、换行、对齐空格；**字段名、类型、可空性（`null` 而非 `undefined`）、可选性（`?`）、注释文字必须一致**。
+
+为什么这么定义：本文档代码块带分号，而 `.prettierrc` 是 `semi: false`，按字面"逐字"比永远对不上。审核时用 `npx prettier --check src/shared/types/domain.ts` + 机器抽取本文代码块比对，不要用肉眼。
+
+本文档中不出现标记符号。`★` 只出现在 01 的 DDL 与 00 的表格里作为文档层变更标记，抄进代码时删除 `★` 及其后空格。
 
 ```ts
 export type TaskType    = 'daily' | 'deadline' | 'event';
@@ -288,6 +295,25 @@ export interface ReminderPayload {
 
 > 所有方法返回 `Promise<IpcResult<T>>`。下表 `T` 即 `data` 的类型。
 
+### 3.0 补充类型（实现位置：`src/shared/types/ipc.ts`）
+
+§1 的 `Ok` / `Err` / `IpcResult` / `AppError` / `AppErrorCode`，加上本节的 `PublicSettings` / `HudMode`，**实现上都放在 `src/shared/types/ipc.ts`**——`domain.ts` 只放领域实体，不放传输层类型。
+
+（02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，W0 在代码里自行补的版本已确认合理，此处正式收录，与代码一致。）
+
+```ts
+/** 悬浮形态：顶部贴边条 / 自由浮窗 */
+export type HudMode = 'dock-bar' | 'float-pod';
+
+/**
+ * 渲染层可见的 settings 投影。
+ * key 是开放的（设置页可新增），已知 key 清单见 `01-DATA-MODEL.md` §2.7；
+ * 读取方自行收窄类型，不要指望这里是强类型联合。
+ * **不含任何密钥** —— API Key / webhook token 只存 `safeStorage`，永不进 IPC。
+ */
+export type PublicSettings = Record<string, unknown>;
+```
+
 ### 3.1 `api.app`
 
 | 方法 | 入参 | 返回 `T` | 说明 |
@@ -396,7 +422,7 @@ export interface Bootstrap {
 | `channel.setConfig` | `{ id: NotifyChannel; config: Record<string, string> }` | `void` | 写 settings，敏感值走安全存储 |
 | `channel.setGlobal` | `{ channels: NotifyChannel[] }` | `void` | 全局默认渠道 |
 
-### 3.7 `api.hud`
+### 3.7b `api.hud`
 
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
@@ -527,14 +553,16 @@ function clamp(v: number, lo: number, hi: number) {
 
 举例（B 档）：
 
-| 难度 | 预估 | 应得分 |
-|---|---|---|
-| trivial | 5 min | 5.06 |
-| trivial | 60 min | 5.75 |
-| easy | 30 min | 10.75 |
-| medium | 60 min | 23 |
-| hard | 120 min | 42 |
-| epic | 240 min | 80 |
+| 难度 | 预估 | 应得分 | 算式 |
+|---|---|---|---|
+| trivial | 5 min | 5.06 | 5 × 1.0125 |
+| trivial | 60 min | 5.75 | 5 × 1.15 |
+| easy | 30 min | 10.75 | 10 × 1.075 |
+| medium | 60 min | 23 | 20 × 1.15 |
+| hard | 120 min | 45.5 | 35 × 1.3 |
+| epic | 240 min | 80 | 50 × 1.6 |
+
+（`effortFactor(m) = 1 + m/240 × 0.6`，结果一律 `roundPoints` 到 2 位。上表每一行都应该能被实现方徒手复算，复算不出来就是文档错了。）
 
 `trivial` 不设特殊分支：它和其他档走同一个公式，只是基数最小。原来那句"trivial 不吃时长系数"已撤销——它会和 `difficulty` 的语义冲突（标了 trivial 又填 240 分钟本身就是矛盾数据，不该用一条隐藏规则去兜）。
 
