@@ -435,6 +435,10 @@ export type CompleteTaskInput =
   | { id: string; noPoints: true; evidence?: Evidence[] }
 ```
 
+**`TaskPatch` 没有 `type`，落库后不支持改类型。** 04 §3.2 那句"类型可就地修改"说的是**草稿卡片**（还没落库的 `TaskDraft`，纯渲染层状态）；右栏任务详情（04 §4①）只有 `detail_md` / 步骤勾选 / 提醒偏移 / `[完成]` 四项，本来就没有类型入口。任务一旦落库，类型不可改——要换类型就 `task.remove`（软删 → `discarded`）再建一条，旧任务连同它的流水与 occurrence 一起留在历史里。
+
+**不要给 `TaskPatch` 加 `type`。** 改类型会连带四件事：难度要 `snapDifficulty` 归位、目标类型不适用的字段（`due_at` / `daily_time` / `repeat_rule` / `active_*`）要清、`reminders` 行要按新类型重排、切到每日后当天的 occurrence 要补。其中重排提醒依赖 W8 的同步逻辑，现在做只会留下"按旧类型排好的提醒"——那比不能改类型糟得多。
+
 ### 3.2b `api.occurrence`（每日任务）
 
 | 方法 | 入参 | 返回 `T` | 说明 |
@@ -461,6 +465,21 @@ export type CompleteTaskInput =
 | `msg.list` | `{ before?: string; limit?: number }` | `Message[]` | 分页向前翻 |
 
 `msg.send` 的流程：写 user 消息 → 广播 → 返回 → 后台跑 AI → 逐条广播 `message.appended` / `message.patch`。渲染层不要 await 到 AI 完成。
+
+### 3.3b `api.attachment`
+
+| 方法 | 入参 | 返回 `T` | 说明 |
+|---|---|---|---|
+| `attachment.add` | `{ name: string; mime: string; base64?: string; sourcePath?: string }` | `Attachment` | `base64` 与 `sourcePath` 二选一，都给以 `sourcePath` 为准；都不给是 `INVALID_INPUT` |
+
+**这是唯一一个"把字节搬进系统"的入口。** 其余所有涉及附件的路径（消息、证据）都只传 `attachmentId`，不传文件本身。
+
+- **落盘位置**固定 `userData/attachments/YYYY/MM/<id>.<ext>`，`<ext>` 由 **mime 推导**，不用用户给的文件名——文件名只用于日志，绝不参与拼路径。
+- **去重**：按 `sha256` 查 `idx_attachments_sha`，命中则复用同一个 `rel_path`、**新插一行**（一条记录一个 id，能各自独立删）。物理文件 v1 **只增不删**：删消息只删行不删文件，避免共享文件被连带删除；磁盘代价按截图/PDF 量级可接受。
+- **上限与白名单**：单文件 ≤ 25 MiB，mime ∈ `image/png` `image/jpeg` `image/webp` `image/gif` `application/pdf`，越界返回 `FILE_TOO_LARGE` / `UNSUPPORTED_MIME`（这两个码此前一直没人用）。
+- **`url` 由主进程拼**：`app://attach/<id>`，不在渲染层拼字符串。协议处理器只接受 `id`，**路径从数据库的 `rel_path` 取，绝不接受调用方传路径**；id 不匹配 `nanoid(12)` 形状或查不到行一律 404。
+- **协议注册时序**：`registerSchemesAsPrivileged` 必须在 `app.whenReady()` 之前调用（Electron 33 要求，否则 `secure`/`stream` 标志不生效），`protocol.handle('app', …)` 在 ready 之后。`Content-Type` 取行的 `mime`，PDF 用 `inline`，图片用 `default`。
+- **给 AI 的读取**：`attachment.read(id) → { bytes: Buffer; mime: string }` 是主进程内部函数，**不暴露成 IPC**。W4 组多模态请求时用它取 base64，渲染层拿不到原始字节。
 
 ### 3.4 `api.ai`
 

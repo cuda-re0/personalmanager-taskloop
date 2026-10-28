@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CH } from '@shared/channels'
 import type { Api, AppSettings, Bootstrap, IpcResult } from '@shared/types/ipc'
 import type {
+  Attachment,
   DayIndexEntry,
   DayStat,
   DayTaskItem,
@@ -70,6 +71,10 @@ const api: Api = {
     send: input => invoke<{ userMessage: Message; assistantMessageId: string }>(CH.msg.send, input),
     retry: input => invoke<void>(CH.msg.retry, input),
     list: input => invoke<Message[]>(CH.msg.list, input)
+  },
+
+  attachment: {
+    add: input => invoke<Attachment>(CH.attachment.add, input)
   },
 
   ai: {

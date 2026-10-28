@@ -191,3 +191,8 @@ npm test
 
 - **daily 的 `points_planned` 只有一个来源**：`createTask({type:'daily', pointsPlanned:99})` 必须**忽略**这个值、写 `cfg.dailyBase`。每日任务的应得分是定义出来的，`points_awarded` 也从不读它（走 `computeDailyPoints`）。`< 1` 的入参校验照旧，忽略只针对"合法但不用"。
 - **改类型的语义还没定，别自己发明**：`TaskPatch` 没有 `type`（04 §3.2 说类型可就地改），归位/清字段/重置提醒/补 occurrence 四件事牵一发动全身，W5 开工前由架构方写进 02 §3.2。在那之前 `task.update` 收到 `type` 就当没有这个字段。
+
+### v0.11.2（两条归属决定，2026-10-28）
+
+- **附件存储单开一条 W11**（见 05 的授权目录与验收）。`attachment:add` 通道、`Api.attachment`、preload 已在契约里声明；W2 只注册 handler，W11 只写 `attachmentService` / `attachmentRepo` / `app://attach` 协议，两边不抢文件。渲染层在 W3 接入前继续用假附件。
+- **落库后不可改类型。** `TaskPatch` 不加 `type`。04 §3.2 的"类型可就地改"只指草稿卡片（渲染层状态，已实现）；建错类型走 `task.remove` + 重建。理由：改类型要连带难度归位、清字段、重排 `reminders` 行、补 occurrence，而提醒重排要等 W8。

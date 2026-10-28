@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   DayIndexEntry,
   DayStat,
   DayTaskItem,
@@ -187,6 +188,16 @@ export interface Api {
     }): Promise<IpcResult<{ userMessage: Message; assistantMessageId: string }>>
     retry(input: { messageId: string }): Promise<IpcResult<void>>
     list(input: { before?: string; limit?: number }): Promise<IpcResult<Message[]>>
+  }
+
+  attachment: {
+    /** 二选一：`sourcePath` 走 copyFile（webUtils 拿到的真实路径），`base64` 走写盘 */
+    add(input: {
+      name: string
+      mime: string
+      base64?: string
+      sourcePath?: string
+    }): Promise<IpcResult<Attachment>>
   }
 
   ai: {

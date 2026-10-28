@@ -190,11 +190,11 @@
 5. 右栏 ①「当前任务」列表（04 §4①）：三组分列、排序、就地展开详情、步骤勾选、完成按钮。
 6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。
 
-**未决：改类型的语义（W5 开工前必须定稿，否则第 5 条的"就地展开详情"落不了地）**
+**改类型的语义（已定，2026-10-28）：落库后不可改。**
 
-04 §3.2 写着「标题、类型、难度、时长、时间五项**可就地修改**」，但 `TaskPatch` 里没有 `type`，主进程也没有改类型的入口——W1 在 v0.11 复核时提出来了，当时没定。要补的话至少牵四件事：难度是 `snapDifficulty` 归位还是拒绝、目标类型不适用的字段（`due_at` / `daily_time` / `repeat_rule` / `active_from` / `active_to`）清哪些、`reminderOffsets` 要不要重置成新类型的 `DEFAULT_OFFSETS`、切到 `daily` 之后当天的 occurrence 由谁补。还会牵出至少两条新的错误文案。
+04 §3.2 的"类型可就地修改"只针对**草稿卡片**（未落库的 `TaskDraft`，纯渲染层状态，W3 已实现：换该类型默认提醒偏移 + `snapDifficulty` + 重算分值）。右栏详情（04 §4①）本来就只有 `detail_md` / 步骤 / 提醒偏移 / `[完成]` 四项，没有类型入口。
 
-**在架构方写进 02 §3.2 之前，W5 不要自己发明这套语义。**
+所以 W5 不要做"改类型"按钮，`TaskPatch` 也不要加 `type`（契约 02 §3.2）。用户建错类型的出口是 `task.remove`（软删）+ 重新建，旧任务连同流水与 occurrence 留在历史里。理由写在 02 §3.2：改类型要连带难度归位、清字段、重排 `reminders` 行、补 occurrence 四件事，其中提醒重排依赖 W8，现在做只会留下按旧类型排好的提醒。
 
 **验收**
 
@@ -377,6 +377,32 @@
 **交付**：NSIS 安装包、图标、`asarUnpack: better-sqlite3`、首启动建库、卸载保留用户数据（放在 userData 不随卸载删）。
 
 **验收**：干净 Win10/11 机器安装 → 启动无缺失 DLL → 建库成功 → 完成一次建任务全流程 → 卸载重装数据还在。
+
+---
+
+## W11 · 附件存储
+
+（编号避开已有的 W10 打包。与 W2 同期开工，互不抢文件。）
+
+**只许改**：新建 `src/main/attachments/**`、`src/main/services/attachmentService.ts`、`src/main/db/repositories/attachmentRepo.ts`、`tests/attachments/**`；另外**允许**两处小改——`src/main/db/repositories/messageRepo.ts`（把 `insertAttachment` / `attachmentById` / `attachmentsFor` / `attachToMessage` 搬到新 repo，`messageRepo` 保留同名再导出或改为 import，**`messageService` 的调用点不许改**）、`src/main/index.ts`（只加两行注册）。
+
+**交付**
+
+1. `attachmentRepo`：行级 CRUD 从 `messageRepo` 迁出来，`sha256` 查重、按 message 批量取。
+2. `attachmentService.add({ name, mime, base64?, sourcePath? })`：校验 → 算 sha256 → 查重 → 落盘 `userData/attachments/YYYY/MM/<id>.<ext>` → 插行 → 返回带 `app://attach/<id>` 的 `Attachment`。
+3. `attachmentService.read(id)`：给协议和 W4 用，返回 `{ bytes, mime }`；**不暴露成 IPC**。
+4. `app://attach/<id>` 协议：`registerSchemesAsPrivileged` 在 ready 前、`protocol.handle` 在 ready 后；id 形状校验、查不到 404、路径只从 `rel_path` 取。
+5. 上限 25 MiB、mime 白名单（png/jpeg/webp/gif/pdf），越界用 `FILE_TOO_LARGE` / `UNSUPPORTED_MIME`。
+6. 测试：落盘路径形状、同文件两次 add 复用物理文件但两行两 id、超限/非白名单被拒、`read` 拿不到不存在的 id 抛 `NOT_FOUND`、`../` 之类的入参进不了路径。
+
+**不做**：IPC handler（W2 注册 `attachment.add` 通道，preload 已声明）、渲染层接入（W3）、AI 取图（W4 调 `attachmentService.read`）、物理文件删除（v1 只增不删）。
+
+**验收**
+
+- [ ] 同一张图连续 add 两次 → `attachments` 两行、`rel_path` 相同、磁盘一个文件。
+- [ ] 把 id 换成 `../../../etc/passwd` 调 `read` → `NOT_FOUND`，不读任何文件。
+- [ ] 10 MiB 的 PDF 走 `sourcePath` 能落盘；26 MiB 的返回 `FILE_TOO_LARGE`。
+- [ ] 重启应用后 `app://attach/<id>` 仍能取到图片（不是内存对象也不依赖渲染层 blob）。
 
 ---
 

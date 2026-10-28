@@ -1,6 +1,6 @@
 /**
  * IPC 通道名常量。
- * 命名规则见 02 §1：`<domain>:<action>`，domain ∈ task | msg | points | ai | reminder | hud | app | bus。
+ * 命名规则见 02 §1：`<domain>:<action>`，domain ∈ task | msg | attachment | points | ai | reminder | hud | app | bus。
  * 主进程注册（W2）与 preload 调用共用这一份，不允许在别处手写通道字符串。
  */
 export const CH = {
@@ -39,6 +39,9 @@ export const CH = {
     send: 'msg:send',
     retry: 'msg:retry',
     list: 'msg:list'
+  },
+  attachment: {
+    add: 'attachment:add'
   },
   ai: {
     confirmDraft: 'ai:confirmDraft',
