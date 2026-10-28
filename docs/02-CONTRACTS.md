@@ -299,7 +299,7 @@ export interface ReminderPayload {
 
 §1 的 `Ok` / `Err` / `IpcResult` / `AppError` / `AppErrorCode`，加上本节的 `AppSettings` / `PublicSettings` / `HudMode` / `WebhookConfig`，**实现上都放在 `src/shared/types/ipc.ts`**——`domain.ts` 只放领域实体，不放传输层类型。
 
-（02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，W0 在代码里自行补了 `Record<string, unknown>`。审核指出这等于放弃 settings 的类型检查，v0.7 改为封闭接口。W0 需按本节同步 `ipc.ts`。）
+（02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，代码侧曾以 `Record<string, unknown>` 补齐。审核指出这等于放弃 settings 的类型检查，v0.7 改为封闭接口，`ipc.ts` 需按本节同步一次。此后本节即唯一来源。）
 
 ```ts
 /** 悬浮形态：顶部贴边条 / 自由浮窗 */
