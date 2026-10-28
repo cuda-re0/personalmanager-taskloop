@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json && tsc --noEmit --composite false -p tsconfig.test.json",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "test": "node scripts/test.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,html}\" \"*.{ts,json,cjs}\"",
