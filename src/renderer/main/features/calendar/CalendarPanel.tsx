@@ -127,13 +127,10 @@ export function CalendarPanel(): ReactElement {
                 </span>
               </>
             )
-            // 无红点的日期不响应，也不做成可聚焦控件（04 §4② / 05 W6B 验收）
-            return dot === 'none' ? (
-              <div className={cls} key={key}>
-                {content}
-              </div>
-            ) : (
+            // 任意日期都可点（04 §4② v0.21）：没任务的日子也要能点开、看到空白浮层
+            return (
               <button
+                aria-pressed={day === selectedDay}
                 className={cls}
                 key={key}
                 onClick={() => actions.selectDay(day)}

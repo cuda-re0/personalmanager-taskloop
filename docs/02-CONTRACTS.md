@@ -487,6 +487,8 @@ export type CompleteTaskInput =
 
 **`occurrence.today` / `listByRange` 是"读起来像读、实际会写"的通道。** 两者内部都会 `ensureRange` 补当天/区间的行，所以它们**必须广播 `occurrence.created`**（携带真正新建的那几条）。做法：调用前后各 `listRangeRaw` 一次、按 id 求差集，不要为了省一次查询而改成不广播——另一个窗口的今日列表就靠这条事件刷新。`app.getBootstrap` 例外：它返回的就是当前全量快照，不广播。
 
+**`task.promoteDraft` 的广播另有一条硬约束（v0.21）**：daily 草稿落库时会 `ensureRange(今天, +3天)` 预生成 4 天 occurrence（后续日历/提醒按需补齐用），但这 4 条**只广播今天那一条**。原因是 `occurrence.created` 的消费者会把载荷 upsert 进「今日列表」（右栏① / HUD），未来日期混进去就变成同一任务 4 行；用户逐个点掉就是给未来三天提前打卡、白拿分、streak 也被推到 4（2026-10-29 实测事故）。同时渲染层的两个 hook 必须各自按 `day === today` 再过滤一次——事件通道对任何调用方开放，不能只指望生产方守规矩，`groupTasks` 里也要再兜一道。
+
 ### 3.2c `api.calendar`
 
 | 方法 | 入参 | 返回 `T` | 说明 |

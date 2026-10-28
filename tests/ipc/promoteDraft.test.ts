@@ -185,7 +185,7 @@ describe('task.promoteDraft（W5）', () => {
     expect(taskRepo.countAll()).toBe(1)
   })
 
-  it('daily 草稿：写 daily_time / repeat_rule / active_from，ensureRange 生成今天起 4 天 occurrence 并广播', () => {
+  it('daily 草稿：写 daily_time / repeat_rule / active_from，ensureRange 生成 4 天 occurrence，但只广播今天那条', () => {
     const messageId = seedDraftMessage([
       makeDraft({
         localId: 'd-1',
@@ -212,11 +212,13 @@ describe('task.promoteDraft（W5）', () => {
     expect(mine.length).toBe(4)
     expect(mine.some(o => o.day === todayLocalDay())).toBe(true)
 
-    // handler 层广播 occurrence.created（ensureRange 前后差集）
+    // v0.21：广播只带今天那一条。未来 3 天是预生成的，界面「今日」列表收下它们
+    // 就会出现同名多行，用户逐个点掉 = 给未来日期提前打卡（实测事故，不是假设）
     const created = eventsOf('occurrence.created').flatMap(
-      e => (e as { occurrences: { taskId: string }[] }).occurrences
-    )
-    expect(created.filter(o => o.taskId === task.id).length).toBeGreaterThanOrEqual(4)
+      e => (e as { occurrences: { taskId: string; day: string }[] }).occurrences
+    ).filter(o => o.taskId === task.id)
+    expect(created.length).toBe(1)
+    expect(created[0].day).toBe(todayLocalDay())
   })
 
   it('patch.difficulty：同事务按 cfg 重算 points_planned；非法 type×difficulty 只拒 INVALID_INPUT', () => {

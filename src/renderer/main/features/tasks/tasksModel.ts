@@ -32,13 +32,21 @@ export interface TaskGroups {
 }
 
 /**
- * 三组分列（04 §4①）。每日组 = 今日仍 pending 的 occurrence；
+ * 三组分列（04 §4①）。每日组 = **today 这一天**仍 pending 的 occurrence；
  * 限时/活动组 = 顶层任务（子步骤跟父任务展开，不单列）。
+ *
+ * `today` 显式传参（默认取本地今天）而不是在函数里读时钟：这是纯模型，要可测。
+ * 过滤掉非今天的行是硬要求（v0.21）——`ensureRange` 会预生成今天~+3 天的 occurrence，
+ * 一旦漏进来，每日组就变成同一任务 4 行，用户点掉即给未来日期提前打卡。
  */
-export function groupTasks(tasks: Task[], occurrences: Occurrence[]): TaskGroups {
+export function groupTasks(
+  tasks: Task[],
+  occurrences: Occurrence[],
+  today: string = localDayOf(new Date())
+): TaskGroups {
   const byId = new Map(tasks.map(t => [t.id, t]))
   const daily = occurrences
-    .filter(o => o.status === 'pending')
+    .filter(o => o.status === 'pending' && o.day === today)
     .map(o => ({ occurrence: o, task: byId.get(o.taskId) ?? null }))
     .sort((a, b) => (a.task?.sortKey ?? 0) - (b.task?.sortKey ?? 0))
   const topLevel = tasks.filter(t => t.parentId === null)

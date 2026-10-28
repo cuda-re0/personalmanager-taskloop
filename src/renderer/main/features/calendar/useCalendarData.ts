@@ -30,7 +30,7 @@ export interface CalendarActions {
   prevMonth(): void
   /** 下一个月 */
   nextMonth(): void
-  /** 点日期：同日再点收起。调用方只对 total > 0 的日期调用（04 §4②：空日期不响应） */
+  /** 点日期：同日再点收起。任意日期都可点（04 §4② v0.21），空日期展开后列表留白 */
   selectDay(day: string): void
   /** 收起浮层（点外部 / 关闭按钮） */
   close(): void

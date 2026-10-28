@@ -166,10 +166,14 @@ const TABLE: Row[] = [
     // 再发 created 类事件语义失真（P2）。连 message.patch 也不发（meta 没变）。
     if (!created) return task
 
+    // v0.21：只广播**今天**那条。`ensureRange(今天, +3天)` 会预生成今天起 4 天的 occurrence
+    // （后续日历/提醒按需补齐用），把未来日期一并塞进 `occurrence.created` 会让所有
+    // 「今日列表」消费者（右栏①、HUD）出现同名多行；用户逐个点掉就是给未来日期提前打卡。
+    // 未来日期界面自己会按需查（listToday / calendar.dayIndex），不需要这条事件。
     const createdOccurrences = diffOccurrences(
       before,
       occurrenceService.listRangeRaw(today, rangeTo)
-    )
+    ).filter(o => o.day === today)
 
     // 写操作广播（02 §3.8）：父任务 + 子任务各一条 task.created
     broadcast({ type: 'task.created', task })

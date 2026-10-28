@@ -93,11 +93,23 @@ describe('groupTasks（三组分列）', () => {
       makeOccurrence({ id: 'o-2', taskId: 't-daily', day: '2026-10-28', status: 'done' })
     ]
 
-    const groups = groupTasks(tasks, occurrences)
+    const groups = groupTasks(tasks, occurrences, '2026-10-28')
     expect(groups.daily.map(r => r.occurrence.id)).toEqual(['o-1'])
     expect(groups.daily[0].task?.id).toBe('t-daily')
     expect(groups.deadline.map(t => t.id)).toEqual(['t-deadline'])
     expect(groups.event.map(t => t.id)).toEqual(['t-event'])
+  })
+
+  it('v0.21 防回归：同一每日任务在 今天~+3 天 各一条 occurrence，每日组只出现今天那一行', () => {
+    const dailyTask = makeTask({ id: 't-daily', type: 'daily', title: '写季度复盘初稿', sortKey: 1 })
+    // ensureRange(今天, +3天) 预生成的真实形态：4 条 pending，只有 day 不同
+    const occurrences = ['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31'].map((day, i) =>
+      makeOccurrence({ id: `o-${i}`, taskId: 't-daily', day })
+    )
+
+    const groups = groupTasks([dailyTask], occurrences, '2026-10-28')
+    expect(groups.daily.length).toBe(1)
+    expect(groups.daily[0].occurrence.day).toBe('2026-10-28')
   })
 })
 

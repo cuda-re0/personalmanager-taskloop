@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DomainEvent } from '@shared/types/events'
-import type { Occurrence, Task, TaskStatus } from '@shared/types/domain'
+import type { Occurrence, Task, TaskPatch, TaskStatus, TaskType } from '@shared/types/domain'
+import { toLocalDay as localDayOf } from '@shared/localDay'
 import { isStepChecked } from './tasksModel'
 import { onFocusTask } from './focusTask'
 
@@ -26,9 +27,20 @@ import { onFocusTask } from './focusTask'
 
 const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'reviewing']
 
-function mergeOccurrences(prev: Occurrence[], incoming: Occurrence[]): Occurrence[] {
-  const map = new Map(prev.map(o => [o.id, o]))
-  for (const o of incoming) map.set(o.id, o)
+/**
+ * 只收今天的 occurrence（v0.21）。
+ *
+ * 这份 state 的语义是**今日列表**，但 `occurrence.created` 是通用事件——
+ * 只要载荷里带了未来日期（`ensureRange(今天,+3天)` 的预生成），无脑合并就会让
+ * 「每日」组出现同名多行，用户会把未来几天逐个点掉（提前打卡 + 白拿分 + 污染 streak）。
+ * 主进程侧已经收窄了 promoteDraft 的广播；这里再守一道，因为事件通道对任何调用方开放。
+ */
+function mergeTodayOccurrences(prev: Occurrence[], incoming: Occurrence[]): Occurrence[] {
+  const today = localDayOf(new Date())
+  const map = new Map(
+    prev.filter(o => o.day === today).map(o => [o.id, o] as const)
+  )
+  for (const o of incoming) if (o.day === today) map.set(o.id, o)
   return [...map.values()]
 }
 
@@ -49,6 +61,8 @@ export interface TasksActions {
   cancelComplete(): void
   /** 拖动排序：放到 beforeId 之前，null = 末尾 */
   reorder(taskId: string, beforeId: string | null): void
+  /** 右栏① 顶部「+」手动建任务（v0.21）。成功返回 true，表单据此收起 */
+  createManual(input: { type: TaskType; title: string; patch?: TaskPatch }): Promise<boolean>
 }
 
 export interface TasksData {
@@ -111,10 +125,10 @@ export function useTasksData(): TasksData {
           reloadTasks()
           break
         case 'occurrence.created':
-          setOccurrences(prev => mergeOccurrences(prev, e.occurrences))
+          setOccurrences(prev => mergeTodayOccurrences(prev, e.occurrences))
           break
         case 'occurrence.updated':
-          setOccurrences(prev => mergeOccurrences(prev, [e.occurrence]))
+          setOccurrences(prev => mergeTodayOccurrences(prev, [e.occurrence]))
           break
         default:
           break
@@ -257,6 +271,31 @@ export function useTasksData(): TasksData {
       .catch((e: unknown) => console.error('[tasks] task.reorder 调用失败', e))
   }, [])
 
+  /**
+   * 手动建任务（v0.21）。
+   *
+   * 只走 `task.createManual` 一条通道：`type` 在顶层、其余条件塞 `patch`（02 §1 的入参形状）。
+   * 成功后不做本地插入——`task.created` 事件会把列表重拉一遍；每日任务今天的 occurrence
+   * 由主进程 `createTask` 自己 ensure，渲染层不补。
+   */
+  const createManual = useCallback(
+    (input: { type: TaskType; title: string; patch?: TaskPatch }): Promise<boolean> =>
+      window.api.task
+        .createManual(input)
+        .then(res => {
+          if (!res.ok) {
+            console.error('[tasks] task.createManual 失败', res.error)
+            return false
+          }
+          return true
+        })
+        .catch((e: unknown) => {
+          console.error('[tasks] task.createManual 调用失败', e)
+          return false
+        }),
+    []
+  )
+
   const actions = useMemo<TasksActions>(
     () => ({
       expand,
@@ -266,7 +305,8 @@ export function useTasksData(): TasksData {
       confirmCompleteNoPoints,
       completeOccurrence,
       cancelComplete,
-      reorder
+      reorder,
+      createManual
     }),
     [
       expand,
@@ -276,7 +316,8 @@ export function useTasksData(): TasksData {
       confirmCompleteNoPoints,
       completeOccurrence,
       cancelComplete,
-      reorder
+      reorder,
+      createManual
     ]
   )
 

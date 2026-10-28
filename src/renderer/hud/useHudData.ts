@@ -74,8 +74,11 @@ export interface HudData {
 }
 
 function upsertOccurrences(list: Occurrence[], incoming: Occurrence[]): Occurrence[] {
-  const map = new Map(list.map(o => [o.id, o]))
+  // 只收今天（v0.21）：HUD 的 done/total 就是「今日打卡」，混进未来日期会把 0/1 显示成 0/4
+  const today = localDayOf(new Date())
+  const map = new Map(list.filter(o => o.day === today).map(o => [o.id, o] as const))
   for (const o of incoming) {
+    if (o.day !== today) continue
     // `occurrence.complete/undo/skip` 推的是裸行（无联表字段），`taskTitle` 会被覆盖成 undefined
     // → HUD 列表会变成空白行。这里保留上一个已知标题与类型（同 id 同任务，不会串）。
     const prev = map.get(o.id)

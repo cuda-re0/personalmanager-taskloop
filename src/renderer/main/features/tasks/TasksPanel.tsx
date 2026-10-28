@@ -5,6 +5,7 @@ import { MarkdownText } from '../chat/MarkdownText'
 import { TYPE_LABEL, reminderSummary } from '../chat/chatViewModel'
 import type { DailyRow, TaskGroups } from './tasksModel'
 import { groupTasks, isStepChecked, remainingLabel } from './tasksModel'
+import { NewTaskForm } from './NewTaskForm'
 import { useTasksData } from './useTasksData'
 import type { TasksActions } from './useTasksData'
 import './tasks.css'
@@ -267,6 +268,7 @@ export function TasksPanel(): ReactElement {
 
   return (
     <div className="tasks-panel">
+      <NewTaskForm actions={actions} />
       <DailyGroup
         actions={actions}
         expandedId={expandedId}
