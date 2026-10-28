@@ -56,13 +56,14 @@ export type Priority    = 0 | 1 | 2;
 export type NotifyChannel = 'inapp' | 'toast' | 'mail' | 'webhook';
 export type ReminderLevel = 'normal' | 'strong';
 
-/** 完成证据（S4 已定） */
-export interface Evidence {
-  kind: 'text' | 'image';
-  text?: string;              // kind='text'
-  attachmentId?: string;      // kind='image'，指向 attachments
-  addedAt: string;
-}
+/**
+ * 完成证据（S4 已定）。
+ * 图片与文件都走 attachment——是截图还是 PDF 由 Attachment.kind 决定，Evidence 不再区分。
+ * 早先的 `kind:'image'` 让 `报告.pdf` 这类证据无处表达（04 §3.3 的示例里就有），故改为联合。
+ */
+export type Evidence =
+  | { kind: 'text'; text: string; addedAt: string }
+  | { kind: 'attachment'; attachmentId: string; addedAt: string };
 
 export interface Task {
   id: string;
@@ -187,7 +188,7 @@ export type MessageMeta =
   | { kind: 'none' }
   | { kind: 'task_draft';   drafts: TaskDraft[] }
   | { kind: 'task_review';  taskId: string; verdict: ReviewVerdict }
-  | { kind: 'reminder';     reminderId: string; taskId: string | null; title: string; fireAt: string }
+  | { kind: 'reminder';     reminderId: string; taskId: string | null; title: string; fireAt: string; offsetMin: number | null }
   | { kind: 'error';        code: AppErrorCode; message: string; retryable: boolean };
 
 export interface Attachment {
@@ -246,6 +247,8 @@ export interface TaskDraft {
   estimateMin: number | null;
   dueHint: string | null;            // deadline=截止 / event=发生时刻 / daily=null
   dailyTimeHint: string | null;      // 'HH:mm'，仅 daily
+  activeToHint: string | null;       // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
+  reminderOffsets: number[];         // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改
   tags: string[];
   steps: DraftStep[];
   missingInfo: string[];             // 信息不足时列出要问用户的点，可能为空
@@ -267,6 +270,7 @@ export interface ReviewVerdict {
   quality: Quality | null;
   reason: string;                    // 一句话，面向用户
   followup: string | null;           // 证据不足时的追问，可能为 null
+  gaps: string[];                    // partial 时逐条列出未完成项，供卡片内展示；其他 verdict 为空数组
 }
 
 /** 外部通知通道的可插拔接口，见 §6 */

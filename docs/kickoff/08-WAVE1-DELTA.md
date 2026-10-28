@@ -34,7 +34,7 @@ epic   240 min  → 80
 computeAwardedPoints(10.75, 'partial', 0) → 6.45
 ```
 
-**UI 显示统一走 `fmtPoints`**（`04-UI-SPEC.md` §6）：最多 2 位小数、去掉尾零。
+**UI 显示统一走 `fmtPoints`**（`04-UI-SPEC.md` §4③；§6 是设计 token 表，别去那儿找）：最多 2 位小数、去掉尾零。
 `23` → `23`，`5.75` → `5.75`，`45.5` → `45.5`，`80` → `80`。不要写 `23.00`。
 
 **累加陷阱**：余额是 `SUM(delta)`。如果每笔都是 `5.750000000000001`，几十笔后会出现
@@ -124,8 +124,10 @@ npm run lint
    "添加证据"（可粘贴文字或选图片），不是直接"完成"。
 3. 提交证据后任务停在 `reviewing`，卡片显示"待确认"。**不要乐观地先显示已完成**——
    证据不通过还会退回来。
-4. 草稿卡片的"分值"是 `pointsPlanned`，来自 `computePlannedPoints`，可能带小数
-   （改难度/时长后即时刷新，走 `points.preview`）。
+4. 草稿卡片的"分值"是 `pointsPlanned`，**必须按 type 分派**：`deadline` / `event` 用
+   `computePlannedPoints(difficulty, estimateMin)`；`daily` 用 `settings['points.dailyBase']`（默认 1）。
+   每日任务显示"每天 1 分"才有意义，显示 `5.38` 是错的。（`points.preview` 的入参本就带 `type`，
+   接上后它会自己分派；本地算时也要照此分派。）
 
 ### W4 · AI 接入
 
