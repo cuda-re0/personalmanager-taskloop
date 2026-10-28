@@ -113,7 +113,7 @@
 | W9 | `channel` 全部 3 条、`hud` 全部 5 条 | 8 |
 | W11 | `attachment.add`（service 已由 W11 交付；handler 在 `registry.ts`，归附件 UI 轮随 W2 补丁注册） | 1 |
 
-**未接的通道一律不注册**（不放假 handler、不返回假数据）。渲染层调它们会当场收到 Electron 的 "No handler registered"，这是开发期错误、不该被伪装成业务错误。`WIRED` / `NOT_WIRED` 两张表要作为**代码里的数据**导出，并配一条覆盖测试：两张表的键集合并集必须等于 `CH` 的全部叶子、且不交叠——这样下一个新通道加进 `channels.ts` 却没人接，测试会红。
+**未接的通道一律不注册**（不放假 handler、不返回假数据）。渲染层调它们会当场收到 Electron 的 "No handler registered"，这是开发期错误、不该被伪装成业务错误。`WIRED` / `NOT_WIRED` 两张表要作为**代码里的数据**导出，并配一条覆盖测试：两张表的键集合并集必须等于 `CH` 的全部叶子、且不交叠——这样下一个新通道加进 `channels.ts` 却没人接，测试会红。例外：`bus:event` 是单向事件通道（主进程 → 渲染层），不在 `Api` 方法里，两张表都**不**含它。
 
 **已知缺口（不阻塞，但要写进交付报告）**
 
@@ -208,7 +208,7 @@
 3. **落库后立刻调 `reminderService.syncForTask(id)`**，让提醒在任务创建的那一刻就排好（不能等到 W8 才补）。
 4. 草稿消息的 `meta_json` 里把该 draft 标记 `promoted: true`，避免重复确认。
 5. 右栏 ①「当前任务」列表（04 §4①）：三组分列、排序、就地展开详情、步骤勾选、完成按钮。
-6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。
+6. `task.update` / `task.transition` / `task.reorder` / `task.setReminderOffsets` 的 UI 接线。改 `due_at` 或 `reminderOffsets` 后必须重新 sync 提醒。**注意（W2 交付时指出）：handler 层没有 sync 钩子**——`setReminderOffsets` / `createManual` / `update` 都只写 `tasks` 列、不建 `reminders` 行。这条"重新 sync"目前只能等 W8 的 `reminder.syncForTask` 落地后接线，W5 不许在渲染层自己拼提醒逻辑。
 
 **改类型的语义（已定，2026-10-28）：落库后不可改。**
 

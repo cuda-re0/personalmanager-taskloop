@@ -507,7 +507,7 @@ export type CompleteTaskInput =
 | `points.monthStats` | `{ year: number; month: number }` | `DayStat[]` |
 | `points.adjust` | `{ delta: number; reason: string }` | `PointEntry` | 手动调整，`kind='adjust'` |
 | `points.preview` | `{ type: TaskType; difficulty: Difficulty }` | `number` | 纯计算，无副作用，UI 改难度/类型时实时显示；`type='daily'` 返回单日分值。**不传 `estimateMin`**——v0.7 起时长不进分值 |
-| `points.streakPreview` | `{ current: number; nextDayWillReach: number }` | `number` | 明天完成能拿到的里程碑奖励，0 表示无 |
+| `points.streakPreview` | `{ current: number; nextDayWillReach: number }` | `number` | 明天完成能拿到的里程碑奖励，0 表示无。**`current` 无语义**（奖励只由 `nextDayWillReach` 决定，service 不读它），保留只为兼容既有调用形状，下一版契约删除 |
 
 ### 3.6 `api.reminder`
 
@@ -553,7 +553,7 @@ export type DomainEvent =
   | { type: 'points.changed'; balance: number; entry: PointEntry | null; today: DayStat }
   | { type: 'reminder.fired'; reminderId: string; taskId: string | null; title: string; level: ReminderLevel }
   | { type: 'reminder.failed'; reminderId: string; channel: NotifyChannel; reason: string }
-  | { type: 'daystats.changed'; day: DayStat }
+  | { type: 'daystats.changed'; day: DayStat }   // day 是**整个 DayStat 对象**，不是日期字符串——字段名易误读，渲染层直接整体覆盖对应日
   | { type: 'app.setting.changed'; key: string; value: unknown }
   | { type: 'channel.status'; channels: { id: NotifyChannel; available: boolean }[] }
   | { type: 'hud.mode.changed'; mode: 'dock-bar' | 'float-pod' };

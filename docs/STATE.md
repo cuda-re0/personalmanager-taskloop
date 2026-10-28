@@ -57,7 +57,7 @@ npm run build
 | `Attachment.width/height` 恒 `null` | UI 不能靠尺寸占位 | 02 §3.3b |
 | `app://attach` 真机时序未验 | W10 打包时手点一次 | 05 W11 验收 |
 | `attachment.add` 的 handler 未注册（W11 只交了 service，`registry.ts` 是 W2 的文件） | 附件 UI 轮随 W2 补丁注册 | 05 W2 归属表 |
-| `streakPreview` 的 `current` 入参实现用不上 | 可能从契约里删 | 05 W2 交付报告 |
+| `streakPreview` 的 `current` 入参无语义（service 不读） | 已在 02 §3.5 标废弃；删除动作（02 表 + `ipc.ts` + guards schema）随附件 UI 轮的 W2 补丁一起做 | 02 §3.5 |
 
 ## 五、文档怎么用
 
