@@ -15,10 +15,9 @@ export type DraftPatch = Partial<
   >
 >
 
-/** 草稿卡片渲染所需的全部数据。points 由 useChatData 算好，卡片不碰公式。 */
+/** 草稿卡片渲染数据。分值直接读 draft.pointsPlanned（归一后与显示同值）。 */
 export interface DraftView {
   draft: TaskDraft
-  points: number
   /** datetime-local 控件值 'YYYY-MM-DDTHH:mm'，仅 deadline / event 用 */
   dueLocal: string
   /** 非 null = 已确认，卡片变灰、按钮消失 */

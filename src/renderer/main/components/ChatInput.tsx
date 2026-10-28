@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, ReactElement } from 'react'
 import type { Attachment } from '@shared/types/domain'
+import { mimeExt } from '../features/chat/chatViewModel'
 
 const MAX_LINES = 6
 const LINE_HEIGHT = 22
@@ -85,7 +86,10 @@ export function ChatInput({ sending, onSend }: Props): ReactElement {
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
-    if (event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files)
+    // W5 之前只接受图片：非 image/* 直接忽略，别让用户拖进来白等。
+    // 全被过滤掉就什么都不做，也不提示（不加自造文案）。
+    const images = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/'))
+    if (images.length > 0) addFiles(images)
   }
 
   const onPick = (event: ChangeEvent<HTMLInputElement>): void => {
@@ -111,7 +115,7 @@ export function ChatInput({ sending, onSend }: Props): ReactElement {
               </span>
             ) : (
               <span className="ci-file" key={file.id}>
-                <span className="ci-file-name">{file.mime || 'file'}</span>
+                <span className="ci-file-name">{mimeExt(file.mime)}</span>
                 <button className="ci-thumb-remove" onClick={() => removeFile(file.id)} type="button">
                   ×
                 </button>

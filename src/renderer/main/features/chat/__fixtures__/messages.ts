@@ -1,7 +1,7 @@
 import { computePlannedPoints } from '@shared/points/rubric'
 import { snapDifficulty } from '@shared/taskRules'
 import type { Attachment, Evidence, Message, ReviewVerdict, Task, TaskDraft } from '@shared/types/domain'
-import { DAILY_BASE_POINTS, TYPE_DEFAULT_OFFSETS, draftPointsOf } from '../chatViewModel'
+import { TYPE_DEFAULT_OFFSETS, draftPointsOf } from '../chatViewModel'
 
 /**
  * W3 专用 fixture。所有对象都显式标注为 @shared 的领域类型，
@@ -84,8 +84,8 @@ function makeTask(seed: Pick<Task, 'id' | 'type' | 'title'> & Partial<Task>): Ta
     streakBest: 0,
     source: 'chat',
     aiConfidence: 0.8,
-    createdAt: `${DAY}T09:00:00+08:00`,
-    updatedAt: `${DAY}T09:00:00+08:00`,
+    createdAt: `${DAY}T01:00:00.000Z`,
+    updatedAt: `${DAY}T01:00:00.000Z`,
     startedAt: null,
     completedAt: null,
     archivedAt: null,
@@ -97,14 +97,14 @@ function makeTask(seed: Pick<Task, 'id' | 'type' | 'title'> & Partial<Task>): Ta
 const evidencePhoto: Evidence = {
   kind: 'attachment',
   attachmentId: 'att-c',
-  addedAt: `${DAY}T10:02:00+08:00`
+  addedAt: `${DAY}T02:02:00.000Z`
 }
 const evidenceShot: Evidence = {
   kind: 'attachment',
   attachmentId: 'att-a',
-  addedAt: `${DAY}T10:05:00+08:00`
+  addedAt: `${DAY}T02:05:00.000Z`
 }
-const evidenceText: Evidence = { kind: 'text', text: '实验数据在第 3 页，误差分析在附录', addedAt: `${DAY}T10:06:00+08:00` }
+const evidenceText: Evidence = { kind: 'text', text: '实验数据在第 3 页，误差分析在附录', addedAt: `${DAY}T02:06:00.000Z` }
 
 export const FIXTURE_TASKS: Task[] = [
   makeTask({
@@ -114,9 +114,9 @@ export const FIXTURE_TASKS: Task[] = [
     detailMd: '把本周实验报告导出 PDF 后提交。',
     difficulty: 'medium',
     estimateMin: 60,
-    dueAt: `${DAY}T18:00:00+08:00`,
+    dueAt: `${DAY}T10:00:00.000Z`,
     // 提前 96h 完成 → 提前 4 天，效率系数 1.2（04 §3.3 的示例场景）
-    completedAt: `2026-10-24T18:00:00+08:00`,
+    completedAt: `2026-10-24T10:00:00.000Z`,
     pointsPlanned: computePlannedPoints('medium'),
     requiresEvidence: true,
     evidence: [evidencePhoto, evidenceShot],
@@ -131,8 +131,8 @@ export const FIXTURE_TASKS: Task[] = [
     estimateMin: 30,
     dailyTime: '21:00',
     repeatRule: 'DAILY',
-    // 每日任务入库的就是单日基数，与卡片显示一致
-    pointsPlanned: DAILY_BASE_POINTS,
+    // 每日任务入库的就是单日基数（默认 1），与卡片显示一致
+    pointsPlanned: 1,
     streakCurrent: 7
   }),
   makeTask({
@@ -141,7 +141,7 @@ export const FIXTURE_TASKS: Task[] = [
     title: '英语六级考试',
     difficulty: 'hard',
     estimateMin: 120,
-    dueAt: `2026-11-14T09:00:00+08:00`,
+    dueAt: `2026-11-14T01:00:00.000Z`,
     pointsPlanned: computePlannedPoints('hard'),
     requiresEvidence: true
   }),
@@ -152,7 +152,7 @@ export const FIXTURE_TASKS: Task[] = [
     detailMd: '整理三家客户的回访结论。',
     difficulty: 'easy',
     estimateMin: 30,
-    dueAt: `${DAY}T20:00:00+08:00`,
+    dueAt: `${DAY}T12:00:00.000Z`,
     pointsPlanned: computePlannedPoints('easy'),
     requiresEvidence: true,
     evidence: [evidenceText],
@@ -178,8 +178,8 @@ function draft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'localId' | 'type' | '
     ...seed,
     difficulty,
     estimateMin,
-    // 唯一口径：daily = 单日基数，其余看难度。与卡面显示同一个数（W5 直接写库）
-    pointsPlanned: draftPointsOf({ type: seed.type, difficulty })
+    // 只看难度/类型，基数由调用方给；fixture 传 1，useChatData 进来时还会归一一次
+    pointsPlanned: draftPointsOf({ type: seed.type, difficulty }, 1)
   }
 }
 
@@ -191,7 +191,7 @@ export const FIXTURE_DRAFTS: TaskDraft[] = [
     detailMd: '把本周实验报告导出 PDF 后提交，**含完整实验数据**。',
     difficulty: 'medium',
     estimateMin: 60,
-    dueHint: '10-30 18:00',
+    dueHint: '2026-10-30T10:00:00.000Z',
     steps: [
       { localId: 's-1', title: '整理实验数据', estimateMin: 20, done: false },
       { localId: 's-2', title: '导出 PDF', estimateMin: 10, done: false },
@@ -219,9 +219,20 @@ export const FIXTURE_DRAFTS: TaskDraft[] = [
     detailMd: '',
     difficulty: 'hard',
     estimateMin: 120,
-    dueHint: '11-14 09:00',
+    dueHint: '2026-11-14T01:00:00.000Z',
     requiresEvidence: true,
     confidence: 0.66
+  }),
+  // 跨年：UTC 1 月 5 日 01:00 = 本地 1 月 5 日 09:00，用来确认卡片不会显示成今年
+  draft({
+    localId: 'draft-4',
+    type: 'deadline',
+    title: '春季选课申请',
+    detailMd: '系统 1 月 6 日关闭，先把志愿填了。',
+    difficulty: 'easy',
+    estimateMin: 30,
+    dueHint: '2027-01-05T01:00:00.000Z',
+    confidence: 0.74
   })
 ]
 
@@ -233,7 +244,7 @@ function msg(seed: Partial<Message> & Pick<Message, 'id' | 'role' | 'kind'>): Me
     linkedTaskId: null,
     status: 'sent',
     attachments: [],
-    createdAt: `${DAY}T09:00:00+08:00`,
+    createdAt: `${DAY}T01:00:00.000Z`,
     ...seed
   }
 }
@@ -289,7 +300,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     kind: 'text',
     contentMd: '这周的物理作业和报销，帮我排一下。',
     attachments: [FIXTURE_ATTACHMENTS[0], FIXTURE_ATTACHMENTS[1]],
-    createdAt: `${DAY}T09:12:00+08:00`
+    createdAt: `${DAY}T01:12:00.000Z`
   }),
   msg({
     id: 'm-2',
@@ -301,14 +312,14 @@ export const FIXTURE_MESSAGES: Message[] = [
       '- 报销单：本周内，15 分钟\n\n' +
       '1. 先做物理，数据齐了再导出\n' +
       '2. 报销放在晚上',
-    createdAt: `${DAY}T09:12:06+08:00`
+    createdAt: `${DAY}T01:12:06.000Z`
   }),
   msg({
     id: 'm-3',
     role: 'assistant',
     kind: 'task_draft',
     meta: { kind: 'task_draft', drafts: FIXTURE_DRAFTS },
-    createdAt: `${DAY}T09:12:08+08:00`
+    createdAt: `${DAY}T01:12:08.000Z`
   }),
   msg({
     id: 'm-4',
@@ -317,7 +328,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     contentMd: '交物理作业',
     meta: { kind: 'task_review', taskId: 'task-physics', verdict: reviewPass },
     linkedTaskId: 'task-physics',
-    createdAt: `${DAY}T10:07:00+08:00`
+    createdAt: `${DAY}T02:07:00.000Z`
   }),
   msg({
     id: 'm-5',
@@ -326,7 +337,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     contentMd: '客户回访记录',
     meta: { kind: 'task_review', taskId: 'task-report', verdict: reviewNeed },
     linkedTaskId: 'task-report',
-    createdAt: `${DAY}T10:20:00+08:00`
+    createdAt: `${DAY}T02:20:00.000Z`
   }),
   msg({
     id: 'm-6',
@@ -335,7 +346,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     contentMd: '客户回访记录',
     meta: { kind: 'task_review', taskId: 'task-report', verdict: reviewPartial },
     linkedTaskId: 'task-report',
-    createdAt: `${DAY}T10:32:00+08:00`
+    createdAt: `${DAY}T02:32:00.000Z`
   }),
   msg({
     id: 'm-7',
@@ -344,7 +355,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     contentMd: '英语六级考试',
     meta: { kind: 'task_review', taskId: 'task-cet', verdict: reviewFail },
     linkedTaskId: 'task-cet',
-    createdAt: `${DAY}T10:40:00+08:00`
+    createdAt: `${DAY}T02:40:00.000Z`
   }),
   msg({
     id: 'm-10',
@@ -353,7 +364,7 @@ export const FIXTURE_MESSAGES: Message[] = [
     contentMd: '英语六级考试',
     meta: { kind: 'task_review', taskId: 'task-cet', verdict: reviewCetPass },
     linkedTaskId: 'task-cet',
-    createdAt: `${DAY}T11:05:00+08:00`
+    createdAt: `${DAY}T03:05:00.000Z`
   }),
   msg({
     id: 'm-8',
@@ -364,10 +375,10 @@ export const FIXTURE_MESSAGES: Message[] = [
       reminderId: 'rem-1',
       taskId: 'task-physics',
       title: '交物理作业',
-      fireAt: `${DAY}T17:00:00+08:00`,
+      fireAt: `${DAY}T09:00:00.000Z`,
       offsetMin: -60
     },
-    createdAt: `${DAY}T17:00:00+08:00`
+    createdAt: `${DAY}T09:00:00.000Z`
   }),
   msg({
     id: 'm-9',
@@ -379,7 +390,7 @@ export const FIXTURE_MESSAGES: Message[] = [
       message: '模型调用超时（30s）。',
       retryable: true
     },
-    createdAt: `${DAY}T17:05:00+08:00`
+    createdAt: `${DAY}T09:05:00.000Z`
   })
 ]
 
@@ -397,7 +408,7 @@ export function makeOlderMessages(count: number): Message[] {
         contentMd: user
           ? `历史消息 ${i + 1}：还有一件事没排。`
           : `历史消息 ${i + 1}：已经排到 **${10 + (i % 5)} 月** 了，` + '`sort` 按截止时间。',
-        createdAt: `2026-09-${day}T08:${String(i % 60).padStart(2, '0')}:00+08:00`
+        createdAt: `2026-09-${day}T00:${String(i % 60).padStart(2, '0')}:00.000Z`
       })
     )
   }
@@ -417,7 +428,7 @@ export function makeBulkMessages(count: number): Message[] {
         contentMd: user
           ? `第 ${i + 1} 条：把这件事排进去。`
           : `第 ${i + 1} 条回复，包含 **粗体**、\`inline\` 与\n\n- 列表项 A\n- 列表项 B`,
-        createdAt: `${DAY}T09:${String(i % 60).padStart(2, '0')}:00+08:00`
+        createdAt: `${DAY}T01:${String(i % 60).padStart(2, '0')}:00.000Z`
       })
     )
   }

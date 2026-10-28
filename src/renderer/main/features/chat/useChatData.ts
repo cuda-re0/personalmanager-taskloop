@@ -30,6 +30,18 @@ import {
 const PAGE = 20
 const THREAD = 'thread-demo'
 
+/** 每日任务单日分值。TODO(W2): 换成 bootstrap.settings['points.dailyBase'] */
+const DAILY_BASE = 1
+
+/**
+ * 草稿的唯一入口。fixture 与将来从 IPC 拿到的草稿都先过这里，
+ * pointsPlanned 归一成 draftPointsOf 的结果——之后卡面读它、W5 写库也写它，
+ * 只有这一个函数、一个字段，不会出现"显示值和入库值恰好相等"。
+ */
+function normalizeDraft(draft: TaskDraft): TaskDraft {
+  return { ...draft, pointsPlanned: draftPointsOf(draft, DAILY_BASE) }
+}
+
 /**
  * 压测入口：?bulk=1000（03 验收：1000 条滚动 60fps）。仅开发构建生效，
  * 打包后 DEV=false，这个分支不会被打进生产路径。不影响正常视图。
@@ -121,7 +133,11 @@ function toEvidenceViews(evidence: Evidence[]): EvidenceView[] {
  * 类型一变要做两件事：reminderOffsets 换成新类型默认值（复制，不共享同一数组）、
  * 难度不在新类型允许档内就 snapDifficulty 归位（02 §5.2b，平手取低档）。
  */
-export function applyDraftPatch(current: TaskDraft, patch: DraftPatch): TaskDraft {
+export function applyDraftPatch(
+  current: TaskDraft,
+  patch: DraftPatch,
+  dailyBase: number
+): TaskDraft {
   const offsets =
     patch.type && patch.reminderOffsets === undefined
       ? { reminderOffsets: [...TYPE_DEFAULT_OFFSETS[patch.type]] }
@@ -134,7 +150,7 @@ export function applyDraftPatch(current: TaskDraft, patch: DraftPatch): TaskDraf
   // pointsPlanned 必须与卡面同值（W5 直接写库）。难度或类型一变就按唯一口径重算，
   // 这里不再做 type 判断——draftPointsOf 就是那唯一一处。
   if (next.difficulty !== current.difficulty || next.type !== current.type) {
-    next.pointsPlanned = draftPointsOf(next)
+    next.pointsPlanned = draftPointsOf(next, dailyBase)
   }
   return next
 }
@@ -146,7 +162,7 @@ export function useChatData(): ChatData {
   })
   const [drafts, setDrafts] = useState<Record<string, TaskDraft>>(() => {
     const map: Record<string, TaskDraft> = {}
-    for (const draft of FIXTURE_DRAFTS) map[draft.localId] = draft
+    for (const draft of FIXTURE_DRAFTS) map[draft.localId] = normalizeDraft(draft)
     return map
   })
   const [confirmed, setConfirmed] = useState<Record<string, string>>({})
@@ -182,8 +198,6 @@ export function useChatData(): ChatData {
     for (const [localId, draft] of Object.entries(drafts)) {
       views[localId] = {
         draft,
-        // 分值按 type 分派后重算，不读 draft.pointsPlanned —— 改难度/时长后必须立刻变
-        points: draftPointsOf(draft),
         dueLocal: dueHintToLocal(draft.dueHint),
         confirmedTaskId: confirmed[localId] ?? null
       }
@@ -218,7 +232,7 @@ export function useChatData(): ChatData {
     setDrafts(prev => {
       const current = prev[localId]
       if (!current) return prev
-      return { ...prev, [localId]: applyDraftPatch(current, patch) }
+      return { ...prev, [localId]: applyDraftPatch(current, patch, DAILY_BASE) }
     })
   }, [])
 

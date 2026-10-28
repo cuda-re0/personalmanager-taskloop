@@ -27,19 +27,16 @@ export const TYPE_DEFAULT_OFFSETS: Record<TaskType, number[]> = {
 }
 
 /**
- * 每日任务单日分值。DELTA W3#4：daily 不走 rubric，取 settings['points.dailyBase']。
- * TODO(W2): 换成 api.settings.get('points.dailyBase')，缺失时回落 1（02 §5.2）。
- */
-export const DAILY_BASE_POINTS = 1
-
-/**
- * pointsPlanned 的唯一口径：daily 取单日基数，deadline / event 看难度。
+ * pointsPlanned 的唯一口径：daily 取调用方给的当日基数，deadline / event 看难度。
  *
  * 显示、切类型重算、W5 写库都必须是这一个数——显示 1 却存 20，每日任务
- * 就会变成每天 20 分。任何地方都不要再写第二处 type 判断。
+ * 就会变成每天 20 分。基数不在这里写死：模块级常量 W2 接上 settings 后替换不掉。
  */
-export function draftPointsOf(draft: Pick<TaskDraft, 'type' | 'difficulty'>): number {
-  return draft.type === 'daily' ? DAILY_BASE_POINTS : computePlannedPoints(draft.difficulty)
+export function draftPointsOf(
+  draft: Pick<TaskDraft, 'type' | 'difficulty'>,
+  dailyBase: number
+): number {
+  return draft.type === 'daily' ? dailyBase : computePlannedPoints(draft.difficulty)
 }
 
 /** 偏移分钟 → 只读小字。04 §3.2 的例子是「前 1 天 · 前 1 小时」 */
@@ -87,22 +84,29 @@ export function mimeExt(mime: string | null): string {
   return sub.split('+')[0].toLowerCase()
 }
 
-const MONTH_DAY = /^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/
-
-/** TaskDraft.dueHint（'10-30 18:00'）→ datetime-local 值（补当前年份） */
+/**
+ * TaskDraft.dueHint（完整 ISO8601 UTC，02 §1）→ datetime-local 值。
+ *
+ * 必须走 Date 再取本地字段：直接 slice(0,16) 切出来的是 UTC 字符串，
+ * 和用户眼里的本地时间差 8 小时。空值/非法值一律返回 ''，不 fallback 到今天。
+ */
 export function dueHintToLocal(hint: string | null): string {
   if (!hint) return ''
-  const m = MONTH_DAY.exec(hint.trim())
-  if (!m) return ''
-  return `${new Date().getFullYear()}-${m[1]}-${m[2]}T${m[3]}:${m[4]}`
+  const d = new Date(hint)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** datetime-local 值 → TaskDraft.dueHint（'10-30 18:00'） */
+/**
+ * datetime-local 值 → TaskDraft.dueHint（完整 ISO8601 UTC）。
+ *
+ * `new Date('2026-10-30T18:00')` 不带时区后缀，按本地时区解析，这是对的；
+ * 只有日期的 `'2026-10-30'` 会被当成 UTC，所以非法值先挡掉再 toISOString。
+ */
 export function localToDueHint(value: string): string {
   if (!value) return ''
-  const [date, time] = value.split('T')
-  if (!date || !time) return ''
-  const parts = date.split('-')
-  if (parts.length < 3) return ''
-  return `${parts[1]}-${parts[2]} ${time.slice(0, 5)}`
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString()
 }

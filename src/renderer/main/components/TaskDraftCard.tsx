@@ -20,7 +20,7 @@ interface Props {
 
 /** 04 §3.2 草稿卡片。分值由外部算好传入，本组件不碰公式。 */
 export function TaskDraftCard({ view, actions }: Props): ReactElement {
-  const { draft, points, dueLocal, confirmedTaskId } = view
+  const { draft, dueLocal, confirmedTaskId } = view
   const confirmed = confirmedTaskId !== null
   const [expanded, setExpanded] = useState(false)
 
@@ -64,7 +64,7 @@ export function TaskDraftCard({ view, actions }: Props): ReactElement {
           onChange={event => patch({ title: event.target.value })}
           value={draft.title}
         />
-        <span className="draft-points">+{fmtPoints(points)}</span>
+        <span className="draft-points">+{fmtPoints(draft.pointsPlanned)}</span>
       </div>
 
       {draft.detailMd ? (
