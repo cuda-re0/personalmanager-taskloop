@@ -191,6 +191,12 @@ export type MessageMeta =
   | { kind: 'reminder';     reminderId: string; taskId: string | null; title: string; fireAt: string; offsetMin: number | null }
   | { kind: 'error';        code: AppErrorCode; message: string; retryable: boolean };
 
+**`MessageMeta.reminder.offsetMin` 的写入义务（W8 必须遵守）**：这个字段是**快照**，不是派生值。写提醒消息时，必须把 `reminders.offset_min` 原样拷进 `meta_json`；缺失即视为 `null`（绝对时间，如每日任务按 `dailyTime` 触发）。
+
+之所以不让读取侧现算：`mapMessageMeta(kind, meta_json)` 只拿到一列字符串，join `reminders` 会让纯映射依赖数据库，且消息列表变成 N+1 查询；而 `fireAt - dueAt` 在 `due_at` 改过之后算出来就是错的——提醒是按旧时间发出的，历史消息必须保留当时的偏移。
+
+读取侧只做类型收窄，不猜、不补算。写入侧漏填不会报错，只会静默退化成 `null`，界面上少显示一行「前 1 小时」。
+
 export interface Attachment {
   id: string;
   kind: 'image' | 'file';
