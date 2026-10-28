@@ -18,7 +18,7 @@ const draft = (localId: string): TaskDraft => ({
   title: '交作业',
   detailMd: '',
   difficulty: 'medium',
-  estimateMin: 60,
+  estimateMin: 60, // 只用于判难度 / 排提醒 / 算逾期，不进积分公式（v0.9）
   dueHint: '周五',
   dailyTimeHint: null,
   activeToHint: null, // 仅 daily 有可选结束日期（04 §3.2）
@@ -28,7 +28,7 @@ const draft = (localId: string): TaskDraft => ({
   missingInfo: [],
   requiresEvidence: true,
   confidence: 0.8,
-  pointsPlanned: 23
+  pointsPlanned: 20 // medium 基数。v0.9 起时长不进公式；旧的 23 是 20×1.15 的残留，别再抄它
 })
 
 describe('messages', () => {
