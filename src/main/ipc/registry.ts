@@ -163,15 +163,25 @@ const TABLE: Row[] = [
     const today = todayLocalDay()
     const rangeTo = addDays(today, 3)
     const before = occurrenceService.listRangeRaw(today, rangeTo)
-    const task = taskService.promoteDraft(input)
-    const created = diffOccurrences(before, occurrenceService.listRangeRaw(today, rangeTo))
+    const { task, created } = taskService.promoteDraft(input)
+
+    // 幂等早退（同一 draft 第二次确认）：本次零写入，零广播——没有行被创建，
+    // 再发 created 类事件语义失真（P2）。连 message.patch 也不发（meta 没变）。
+    if (!created) return task
+
+    const createdOccurrences = diffOccurrences(
+      before,
+      occurrenceService.listRangeRaw(today, rangeTo)
+    )
 
     // 写操作广播（02 §3.8）：父任务 + 子任务各一条 task.created
     broadcast({ type: 'task.created', task })
     for (const sub of taskService.listTasks({ parentId: task.id })) {
       broadcast({ type: 'task.created', task: sub })
     }
-    if (created.length > 0) broadcast({ type: 'occurrence.created', occurrences: created })
+    if (createdOccurrences.length > 0) {
+      broadcast({ type: 'occurrence.created', occurrences: createdOccurrences })
+    }
     // meta_json 已标 promoted，推给全部窗口把卡片切成已确认态（02 §3.8：message.patch 只许 meta）
     const message = messageService.requireMessage(input.messageId)
     broadcast({ type: 'message.patch', messageId: input.messageId, patch: { meta: message.meta } })

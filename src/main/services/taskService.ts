@@ -279,6 +279,19 @@ export interface PromoteDraftInput {
 }
 
 /**
+ * promoteDraft 的内部返回形状（**不是 IPC 形状**）。
+ *
+ * `created=false` 是幂等早退（同一 draft 第二次确认）：本次没有新建任何行、meta 也没写，
+ * handler 据此零广播——再发 `task.created` / `occurrence.created` / `daystats.changed`
+ * 会让"created"语义失真（渲染层会把原任务当成新任务插入一次）。IPC 通道返回值仍是 `Task`，
+ * 由 handler 解包。
+ */
+export interface PromoteDraftResult {
+  task: Task
+  created: boolean
+}
+
+/**
  * 幂等标记（v0.14 补定：同一 draft 第二次 promoteDraft 返回已生成的原 Task）。
  *
  * `TaskDraft` 是冻结契约（02 §2 与 domain.ts 逐字一致），不能加字段；
@@ -354,7 +367,7 @@ function subtaskTypeOf(type: TaskType): TaskType {
  * - 其余：写库值 = 生成时算好的 `draft.pointsPlanned`（与卡面显示完全一致）；
  * - 非法 type × difficulty 只拒 `INVALID_INPUT`，主进程不归位（snapDifficulty 是渲染层的事）。
  */
-export function promoteDraft(input: PromoteDraftInput): Task {
+export function promoteDraft(input: PromoteDraftInput): PromoteDraftResult {
   return tx(() => {
     const message = messageRepo.requireById(input.messageId)
     if (message.meta.kind !== 'task_draft') {
@@ -371,10 +384,11 @@ export function promoteDraft(input: PromoteDraftInput): Task {
     }
     const draft = drafts[index]
 
-    // 幂等（v0.14 补定，含绕过 UI 直调通道）：已晋升直接返回原 Task，不重复落库、不报错
+    // 幂等（v0.14 补定，含绕过 UI 直调通道）：已晋升直接返回原 Task，不重复落库、不报错。
+    // created=false 让 handler 零广播——本次没有任何写入，"created" 类事件不成立（P2）
     const marker = promoteMarkerOf(draft)
     if (marker.promoted === true && typeof marker.promotedTaskId === 'string') {
-      return taskRepo.requireById(marker.promotedTaskId)
+      return { task: taskRepo.requireById(marker.promotedTaskId), created: false }
     }
 
     const patch = input.patch ?? {}
@@ -452,6 +466,6 @@ export function promoteDraft(input: PromoteDraftInput): Task {
       linkedTaskId: task.id
     })
 
-    return task
+    return { task, created: true }
   })
 }

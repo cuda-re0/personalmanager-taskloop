@@ -155,15 +155,34 @@ describe('task.promoteDraft（W5）', () => {
     expect(eventsOf('daystats.changed').length).toBe(1)
   })
 
-  it('重复确认幂等：同一 draft 直调通道两次，只落一个任务，第二次返回原 Task', () => {
+  it('重复确认幂等：同一 draft 直调通道两次，只落一个任务，第二次返回原 Task 且零广播（P2）', () => {
     const messageId = seedDraftMessage([makeDraft({ localId: 'd-1', type: 'deadline', title: '交物理作业' })])
 
     const first = callOk(CH.task.promoteDraft, { messageId, localId: 'd-1' }) as Task
     const countAfterFirst = taskRepo.countAll()
+    expect(eventsOf('task.created').length).toBe(1)
+
+    // 第二次：service 早退（created=false）→ 没有任何写入，也就不能有任何 created 类广播
+    events = []
     const second = callOk(CH.task.promoteDraft, { messageId, localId: 'd-1' }) as Task
 
     expect(second.id).toBe(first.id)
     expect(taskRepo.countAll()).toBe(countAfterFirst)
+    expect(events).toEqual([])
+  })
+
+  it('service 内部形状：首次 promoteDraft 返回 created=true，幂等早退返回 created=false', () => {
+    const messageId = seedDraftMessage([makeDraft({ localId: 'd-1', type: 'deadline', title: '交物理作业' })])
+
+    const input = { messageId, localId: 'd-1' }
+    const first = taskService.promoteDraft(input)
+    expect(first.created).toBe(true)
+    expect(first.task.type).toBe('deadline')
+
+    const second = taskService.promoteDraft(input)
+    expect(second.created).toBe(false)
+    expect(second.task.id).toBe(first.task.id)
+    expect(taskRepo.countAll()).toBe(1)
   })
 
   it('daily 草稿：写 daily_time / repeat_rule / active_from，ensureRange 生成今天起 4 天 occurrence 并广播', () => {
