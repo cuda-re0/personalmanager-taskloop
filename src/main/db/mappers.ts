@@ -363,6 +363,8 @@ export interface PointEntryRow {
   reason_text: string
   day: string
   created_at: string
+  /** 被冲销的时刻（002 迁移）。NULL = 这条发分仍然有效 */
+  reversed_at: string | null
 }
 
 export const LEDGER_COLUMNS = [
@@ -374,7 +376,8 @@ export const LEDGER_COLUMNS = [
   'reason_code',
   'reason_text',
   'day',
-  'created_at'
+  'created_at',
+  'reversed_at'
 ] as const
 
 export interface PointEntryInsert {
@@ -387,6 +390,8 @@ export interface PointEntryInsert {
   reasonText?: string
   day: string
   createdAt: string
+  /** 新写入的流水一律有效（NULL）；只有冲销时由 markReversed 事后补时间戳 */
+  reversedAt?: string | null
 }
 
 export function ledgerInsertParams(e: PointEntryInsert): SqlValue[] {
@@ -399,7 +404,8 @@ export function ledgerInsertParams(e: PointEntryInsert): SqlValue[] {
     e.reasonCode,
     e.reasonText ?? '',
     e.day,
-    e.createdAt
+    e.createdAt,
+    e.reversedAt ?? null
   ]
 }
 
@@ -413,7 +419,8 @@ export function mapPointEntry(row: PointEntryRow): PointEntry {
     reasonCode: row.reason_code as PointEntry['reasonCode'],
     reasonText: row.reason_text,
     day: row.day,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    reversedAt: row.reversed_at
   }
 }
 

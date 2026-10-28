@@ -224,22 +224,29 @@ CREATE TABLE point_ledger (
   reason_code   TEXT NOT NULL,              -- task_done|quality_bonus|overdue_penalty|manual_adjust|streak_bonus
   reason_text   TEXT NOT NULL DEFAULT '',
   day           TEXT NOT NULL,              -- 本地日历日 YYYY-MM-DD，供聚合
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  reversed_at   TEXT                        -- 被冲销的时刻；NULL = 这条发分仍然有效（002 迁移）
 );
 
 CREATE INDEX idx_ledger_day  ON point_ledger(day);
 CREATE INDEX idx_ledger_task ON point_ledger(task_id);
 
--- 限时/活动：一个任务只允许一条「完成发分」，从库层面杜绝重复发分
+-- 限时/活动：一个任务同时只允许一条「有效的完成发分」，从库层面杜绝重复发分
 CREATE UNIQUE INDEX uq_ledger_task_done
   ON point_ledger(task_id)
-  WHERE reason_code = 'task_done' AND occurrence_id IS NULL;
+  WHERE reason_code = 'task_done' AND occurrence_id IS NULL AND reversed_at IS NULL;
 
--- 每日任务：同一天的这一次只能发一次，不同天各自发
+-- 每日任务：同一天的这一次同时只能有一条有效的发分，不同天各自发
 CREATE UNIQUE INDEX uq_ledger_occurrence
   ON point_ledger(occurrence_id)
-  WHERE occurrence_id IS NOT NULL;
+  WHERE occurrence_id IS NOT NULL AND reversed_at IS NULL;
 ```
+
+**撤销 = 标记 + 负流水，两步缺一不可。** 撤销时把原发分行打上 `reversed_at`（不改金额、不删行，审计仍查得出哪条被冲了、什么时候冲的），同时写一条等额负流水（`kind='adjust'`、`reason_code='manual_adjust'`、`occurrence_id=NULL`），余额仍是 `SUM(delta)`。
+
+两条唯一索引的谓词都带 `reversed_at IS NULL` 是**必须的**：它们约束的是"同时最多一条有效发分行"，不是"历史上只许出现一条"。少了这个谓词，撤销后重做必然撞索引——限时任务报「这个任务已经发过完成分了」，每日任务报「这一天的打卡已经发过分了」（误点一次撤销，当天再也打不上卡）。冲销只允许一次：对已 `reversed_at` 的行再冲会多写一条负流水、把余额扣两次，所以 `markReversed` 在 `changes === 0` 时按内部故障 `DB_ERROR` 抛出（04 §1.2）。
+
+**同一天里"旧的已冲销行 + 新的有效行"会共存**，任何按任务/按天收集流水的逻辑（如 `entriesOfOccurrence`）都必须筛 `reversed_at IS NULL`，否则会把同一条历史发分重复冲销。
 
 ### 2.5 reminders — 提醒
 

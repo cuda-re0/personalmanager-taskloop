@@ -7,7 +7,11 @@ import { placeholders } from '../sqlUtil'
 
 /**
  * point_ledger 的数据访问层。余额**不落地**，永远是 `SUM(delta)`（01 §1）。
- * 流水一旦写入就是事实，本层不提供 UPDATE / DELETE，撤销靠写负流水。
+ * 流水一旦写入就是事实，本层不提供 DELETE，也不改任何金额。
+ *
+ * 唯一的 UPDATE 是 `markReversed`（01 §2.4，v0.19）：冲销时给原发分行打一个
+ * `reversed_at` 时间戳，让两条条件唯一索引的谓词（`reversed_at IS NULL`）放行"重做"。
+ * 金额、kind、reason_code 一概不动——审计仍然看得出哪条被冲了、什么时候冲的。
  */
 
 const SELECT_LEDGER = `SELECT ${LEDGER_COLUMNS.join(', ')} FROM point_ledger`
@@ -100,10 +104,30 @@ export function hasTaskDoneEntry(taskId: string): boolean {
   const row = getDb()
     .prepare(
       `SELECT 1 AS hit FROM point_ledger
-       WHERE task_id = ? AND reason_code = 'task_done' AND occurrence_id IS NULL LIMIT 1`
+       WHERE task_id = ? AND reason_code = 'task_done' AND occurrence_id IS NULL
+         AND reversed_at IS NULL
+       LIMIT 1`
     )
     .get(taskId) as { hit: number } | undefined
   return row !== undefined
+}
+
+/**
+ * 把一条流水标为已冲销（01 §2.4）。撤销的后半截：原行打时间戳、另写负流水。
+ *
+ * 只允许冲销一次。`changes === 0` 说明这条不存在或已经冲过，属调用方的逻辑错误
+ * （重复冲销会多写一条负流水，把余额扣两次），按内部故障 `DB_ERROR` 抛——04 §1.2，只进日志。
+ */
+export function markReversed(id: string, at: string): void {
+  const info = getDb()
+    .prepare('UPDATE point_ledger SET reversed_at = ? WHERE id = ? AND reversed_at IS NULL')
+    .run(at, id)
+  if (info.changes === 0) {
+    throw appError('DB_ERROR', '流水冲销状态异常', {
+      detail: `point_ledger ${id} 不存在或已经被冲销过`,
+      retryable: false
+    })
+  }
 }
 
 export function countAll(): number {

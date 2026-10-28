@@ -616,8 +616,10 @@ function completeWithoutPoints(id: string, evidence: Evidence[] | undefined): Co
  * 撤销限时/活动的完成（01 §3：`done → doing` + 负流水冲销 + `completed_at` 清空）。
  *
  * 三条实现约束：
- * - 冲销走 `pointsService.rollback()` 写负行，**不删流水**（唯一真相是 ledger）；
- * - 冲销行 `occurrence_id = NULL`、`kind='adjust'`，不撞两条条件唯一索引；
+ * - 冲销走 `pointsService.rollback()`：原发分行标 `reversed_at` + 写一条负行，**不删流水**
+ *   （唯一真相是 ledger）；只标时间戳不改金额，于是撤销后能重做，审计也查得出哪条被冲了（01 §2.4）；
+ * - 找原发分行时要带 `reversedAt === null`——撤销后重做会留下"旧行已冲销 + 新行有效"两行，
+ *   不筛就会反复冲销同一条；
  * - `tasks_done` 在**原完成日**减回来，与 `rebuildDailyStats` 的口径一致。
  *
  * 未完成的任务没有可撤销的完成记录：按 `transitionTask` 的同态 no-op 处理，不报错也不写库。
@@ -628,8 +630,12 @@ export function undoCompletion(id: string): UndoCompletionResult {
     if (task.status !== 'done') return { task, entry: null }
 
     const original =
-      ledgerRepo.listByTask(id).find(e => e.reasonCode === 'task_done' && e.occurrenceId === null) ??
-      null
+      ledgerRepo
+        .listByTask(id)
+        .find(
+          e =>
+            e.reasonCode === 'task_done' && e.occurrenceId === null && e.reversedAt === null
+        ) ?? null
     // noPoints 完成的任务没有 task_done 行，撤销只回状态、不冲销
     const entry = original === null ? null : rollbackPoints(original, task.title)
     const day = task.completedAt === null ? todayLocalDay() : isoToLocalDay(task.completedAt)

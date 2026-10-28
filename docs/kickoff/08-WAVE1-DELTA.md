@@ -287,3 +287,25 @@ W6 `f15ba01`、W6B `949747e` 双双合入，基线复核 **27 文件 / 341 条�
 4. **`toLocalDay` 三处重复实现（P2-3，认可但本轮不动）**：主进程 `db/localDay.ts`、`features/tasks/tasksModel.ts`、`features/calendar/calendarModel.ts` 各有一份同口径实现（都用 `getFullYear/getMonth/getDate`，都没用 `toISOString`）。**裁决：登记为待清理项，等 W9 收工后提到 `src/shared`**——理由：现在动 shared 会与 W9 的窗口/时间计算改动交叉，且三份当前口径一致、无 bug，不是正确性问题。
 5. **W6B 的 `focus-task` 交接点已验通**：W6 侧有 `features/tasks/focusTask.ts` + `useTasksData` 监听 + `scrollIntoView` + 1.2s 高亮，04 §4② 的"点行滚到并高亮"整条链路成立。
 6. **并行提交纪律执行到位**：W6B 用显式 `git add` 提交 6 个文件，W6 的 `<PointsPanel />` 与 `<CalendarPanel />` 在 `index.tsx` 里并列共存，没有互相冲掉。
+
+### v0.19（W6 审阅后，2026-10-28）
+
+W6 `f15ba01` 交付报告里报了 4 条契约问题，逐条核过，其中第 3 条经我实测**两条路径都会撞索引**（临时用例跑完即删）：
+
+```
+task 级：      完成 +20 → 撤销 → 走回 reviewing → 再完成
+               → CONFLICT「这个任务已经发过完成分了」
+occurrence 级：打卡 +1 → 撤销 → 同一天再打卡
+               → CONFLICT「这一天的打卡已经发过分了」
+```
+
+根因：`rollback()` 只写负流水（`reason_code='manual_adjust'`），原 `task_done` 行原样留着；两条唯一索引的谓词都不看"是否已冲销"，重做时新行必然撞上旧行。每日任务是高频路径——误点一次撤销，当天再也打不上卡。
+
+1. **数据模型修复（架构方直接做，不等补丁）**：`point_ledger` 加 `reversed_at`（002 迁移），两条条件唯一索引的谓词都加 `AND reversed_at IS NULL`——它们约束的是"同时最多一条有效发分行"，不是"历史上只许一条"。撤销时先 `markReversed` 给原行打时间戳（不改金额、不删行，审计仍查得出哪条被冲了、何时冲的），再写等额负行。`ledgerRepo` 因此有了**唯一一个** UPDATE。冲销只允许一次，重复冲销按内部故障 `DB_ERROR`（04 §1.2 新增「流水冲销状态异常」，只进日志）。
+2. **`entriesOfOccurrence` / `hasTaskDoneEntry` / `undoCompletion` 三处补 `reversedAt === null` 过滤**：撤销→重做→再撤销时，同一天会同时存在"已冲销的旧行"与"新的有效行"，不筛就会把同一笔发分冲两次、把余额扣穿。防回归测试 `tests/db/undoRedo.test.ts` 6 条，并用"去掉索引谓词"做过反向验证（4 条立刻变红、报的正是上面两个原始错误）。
+3. **新增通道 `task.undo`**（`{id}` → `{task, entry}`）：task 级撤销此前没有 IPC 入口，`undoCompletion` 写了却调不到。**同时补 24h 窗口**——01 §3 状态机早就写了 `done ──24h 内撤销──→ doing`，实现只查 `status==='done'`，隔一年也能撤；窗口外的分已进当日统计与 streak，回退会改写已"结账"的历史。超窗报 `CONFLICT`「超过 24 小时的完成记录不能撤销」（04 §1.1 已登记）。`daily` 走 `occurrence.undo`，不吃这个窗口。
+4. **撤销入口放 ④ 明细的流水行**（04 §4④）：满足 `reasonCode='task_done' && occurrenceId===null && reversedAt===null` 的行尾给 `[撤销]`。**为什么不放 ①**：04 §4① 明写"已完成的限时/活动不在此列表，进 ④"，① 里根本没有已完成的行可以挂按钮；④ 的发分行就是那条完成记录本身，位置与语义都对。超窗不预隐藏（判窗口要读 `completed_at`，渲染层不重复算这条规则），交给主进程裁决后就地提示。
+5. **`CompleteTaskInput` 加可选 `result`**（仅 `event`）：`AwardInput.result` 与 `resultFactor` 早就存在，但入参里没有 `result`，活动任务的 `resultFactor` 恒 ×1.0——05 W6 验收里那条 48.3 目前只能靠 deadline 路径凑出来。其他类型传了忽略，不报错。
+6. **证据闸门错误码统一为 `EVIDENCE_REQUIRED`**：02 §1 的说明（v0.9）本来就为"缺证据"单列了这个码并写明"既不是 CONFLICT 也不是 INVALID_INPUT"，但 §3.2 的 `task.complete` 行写 `CONFLICT`、04 §1.1 又把它登记在 `INVALID_INPUT` 名下——同一件事三种说法。以 §1 为准：代码抛 `EVIDENCE_REQUIRED`，04 §1.1 的「证据不能为空」改到该码名下（UI 据此切"补证据"态）。
+7. **STATE 口径 7 措辞纠错**：原文"任何 `Math.floor` 不得参与分值计算（现有 4 处均与分值无关）"把逾期天数那处说成"无关"不准确——它是 `penalty = overdueDays × 2` 的入参，参与分值。改成"`Math.floor` 只许用于日期/天数换算，不得对分值本身取整"。
+8. **未做（归 W6 补丁）**：第 3、5、6 条的实现改动——`task.undo` 通道注册 + guards、24h 校验、`result` 入参透传、证据码改名、04 §4④ 的 `[撤销]` 接线。契约已定，等补丁。

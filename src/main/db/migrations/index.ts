@@ -1,4 +1,5 @@
 import initSql from './001_init.sql?raw'
+import ledgerReversedSql from './002_ledger_reversed.sql?raw'
 
 /**
  * 迁移清单。只增不改（01 §5）。
@@ -10,4 +11,7 @@ export interface Migration {
   sql: string
 }
 
-export const MIGRATIONS: Migration[] = [{ version: 1, name: '001_init', sql: initSql }]
+export const MIGRATIONS: Migration[] = [
+  { version: 1, name: '001_init', sql: initSql },
+  { version: 2, name: '002_ledger_reversed', sql: ledgerReversedSql }
+]

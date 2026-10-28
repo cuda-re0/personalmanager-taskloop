@@ -21,13 +21,15 @@ describe('connection / 迁移', () => {
     openMemoryDb()
     try {
       const db = getDb()
-      expect(getUserVersion(db)).toBe(1)
+      expect(getUserVersion(db)).toBe(2)
 
-      const row = db
-        .prepare('SELECT value FROM schema_meta WHERE key = ?')
-        .get('migration.001_init') as { value: string } | undefined
-      expect(row).toBeDefined()
-      expect(row?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      for (const name of ['migration.001_init', 'migration.002_ledger_reversed']) {
+        const row = db.prepare('SELECT value FROM schema_meta WHERE key = ?').get(name) as
+          | { value: string }
+          | undefined
+        expect(row, `${name} 应记入 schema_meta`).toBeDefined()
+        expect(row?.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      }
     } finally {
       closeTestDb()
     }
@@ -38,8 +40,8 @@ describe('connection / 迁移', () => {
     try {
       const db = getDb()
       // 再次跑一遍迁移等价于生产重启路径：已应用的版本必须跳过
-      expect(migrate(db)).toBe(1)
-      expect(getUserVersion(db)).toBe(1)
+      expect(migrate(db)).toBe(2)
+      expect(getUserVersion(db)).toBe(2)
     } finally {
       closeTestDb()
     }
@@ -82,6 +84,15 @@ describe('connection / 迁移', () => {
           .get() as { sql: string }
       ).sql
       expect(sql).toContain('WHERE reason_code = \'task_done\' AND occurrence_id IS NULL')
+
+      // v0.19：谓词必须带 reversed_at IS NULL，否则撤销后重做会撞索引（tests/db/undoRedo.test.ts）
+      expect(sql).toContain('reversed_at IS NULL')
+      const occSql = (
+        db
+          .prepare("SELECT sql FROM sqlite_master WHERE name = 'uq_ledger_occurrence'")
+          .get() as { sql: string }
+      ).sql
+      expect(occSql).toContain('reversed_at IS NULL')
     } finally {
       closeTestDb()
     }

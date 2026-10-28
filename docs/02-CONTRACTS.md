@@ -230,6 +230,7 @@ export interface PointEntry {
   reasonText: string;
   day: string;          // YYYY-MM-DD 本地
   createdAt: string;
+  reversedAt: string | null;  // 被冲销的时刻；NULL = 这条发分仍然有效（01 §2.4）
 }
 
 export interface Reminder {
@@ -425,7 +426,8 @@ export interface Bootstrap {
 | `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskCreatePatch }` | `Task` | 同一 draft 重复确认返回已生成的原 Task（幂等），不重复落库 |
 | `task.update` | `{ id: string; patch: TaskPatch }` | `Task` |
 | `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` |
-| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时返回 `CONFLICT`，不抛异常 |
+| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时抛 `EVIDENCE_REQUIRED`，任务停在 `reviewing`、不入账 |
+| `task.undo` | `{ id: string }` | `{ task: Task; entry: PointEntry \| null }` | 24h 内撤销完成：`done → doing` + 原发分行标 `reversed_at` + 写等额负流水（01 §2.4） |
 | `task.addEvidence` | `{ id: string; evidence: Evidence }` | `Task` | 审核中补证据，用于"先追问再补"的来回 |
 | `task.setRequiresEvidence` | `{ id: string; value: boolean }` | `Task` | 用户手动改判 |
 | `task.reorder` | `{ id: string; beforeId: string \| null }` | `void` |
@@ -442,9 +444,28 @@ export interface Bootstrap {
 ```ts
 /** 两种模式做成可辨识联合：给了 quality 就是计分，noPoints 就是不计分，不许两个都写 */
 export type CompleteTaskInput =
-  | { id: string; quality: Quality; evidence?: Evidence[]; noPoints?: false }
+  | {
+      id: string
+      quality: Quality
+      /** 仅 event 生效（v0.19）：活动的结果档参与 resultFactor；其他类型传了忽略 */
+      result?: EventResult
+      evidence?: Evidence[]
+      noPoints?: false
+    }
   | { id: string; noPoints: true; evidence?: Evidence[] }
 ```
+
+**`result` 只对 `event` 有意义**（02 §5）：活动的 `quality` 不进公式（`q` 恒 1），得分完全由 `resultFactor(result)` 决定——`exceeded` ×1.2、`below` ×0.85、未给 ×1.0。不给 `result` 时活动恒按 ×1.0 结算（这是"没有结果信息"的合法值，不是缺省 bug）。`deadline` / `daily` 传 `result` 一律忽略，不报错。
+
+**证据闸门抛 `EVIDENCE_REQUIRED`，不是 `CONFLICT`。** 缺证据既不是状态冲突（状态是对的，停在 `reviewing`）也不是输入格式错（输入合法，只是不完整），所以 v0.9 就单列了这个码（§1）——UI 要据此把卡片切到"补证据"而不是弹一条通用错误。实现与契约此前不一致（代码抛 `CONFLICT`、04 §1.1 又把它登记在 `INVALID_INPUT` 名下），v0.19 统一为 `EVIDENCE_REQUIRED`。
+
+**`task.undo` 是撤销完成的唯一入口**（01 §3 的 `done ──24h 内撤销──→ doing`）：
+
+- 只有 `status === 'done'` 才可撤销；不是 `done` 时按同态 no-op 返回（不报错、不写库）——与 `transition` 的幂等口径一致。
+- **窗口 24 小时**：`completed_at` 距今超过 24h 报 `CONFLICT`「超过 24 小时的完成记录不能撤销」。窗口外的分已进当日统计与 streak，回退会连带改写已经"结账"的历史。`daily` 的撤销走 `occurrence.undo`，不吃这个窗口（当天打卡天然在 24h 内）。
+- 撤销三件事同一事务：状态回 `doing`、原 `task_done` 行标 `reversed_at`、写等额负流水；`points_awarded` / `quality` / `completed_at` 清空，`daily_stats.tasks_done` 在**原完成日**减 1。
+- `noPoints` 完成的任务没有流水可冲，`entry` 返回 `null`，只回状态。
+- **撤销后可以重做**：唯一索引的谓词带 `reversed_at IS NULL`（01 §2.4），重做时新插的发分行不会撞上已冲销的旧行。但**任务本身要先走回 `reviewing` 才能再次 `task.complete`**——`done → done` 仍然一律 `CONFLICT`（状态机没变）。
 
 **`TaskPatch` 没有 `type`，落库后不支持改类型。** 04 §3.2 那句"类型可就地修改"说的是**草稿卡片**（还没落库的 `TaskDraft`，纯渲染层状态）；右栏任务详情（04 §4①）只有 `detail_md` / 步骤勾选 / 提醒偏移 / `[完成]` 四项，本来就没有类型入口。任务一旦落库，类型不可改——要换类型就 `task.remove`（软删 → `discarded`）再建一条，旧任务连同它的流水与 occurrence 一起留在历史里。
 

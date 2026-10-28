@@ -50,7 +50,7 @@
 | `INVALID_INPUT` | 任务标题最多 40 个字 | — |
 | `INVALID_INPUT` | 应得分必须 ≥ 1 | — |
 | `INVALID_INPUT` | 文字证据不能为空 | — |
-| `INVALID_INPUT` | 证据不能为空 | — |
+| `EVIDENCE_REQUIRED` | 证据不能为空 | 卡片切到"补证据"态，不弹通用错误 |
 | `INVALID_INPUT` | 附件证据缺少附件 id | — |
 | `INVALID_INPUT` | 附件内容为空 | — |
 | `INVALID_INPUT` | 附件存放路径非法 | — |
@@ -76,6 +76,7 @@
 | `CONFLICT` | 每日任务不进入审核/完成状态，请完成当天的打卡 | — |
 | `CONFLICT` | 这条提醒已经触发，无法取消 | — |
 | `CONFLICT` | 完成任务请走完成流程 | — |
+| `CONFLICT` | 超过 24 小时的完成记录不能撤销 | 撤销窗口（01 §3） |
 | `NOT_FOUND` | 任务不存在 | — |
 | `NOT_FOUND` | 消息不存在 | — |
 | `NOT_FOUND` | 提醒不存在 | — |
@@ -98,6 +99,7 @@
 | `DB_ERROR` | 字段 {列名} 应为数组 |
 | `DB_ERROR` | 字段 messages.meta_json 的 task_review 缺少 verdict |
 | `DB_ERROR` | 事务回调不能是 async 函数 |
+| `DB_ERROR` | 流水冲销状态异常 |
 | `UNKNOWN` | 未知错误 |
 | `INVALID_INPUT` | 配置值不能是 undefined |
 | `CONFLICT` | 迁移 {名称} 执行失败 |
@@ -361,6 +363,8 @@
 - 正数用主色，负数用灰红。
 - 顶部一行：`今日` / `本周` / `本月` 三个切换（segmented，无说明）。
 - 点击条目 → 若有 `taskId`，滚动并高亮对应任务。
+- **撤销入口**：满足三条的流水行（`reasonCode === 'task_done'`、`occurrenceId === null`、`reversedAt === null`）在行尾给一个 `[撤销]`，点它调 `task.undo({ id })`。三条缺一条都不显示——已冲销的行再撤就是重复冲销；`occurrenceId` 非空的是每日打卡，走 `occurrence.undo`（每日组的勾选框），不在这里撤销。
+- 撤销成功后该行原地变成已冲销态（`reversedAt` 非空），`[撤销]` 消失；`task.undo` 报「超过 24 小时的完成记录不能撤销」时就地提示，不改行。**超窗的行不预先隐藏**：判断窗口要读 `completed_at`，渲染层不重复算这条规则，交给主进程裁决。
 
 ---
 

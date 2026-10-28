@@ -135,13 +135,19 @@ export function adjust(delta: number, reasonText: string): PointEntry {
 }
 
 /**
- * 撤销（`occurrence.undo` / `task` 的 24h 内撤销）写一条负流水冲销。
+ * 撤销（`task.undo` / `occurrence.undo`）写一条负流水冲销，并把原发分行标为已冲销。
  *
- * 关键点：冲销行**必须** `occurrence_id = NULL` 且 `reason_code` 不是 `task_done`，
- * 否则会撞两条条件唯一索引（它们是"每个任务/每个 occurrence 只准一条"）。
- * 所以冲销统一记成 `manual_adjust`，原单号写进 reason_text 便于对账。
+ * 两步缺一不可（01 §2.4，v0.19）：
+ * - **负流水**：余额是 `SUM(delta)`，不写负行等于没撤销；
+ * - **`markReversed`**：两条条件唯一索引的谓词是 `reversed_at IS NULL`，
+ *   不标时间戳的话，撤销后重做会撞索引——task 级报「已经发过完成分了」，
+ *   occurrence 级报「这一天的打卡已经发过分了」（每日任务误点撤销后当天再也打不上卡）。
+ *
+ * 冲销行本身仍是 `occurrence_id = NULL` + `reason_code = 'manual_adjust'`：
+ * 它不该占用任何一个"有效发分"的坑位；原单号写进 reason_text 便于对账。
  */
 export function rollback(entry: PointEntry, reasonText: string): PointEntry {
+  ledgerRepo.markReversed(entry.id, nowIso())
   return award({
     taskId: entry.taskId,
     occurrenceId: null,
@@ -281,8 +287,11 @@ function entriesOfOccurrence(occ: Occurrence): PointEntry[] {
     .list({ from: occ.day, to: occ.day })
     .filter(
       e =>
-        e.occurrenceId === occ.id ||
-        (e.occurrenceId === null && e.taskId === occ.taskId && e.reasonCode === 'streak_bonus')
+        // 已冲销的行不能再冲一次：撤销→重做→再撤销时，同一天会同时存在
+        // "被冲过的旧行"和"新的有效行"，不过滤就会把余额扣两次（v0.19）
+        e.reversedAt === null &&
+        (e.occurrenceId === occ.id ||
+          (e.occurrenceId === null && e.taskId === occ.taskId && e.reasonCode === 'streak_bonus'))
     )
 }
 

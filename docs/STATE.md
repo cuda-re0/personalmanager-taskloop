@@ -38,7 +38,7 @@ npm run build
 4. **落库后不可改类型**，`TaskPatch` 没有 `type`。`04 §3.2` 的"类型可就地改"只指草稿卡片。
 5. **写操作必须广播事件**（02 §3.8）。`occurrence.today` / `listByRange` 内部会补行，也算写，必须广播 `occurrence.created`；`app.getBootstrap` 例外。
 6. **界面文案必须先在 `04 §1.1` / §1.2 登记**，包括错误消息。没有登记的串不许写进代码。
-7. **数值取整只允许 `roundPoints`**（`src/shared/points/rubric.ts`）；任何 `Math.floor` 不得参与分值计算（现有 4 处：月整除 1 处、逾期天数 3 处，均与分值无关）。
+7. **数值取整只允许 `roundPoints`**（`src/shared/points/rubric.ts`）；`Math.floor` 只许用于日期/天数换算，不得对分值本身取整（现有 4 处：月整除 1 处、逾期天数 3 处——逾期天数虽是 `penalty = overdueDays × 2` 的入参，但取整对象是天数不是分值，合规）。
 8. **测试值不是真理**：`tests/` 里的期望值若与 `02` 的公式冲突，以 `02` 为准，并报给架构方。
 
 ## 四、还开着的缺口

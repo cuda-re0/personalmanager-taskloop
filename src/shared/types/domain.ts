@@ -184,6 +184,11 @@ export interface PointEntry {
   reasonText: string
   day: string // YYYY-MM-DD 本地
   createdAt: string
+  /**
+   * 被冲销的时刻（01 §2.4，v0.19）。NULL = 这条发分仍然有效。
+   * 撤销不删流水：原行打上时间戳、另写一条负流水，余额仍是 SUM(delta)。
+   */
+  reversedAt: string | null
 }
 
 export interface Reminder {
