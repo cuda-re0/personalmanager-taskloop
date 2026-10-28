@@ -241,3 +241,9 @@ W5 交付报告上报 5 项，架构方裁决与落盘：
 3. **`promoteDraft` 的 patch 改为创建侧形状 `TaskCreatePatch`**（`TaskPatch` 全字段 + 可选 `type`）：draft 尚未落库，"落库后不可改类型"约束的是 update 链路；确认本质是创建。规则写入 02 §3.2：按新 type 落库 + `pointsPlanned` 按新 type 口径重算 + due 字段按 type 映射；非法 type×difficulty 照旧只拒不归位（渲染层 `applyDraftPatch` 已 snapDifficulty）；落库后依旧不可改。**实现打通归 W5 补丁**（guards.ts 的 patch schema + taskService 传 type，均在 W5 授权内）。此裁决解决 04 §3.2"草稿卡可就地改 type"与确认链路的断路。
 4. **两处授权外小改准予备案**（W11 先例）：`src/renderer/main/index.tsx`（右栏布局挂载）、`src/renderer/main/api.d.ts`（`window.api` 全局声明——渲染层此前无 IPC 类型入口，属基础设施缺口）。
 5. W5 三条语义取舍认可：每日勾选框视觉先行（`occurrence.complete` 归 W6）、步骤勾选走 todo↔doing、提醒偏移只读（编辑入口归 W8）。
+
+### v0.15.1（W5 补丁 `32eb447` 审阅后，2026-10-28）
+
+1. **shared 触碰准予备案（架构方责任，非承包方越界）**：W5 补丁按 v0.15 把已定名的 `TaskCreatePatch` 落进 `src/shared/types/domain.ts` 与 `ipc.ts`（promoteDraft 入参类型）。`TaskCreatePatch` 这个名字是架构方在 02 §3.2 定的，契约类型落码必然要动 shared——开工词只写了"guards + taskService"，漏了这处授权，算架构方口径不全。**语义零变更**：纯新增类型 + 入参引用替换；`task.update` 的 guard 仍用 `taskPatchSchema`、type 照旧被剥（测试有断言）。此后审核对 `025849c..HEAD` 内这两处 shared 改动不算越界。
+2. **脏分值口径确认**：类型被 patch 改过时 `draft.pointsPlanned` 是按原类型算的脏值（daily→deadline 时它 = dailyBase 的 1 分），必须按落库难度 × 完整 `PointsConfig` 重算；deadline→daily 时原 dueHint 不得泄进 `due_at`。W5 实现与测试均符合。
+3. 基线复核一致：typecheck / lint / build 零错，22 文件 / 265 条全绿（净增 3：listDailyActive 防回归 +1、本次新增 3、重写 1）。
