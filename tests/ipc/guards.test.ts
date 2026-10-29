@@ -63,8 +63,30 @@ describe('guards（zod 形状校验）', () => {
   })
 
   it('未接的通道没有守卫（不放假 handler 的一部分）', () => {
-    expect(guards[CH.ai.review]).toBeUndefined()
     expect(guards[CH.attachment.add]).toBeUndefined()
+    expect(guards[CH.reminder.snooze]).toBeUndefined()
+  })
+
+  it('W4 的六条都有守卫，且形状按 03/02 收口', () => {
+    for (const ch of [
+      CH.msg.send,
+      CH.msg.retry,
+      CH.ai.confirmDraft,
+      CH.ai.rejectDrafts,
+      CH.ai.review,
+      CH.ai.health
+    ]) {
+      expect(guards[ch], `${ch} 缺守卫`).toBeDefined()
+    }
+    // 附件最多 4 张（03 §5）、正文 4000 字上限
+    expect(parseInput(g.msgSend, { text: '写周报' })).toEqual({ text: '写周报' })
+    expectErrorCode(() => parseInput(g.msgSend, { text: '' }), 'INVALID_INPUT')
+    expectErrorCode(() => parseInput(g.msgSend, { text: 'x', attachmentIds: ['a', 'b', 'c', 'd', 'e'] }), 'INVALID_INPUT')
+    // rejectDrafts 至少给一个 localId
+    expectErrorCode(() => parseInput(g.aiRejectDrafts, { messageId: 'm1', localIds: [] }), 'INVALID_INPUT')
+    // health 无入参：preload 的 invoke(ch) 不带 payload，收到 undefined 必须放行
+    expect(parseInput(g.aiHealth, undefined)).toBeUndefined()
+    expect(parseInput(g.aiHealth, {})).toEqual({})
   })
 
   it('task.complete 的两个分支互斥：quality 与 noPoints 同给 → INVALID_INPUT', () => {

@@ -11,9 +11,9 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 36 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条、v0.19 起 task.undo）', () => {
-    expect(WIRED_CHANNELS.length).toBe(36)
-    expect(new Set(WIRED_CHANNELS).size).toBe(36)
+  it('WIRED 有 42 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条）', () => {
+    expect(WIRED_CHANNELS.length).toBe(42)
+    expect(new Set(WIRED_CHANNELS).size).toBe(42)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
@@ -26,6 +26,17 @@ describe('registry 通道覆盖', () => {
       CH.hud.moveTo,
       CH.hud.setVisible,
       CH.hud.getState
+    ]) {
+      expect(WIRED_CHANNELS).toContain(ch)
+    }
+    // W4：AI 接入的六条
+    for (const ch of [
+      CH.msg.send,
+      CH.msg.retry,
+      CH.ai.confirmDraft,
+      CH.ai.rejectDrafts,
+      CH.ai.review,
+      CH.ai.health
     ]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
@@ -50,10 +61,10 @@ describe('registry 通道覆盖', () => {
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
-    expect(Object.keys(NOT_WIRED).length).toBe(16)
+    expect(Object.keys(NOT_WIRED).length).toBe(10)
   })
 
-  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、ai.*→W4、channel.*→W9、attachment.add→W11', () => {
+  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、msg.*/ai.*→W4 已接通、channel.*→W9、attachment.add→W11', () => {
     expect(NOT_WIRED[CH.task.promoteDraft]).toBeUndefined()
     expect(NOT_WIRED[CH.task.complete]).toBeUndefined()
     // task.undo 不在 NOT_WIRED 里：它不是"待接的既有通道"，而是 v0.19 新增的一条
@@ -63,7 +74,12 @@ describe('registry 通道覆盖', () => {
     expect(NOT_WIRED[CH.occurrence.skip]).toBeUndefined()
     expect(NOT_WIRED[CH.hud.getState]).toBeUndefined()
     expect(NOT_WIRED[CH.hud.setMode]).toBeUndefined()
-    expect(NOT_WIRED[CH.ai.review]).toEqual({ owner: 'W4' })
+    expect(NOT_WIRED[CH.msg.send]).toBeUndefined()
+    expect(NOT_WIRED[CH.msg.retry]).toBeUndefined()
+    expect(NOT_WIRED[CH.ai.review]).toBeUndefined()
+    expect(NOT_WIRED[CH.ai.confirmDraft]).toBeUndefined()
+    expect(NOT_WIRED[CH.ai.rejectDrafts]).toBeUndefined()
+    expect(NOT_WIRED[CH.ai.health]).toBeUndefined()
     expect(NOT_WIRED[CH.channel.list]).toEqual({ owner: 'W9' })
     expect(NOT_WIRED[CH.attachment.add]).toEqual({ owner: 'W11' })
   })

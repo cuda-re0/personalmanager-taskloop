@@ -10,6 +10,7 @@ import * as occurrenceService from '../db/occurrenceService'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as messageService from '../services/messageService'
+import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
 import * as taskService from '../services/taskService'
 import * as hudService from '../services/hudService'
@@ -23,8 +24,9 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 36 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
- * W9 起 hud 五条、v0.19 起 task.undo 接通，见 kickoff/09、kickoff/11、kickoff/13、kickoff/14）；
+ * **只接 WIRED 里的 42 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * W9 起 hud 五条、v0.19 起 task.undo 接通、**W4 起 msg 两条 + ai 四条**，
+ * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -39,13 +41,7 @@ export type HandlerFn = (input: unknown) => unknown
 export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
 
 export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
-  // W4：AI 接入
-  [CH.msg.send]: { owner: 'W4' },
-  [CH.msg.retry]: { owner: 'W4' },
-  [CH.ai.confirmDraft]: { owner: 'W4' },
-  [CH.ai.rejectDrafts]: { owner: 'W4' },
-  [CH.ai.review]: { owner: 'W4' },
-  [CH.ai.health]: { owner: 'W4' },
+  // W4：AI 接入的六条已接通（msg.send / msg.retry / ai.*），不在表内
   // W8：提醒（reminders 表在 W8 前恒为空；cancel/snooze 的事件类型也由 W8 一并补）
   [CH.reminder.listByTask]: { owner: 'W8' },
   [CH.reminder.listUpcoming]: { owner: 'W8' },
@@ -101,7 +97,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 36 条
+ * WIRED：本轮接通的 42 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -377,6 +373,17 @@ const TABLE: Row[] = [
 
   /* ---------------- msg（1） ---------------- */
   row(CH.msg.list, g.msgList, input => messageService.listMessages(input)),
+
+  /* ---------------- msg.send / msg.retry（2，W4） ---------------- */
+  // send 秒返回：AI 那段是 aiService 内部的 void runTurn()，这里不 await（03 §3.1、02 §3.3）
+  row(CH.msg.send, g.msgSend, input => aiService.send(input)),
+  row(CH.msg.retry, g.msgRetry, input => aiService.retry(input)),
+
+  /* ---------------- ai（4，W4） ---------------- */
+  row(CH.ai.confirmDraft, g.aiConfirmDraft, input => aiService.confirmDraft(input)),
+  row(CH.ai.rejectDrafts, g.aiRejectDrafts, input => aiService.rejectDrafts(input)),
+  row(CH.ai.review, g.aiReview, input => aiService.review(input)),
+  row(CH.ai.health, g.aiHealth, () => aiService.health()),
 
   /* ---------------- points（6） ---------------- */
   row(CH.points.balance, g.balance, () => pointsService.balance()),

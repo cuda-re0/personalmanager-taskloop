@@ -1,0 +1,104 @@
+{
+  "version": "v1 2026-10-29",
+  "note": "四组正例：单任务 / 图转任务 / 多任务（含一条 event 正例）/ 纯闲聊。日期按「当前时间 = 2026-10-29 星期四」书写，仅示意格式。",
+  "examples": [
+    {
+      "label": "单任务：有明确截止时间",
+      "user": "明天下午三点前把季度报告初稿写完",
+      "assistant": {
+        "intent": "create_task",
+        "reply": "记成限时任务了，截止按明天下午三点填。写完把文件发我。",
+        "tasks": [
+          {
+            "type": "deadline",
+            "title": "写季度报告初稿",
+            "detail_md": "把本季度数据整理进模板，输出初稿文件，供后续评审。",
+            "requires_evidence": true,
+            "difficulty": "medium",
+            "estimate_min": 90,
+            "due_hint": "2026-10-30T15:00:00+08:00",
+            "daily_time_hint": null,
+            "tags": ["工作"],
+            "steps": [
+              { "title": "整理本季度数据", "estimate_min": 30 },
+              { "title": "套模板写初稿", "estimate_min": 60 }
+            ],
+            "missing_info": [],
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "label": "图转任务：截图里的一句话",
+      "user": "【用户发来一张图片，内容是白板上的手写字：「周五前把报销单交财务」】",
+      "assistant": {
+        "intent": "create_task",
+        "reply": "白板上这句记下来了，截止按这周五下班前填。",
+        "tasks": [
+          {
+            "type": "deadline",
+            "title": "交报销单给财务",
+            "detail_md": "把本月的报销单整理好，交给财务。",
+            "requires_evidence": true,
+            "difficulty": "easy",
+            "estimate_min": 30,
+            "due_hint": "2026-10-30T18:00:00+08:00",
+            "daily_time_hint": null,
+            "tags": ["工作"],
+            "steps": [],
+            "missing_info": [],
+            "confidence": 0.85
+          }
+        ]
+      }
+    },
+    {
+      "label": "多任务：一条 event + 一条 deadline（event 正例，考试不要判成 deadline）",
+      "user": "下周三考英语六级，另外这周五前要把实验报告交了",
+      "assistant": {
+        "intent": "create_task",
+        "reply": "记了两件：下周三的六级考试，和这周五前交实验报告。",
+        "tasks": [
+          {
+            "type": "event",
+            "title": "参加英语六级考试",
+            "detail_md": "下周三上午到场参加英语六级考试。考前把证件和耳机准备好。",
+            "requires_evidence": true,
+            "difficulty": "hard",
+            "estimate_min": 150,
+            "due_hint": "2026-11-04T09:00:00+08:00",
+            "daily_time_hint": null,
+            "tags": ["学习"],
+            "steps": [],
+            "missing_info": [],
+            "confidence": 0.88
+          },
+          {
+            "type": "deadline",
+            "title": "交实验报告",
+            "detail_md": "把实验报告整理定稿并提交。",
+            "requires_evidence": true,
+            "difficulty": "medium",
+            "estimate_min": 120,
+            "due_hint": "2026-10-30T18:00:00+08:00",
+            "daily_time_hint": null,
+            "tags": ["学习"],
+            "steps": [],
+            "missing_info": [],
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "label": "纯闲聊：不建任务",
+      "user": "今天天气不错",
+      "assistant": {
+        "intent": "chat",
+        "reply": "是挺好的，适合出去走走。",
+        "tasks": []
+      }
+    }
+  ]
+}

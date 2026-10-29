@@ -1,0 +1,308 @@
+import type { ZodType } from 'zod'
+import { appError } from '../db/errors'
+import { AI_COPY } from './copy'
+import type { AiProvider, ChatJsonOptions, ChatJsonResult, ChatMessage } from './provider'
+import { AiAbortedError } from './provider'
+
+/**
+ * 智谱 GLM 的 `AiProvider` 实现（03 §3.1）。
+ *
+ * 所有实测口径都落在这个文件里（03 §9）：
+ * - `glm-5.3-flash` 是**推理模型**：响应里 `reasoning_content` 与 `content` 并列，
+ *   **只有 `content` 是答案**，`reasoning_content` 一律丢弃（§9.1）。
+ * - `max_tokens` 一律 2048。给小了推理会把预算吃光，`content` 返回空串且
+ *   `finish_reason: "length"`；这种截断重试也是同样的截断，所以**不重试**，直接
+ *   `AI_PARSE_FAILED`（§9.1、开工词 §2.2）。
+ * - `response_format: json_object` 可用，但仍保留剥围栏兜底（§9.2）。
+ * - 图片走 `image_url` + `data:<mime>;base64,…`（§9.3）。
+ * - 超时 60s，`AbortController` 可控（§3.1 第 4 条）。
+ * - `tokens_out` 用上游 `completion_tokens`（含 `reasoning_tokens`），不许自己数
+ *   `content.length`（§3.1 第 5 条）。
+ *
+ * 这个文件只负责"发一次能拿到合法对象的请求"，不碰数据库、不碰消息表。
+ */
+
+export const GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+export const AI_TIMEOUT_MS = 60_000
+export const AI_MAX_TOKENS = 2048
+/** 重试时把上一次的坏输出拼回去，截断到这个长度足够模型自修，也不会把 prompt 撑爆 */
+const ECHO_LIMIT = 2000
+/** 错误 detail 里上游响应的截断长度（开工词 §4.9 同一口径：不打印完整响应体） */
+const BODY_LIMIT = 200
+
+export interface GlmClientOptions {
+  apiKey: string
+  model: string
+  baseUrl?: string
+  timeoutMs?: number
+  maxTokens?: number
+  /** 仅测试注入；生产走全局 fetch */
+  fetchImpl?: typeof fetch
+}
+
+interface RequestOutcome {
+  content: string
+  finishReason: string
+  usage: { in: number; out: number }
+}
+
+/* ------------------------------------------------------------------ *
+ * 解析
+ * ------------------------------------------------------------------ */
+
+/**
+ * 剥 markdown 围栏（开工词 §2.4 第 2 步）。
+ *
+ * 只认 ```` ```json ```` 与 ```` ``` ```` 两种开栅栏，别的形态原样返回——猜错形态比不剥更危险。
+ * `response_format: json_object` 生效时本来不会带围栏，但 prompt 改坏或换模型时会退化成
+ * 带围栏的文本（03 §9.2），这段就是那个兜底。
+ */
+export function stripFence(raw: string): string {
+  let text = raw.trim()
+  if (!text.startsWith('```')) return text
+
+  const firstBreak = text.indexOf('\n')
+  // ```json{"a":1}``` 这种单行形态：没有换行时人工切掉前缀
+  if (firstBreak === -1) {
+    return text.replace(/^```[a-zA-Z]*\s*/, '').replace(/```$/, '').trim()
+  }
+  text = text.slice(firstBreak + 1)
+
+  const trimmedEnd = text.trimEnd()
+  if (trimmedEnd.endsWith('```')) {
+    text = trimmedEnd.slice(0, trimmedEnd.lastIndexOf('```'))
+  }
+  return text.trim()
+}
+
+/** 一次输出 → 合法对象。失败返回原因（会被拼进重试消息） */
+function parseOnce<T>(
+  content: string,
+  schema: ZodType<T>
+): { ok: true; data: T } | { ok: false; reason: string } {
+  const stripped = stripFence(content)
+  if (stripped.length === 0) return { ok: false, reason: '输出为空' }
+
+  let raw: unknown
+  try {
+    raw = JSON.parse(stripped)
+  } catch (e) {
+    return { ok: false, reason: `不是合法 JSON（${e instanceof Error ? e.message : String(e)}）` }
+  }
+
+  const result = schema.safeParse(raw)
+  if (result.success) return { ok: true, data: result.data }
+
+  const issues = result.error.issues
+    .map(issue => `${issue.path.join('.') || '(根)'}: ${issue.message}`)
+    .join('; ')
+  return { ok: false, reason: `字段不符合要求（${issues}）` }
+}
+
+/** 任何要写进日志/detail 的文本都先过这里：绝不出现 key，连前 6 位都不行（03 §9.7） */
+export function scrub(text: string, apiKey: string): string {
+  if (!apiKey) return text
+  let out = text.split(apiKey).join('[key]')
+  const head = apiKey.slice(0, 6)
+  if (head.length === 6) out = out.split(head).join('[key]')
+  return out
+}
+
+function truncate(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text
+}
+
+/* ------------------------------------------------------------------ *
+ * 客户端
+ * ------------------------------------------------------------------ */
+
+export class GlmClient implements AiProvider {
+  private readonly apiKey: string
+  private readonly model: string
+  private readonly baseUrl: string
+  private readonly timeoutMs: number
+  private readonly maxTokens: number
+  private readonly fetchImpl: typeof fetch
+
+  constructor(options: GlmClientOptions) {
+    this.apiKey = options.apiKey
+    this.model = options.model
+    this.baseUrl = options.baseUrl ?? GLM_BASE_URL
+    this.timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
+    this.maxTokens = options.maxTokens ?? AI_MAX_TOKENS
+    this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args))
+  }
+
+  async chatJson<T>(opts: ChatJsonOptions<T>): Promise<ChatJsonResult<T>> {
+    const started = Date.now()
+    // 开工词 §2.4 末句：总共只重试 1 次，不是"parse 一次 + zod 一次"各一次
+    const maxRetries = opts.maxRetries ?? 1
+
+    let messages: ChatMessage[] = [...opts.messages]
+    let lastReason = '输出不符合要求'
+    let lastContent = ''
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const outcome = await this.request(messages, opts)
+      lastContent = outcome.content
+
+      // 截断 → 直接失败，不重试：同样的 token 预算会得到同样的截断（开工词 §2.2）
+      if (outcome.finishReason === 'length') {
+        throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
+          retryable: true,
+          detail: `finish_reason=length（content ${outcome.content.length} 字符，out=${outcome.usage.out} tokens）`
+        })
+      }
+
+      const parsed = parseOnce(outcome.content, opts.schema)
+      if (parsed.ok) {
+        return {
+          data: parsed.data,
+          usage: outcome.usage,
+          latencyMs: Date.now() - started
+        }
+      }
+      lastReason = parsed.reason
+
+      if (attempt < maxRetries) {
+        // 自修：把坏输出与具体 issues 一起回给模型。只说"再试一次"它是不会改的
+        messages = [
+          ...messages,
+          { role: 'assistant', content: truncate(outcome.content, ECHO_LIMIT) },
+          {
+            role: 'user',
+            content:
+              `上一次的输出没有通过校验：${lastReason}\n` +
+              '请重新只输出一个 JSON 对象，不要 markdown 围栏，不要解释，不要补充任何额外字段。'
+          }
+        ]
+      }
+    }
+
+    throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
+      retryable: true,
+      detail: scrub(
+        `${lastReason}（已重试 ${maxRetries} 次；末次输出 ${truncate(lastContent, 80)}）`,
+        this.apiKey
+      )
+    })
+  }
+
+  /** 一次 HTTP 往返。鉴权、超时、状态码映射都在这里，失败一律抛 AppErrorException */
+  private async request<T>(
+    messages: ChatMessage[],
+    opts: ChatJsonOptions<T>
+  ): Promise<RequestOutcome> {
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, this.timeoutMs)
+    // 用户取消（关窗口/点取消）→ 立即中断，不等到 60s
+    const onOuterAbort = (): void => controller.abort()
+    if (opts.signal?.aborted) controller.abort()
+    opts.signal?.addEventListener('abort', onOuterAbort, { once: true })
+
+    const body = {
+      model: this.model,
+      messages,
+      temperature: opts.temperature ?? 0.3,
+      max_tokens: this.maxTokens,
+      response_format: { type: 'json_object' }
+    }
+
+    let response: Response
+    try {
+      response = await this.fetchImpl(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+    } catch (e) {
+      if (opts.signal?.aborted && !timedOut) throw new AiAbortedError()
+      if (timedOut) {
+        throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+          retryable: true,
+          detail: `请求超时（${this.timeoutMs}ms）`
+        })
+      }
+      throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+        retryable: true,
+        detail: scrub(e instanceof Error ? e.message : String(e), this.apiKey)
+      })
+    } finally {
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onOuterAbort)
+    }
+
+    if (!response.ok) throw await this.httpError(response)
+
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch (e) {
+      throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+        retryable: true,
+        detail: `响应体不是 JSON（${e instanceof Error ? e.message : String(e)}）`
+      })
+    }
+
+    return this.readOutcome(payload)
+  }
+
+  /** 上游状态码 → 业务错误码（开工词 §4.2） */
+  private async httpError(response: Response): Promise<Error> {
+    let detail = `HTTP ${response.status}`
+    try {
+      const text = await response.text()
+      // 只留前 200 字符：完整响应体又长又可能带内部信息
+      detail = scrub(`${detail} ${truncate(text, BODY_LIMIT)}`, this.apiKey)
+    } catch {
+      // 读不到 body 就算了，状态码已经够定位
+    }
+
+    const status = response.status
+    if (status === 401 || status === 403) {
+      return appError('AI_NOT_CONFIGURED', AI_COPY.notConfigured, { retryable: false, detail })
+    }
+    if (status === 429) {
+      return appError('AI_RATE_LIMITED', AI_COPY.rateLimited, { retryable: true, detail })
+    }
+    if (status >= 500) {
+      return appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, { retryable: true, detail })
+    }
+    // 其余 4xx（400 参数错、404 模型名错）：重试没有意义
+    return appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, { retryable: false, detail })
+  }
+
+  /** 从响应体里取 `content` / `finish_reason` / `usage`。`reasoning_content` 读都不读 */
+  private readOutcome(payload: unknown): RequestOutcome {
+    const root = payload as {
+      choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>
+      usage?: { prompt_tokens?: unknown; completion_tokens?: unknown }
+    }
+    const choice = root?.choices?.[0]
+    const content = typeof choice?.message?.content === 'string' ? choice.message.content : ''
+    const finishReason =
+      typeof choice?.finish_reason === 'string' ? choice.finish_reason : 'unknown'
+    const usage = {
+      in: typeof root?.usage?.prompt_tokens === 'number' ? root.usage.prompt_tokens : 0,
+      // 含推理 token：上游把 reasoning_tokens 算在 completion_tokens 里（03 §9.1）
+      out: typeof root?.usage?.completion_tokens === 'number' ? root.usage.completion_tokens : 0
+    }
+
+    if (content.length === 0 && finishReason !== 'length') {
+      throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
+        retryable: true,
+        detail: `content 为空（finish_reason=${finishReason}）`
+      })
+    }
+
+    return { content, finishReason, usage }
+  }
+}

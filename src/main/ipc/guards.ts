@@ -177,6 +177,21 @@ export const g = {
     before: z.string().optional(),
     limit: z.number().int().min(1).optional()
   }),
+  // msg.send / msg.retry（W4）：单条输入上限 4000 字、附件最多 4 张（03 §5）
+  msgSend: z.object({
+    text: z.string().min(1).max(4000),
+    attachmentIds: z.array(z.string()).max(4).optional()
+  }),
+  msgRetry: z.object({ messageId: z.string().min(1) }),
+  // ai.*（W4，02 §3.4）
+  aiConfirmDraft: z.object({ messageId: z.string().min(1), localId: z.string().min(1) }),
+  aiRejectDrafts: z.object({
+    messageId: z.string().min(1),
+    localIds: z.array(z.string().min(1)).min(1)
+  }),
+  aiReview: z.object({ taskId: z.string().min(1), userText: z.string().max(2000).optional() }),
+  // 无入参：preload 的 invoke(ch) 不带 payload，收到的是 undefined
+  aiHealth: z.object({}).optional(),
   // points
   balance: z.undefined(),
   ledger: z.object({
@@ -234,6 +249,12 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.calendar.dayIndex]: g.dayIndex,
   [CH.calendar.dayDetail]: g.dayDetail,
   [CH.msg.list]: g.msgList,
+  [CH.msg.send]: g.msgSend,
+  [CH.msg.retry]: g.msgRetry,
+  [CH.ai.confirmDraft]: g.aiConfirmDraft,
+  [CH.ai.rejectDrafts]: g.aiRejectDrafts,
+  [CH.ai.review]: g.aiReview,
+  [CH.ai.health]: g.aiHealth,
   [CH.points.balance]: g.balance,
   [CH.points.ledger]: g.ledger,
   [CH.points.monthStats]: g.monthStats,
