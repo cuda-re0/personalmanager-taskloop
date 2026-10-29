@@ -2,9 +2,10 @@
 
 > **身份**：你是**施工方**。规格由架构方定，本文即规格。
 >
-> **起点**：`3183913`（W5 补丁已合入，40 文件 / 463 条全绿，工作区干净）。
-> 开工前跑 `git diff --stat 3183913 HEAD -- src`，非空停下来问。
-> **注意**：此刻可能有人在改 `src/renderer/main/features/points/**`（W6 明细分页在施工），那些是**未提交**的改动，**不要碰、不要提交**。
+> **起点**：`9ac34b4`（W6 明细页 `4be440b` 已合入但审核不通过、正在返工；42 文件 / 495 条全绿，工作区干净）。
+> 开工前跑 `git diff --stat 9ac34b4 HEAD -- src/main/db/stateMachine.ts docs/01-DATA-MODEL.md`，**必须为空**——这是你唯一会碰的两个既有文件。
+> **与 W6 返工并行**：W6 正在改 `src/renderer/main/features/points/**` 和 `src/renderer/main/index.tsx`，与你的文件范围**零交集**（`git diff --stat 3183913 9ac34b4 -- src/main src/shared docs/01-DATA-MODEL.md` 为空，你的两个既有文件自 `3183913` 起没被动过）。**那些文件不要碰、不要提交**。
+> 并行的副作用：`npm run typecheck` / `npm test` 是全量的，会看到对方半成品。若报错落在 `points/**` 或 `index.tsx`，**不算你的**——先用 `npx vitest run tests/db` 单独跑自己那一摊，报告里注明红在哪、与谁相关，不要试图去修别人的文件。
 
 ---
 
