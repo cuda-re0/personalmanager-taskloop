@@ -106,8 +106,8 @@ export interface ChatMessage {
 1. `response_format: { type: 'json_object' }`；上游不支持时退化为在 system prompt 里强制"只输出 JSON，不要 markdown 围栏"，并在解析前剥围栏。
 2. 解析流程：`JSON.parse` → `schema.safeParse` → 失败则把校验错误拼进第二次请求让模型自修（**只重试 1 次**）。
 3. 最终失败：返回 `AI_PARSE_FAILED`，由 `aiService` 落一条 `kind='error'` 消息，`retryable: true`。**不准静默失败，不准抛到渲染层崩界面。**
-4. 超时 45s，`AbortController` 可控（用户关窗口要能中断）。
-5. 每次调用把 `tokens_in/out/latency_ms` 写回 `messages`，方便后期看成本。
+4. 超时 **60s**（v0.22 从 45s 上调，实测 `glm-5.3-flash` 单次最慢 29.9s，45s 余量不够），`AbortController` 可控（用户关窗口要能中断）。
+5. 每次调用把 `tokens_in/out/latency_ms` 写回 `messages`，方便后期看成本。**`tokens_out` 必须包含推理 token**：上游把 `reasoning_tokens` 算在 `completion_tokens` 里，只记 `content` 的估算值会少算一半以上（实测一次 172 tokens 里有 151 是推理）。
 6. API Key 从安全存储读，**绝不进日志、不进 DB 明文、不进 git**。
 7. **任何 provider 返回的内容都要过 zod 校验。** 将来接 harness 时同样不能免检——它不是可信边界。
 
@@ -317,12 +317,85 @@ src/main/ai/prompts/
 
 ---
 
-## 8. 成本与延迟预算（第一版目标）
+## 8. 成本与延迟预算（v0.22 按实测修正）
 
-| 场景 | 目标首字延迟 | 单次 token 量级 |
+| 场景 | 原目标首字延迟 | **实测** | 单次 token 量级（实测） |
+|---|---|---|---|
+| 纯文字建任务 | ≤ 1.5s | **4.3–5.4s**（`glm-4-flash`）/ **5.5–29.9s**（`glm-5.3-flash`） | prompt 39 + completion 172–1337（含推理） |
+| 带 1 张图建任务 | ≤ 3s | **8.1s**（8×8 图，`glm-5.3-flash`） | 图占大头 |
+| 完成审核 | ≤ 1.5s | 未测（prompt 更短，预计 3–10s） | 短 |
+
+**原 1.5s 目标作废**：`glm-5.3-flash` 是推理模型，先产 `reasoning_content` 再产 `content`，单次 5.5s 起步、长任务 13–30s。UI 必须按"转圈 + 可取消"设计，不许假设秒回。
+
+延迟不达标时的处置顺序（与旧版一致，只是目标值换了）：先减 fewshot → 再精简 system → **最后才考虑换模型**。换模型是产品取舍，必须由架构方裁决（见 §9.4）。
+
+---
+
+## 9. 模型行为实测（v0.22，架构方真机跑过，施工方据此写代码）
+
+> 实测环境：`https://open.bigmodel.cn/api/paas/v4/chat/completions`，key 为临时试用 key。
+> 以下每条都是**实测结果**，不是文档推断。施工方若复现不出，停下来报告，不要改设计绕过去。
+
+### 9.1 `glm-5.3-flash` 是推理模型
+
+响应体里 `choices[0].message` 有两个字段：
+
+```json
+{ "role": "assistant", "reasoning_content": "……564 字符的思考过程……", "content": "{\"tasks\":[…]}" }
+```
+
+- **`content` 才是答案**，`reasoning_content` 必须丢弃，不许拼进 JSON 解析。
+- **`max_tokens` 必须给够**：实测 `max_tokens: 32` 时 32 个 token 全被推理吃掉，`content` 返回**空字符串**，`finish_reason: "length"`。建任务场景一律 `max_tokens: 2048`，并检查 `finish_reason`——为 `length` 时按 `AI_PARSE_FAILED` 处理，**不要重试**（重试也是同样的截断）。
+- `usage.completion_tokens_details.reasoning_tokens` 存在，计费与耗时都在这里。
+
+### 9.2 `response_format: { type: 'json_object' }` 可用
+
+实测生效，返回合法 JSON。**但仍要保留剥 ```json 围栏的兜底**——prompt 改坏或换模型时它会退化成带围栏的文本。
+
+### 9.3 多模态：确认吃图
+
+实测：8×8 纯红 PNG（`data:image/png;base64,…`）＋"这张图片里是什么颜色" → 返回 `"红色"`。**不是敷衍描述**，是真读了像素。
+
+- 图片 payload 形状按 §3.1 的 `image_url` 走，`url` 必须是 `data:<mime>;base64,<…>`。
+- 单次带图延迟实测 8.1s，比纯文本更慢，UI 上要能看出"正在看图"。
+
+### 9.4 其他可用模型（换模型必须走裁决，不许自己换）
+
+| 模型 | 可用 | 形态 | 实测延迟 | 结论 |
+|---|---|---|---|---|
+| `glm-5.3-flash` | ✅ | 推理 + 多模态 | 5.5 / 13.4 / 29.9s | **本版主模型** |
+| `glm-4-flash` | ✅ | 非推理，纯文本 | 4.3 / 4.9 / 5.4s（稳定） | 快但错得多，见 9.5 |
+| `glm-4.5-flash` | ✅ | 推理（`content` 空是 token 不够） | 未测 | 备选 |
+| `glm-4.6` | ✅ | 推理 | 未测 | 备选 |
+| `glm-4.6-flash` | ❌ `1220 您无权访问` | — | — | 此 key 不可用 |
+
+### 9.5 必须靠 prompt 与校验硬扛的三个已知错误
+
+实测三句话（"明天下午三点前把季度报告初稿写完" / "每天早上背单词" / "下周三考英语六级"）暴露：
+
+| 现象 | 严重度 | 处理 |
 |---|---|---|
-| 纯文字建任务 | ≤ 1.5s | system ~800 + user ~100 + out ~400 |
-| 带 1 张图建任务 | ≤ 3s | 图占大头 |
-| 完成审核 | ≤ 1.5s | 短 |
+| **`due_hint` 恒为 `null`**，模型把"明天下午三点"写进 `title` | **P0，功能等于废掉** | 根因是 **system prompt 里没有当前时间**，模型不知道"明天"是哪天。**必须在每次请求注入**：本地日期、星期、时区（`Asia/Shanghai`）、当前时刻。注入后仍为 `null` 才算模型能力问题 |
+| `intent` 输出成 `"create_task|review_task"`（照抄枚举占位符） | 中 | zod 校验会拒；走既定的重试 1 次，重试仍错则 `AI_PARSE_FAILED` |
+| "下周三考英语六级" 判成 `deadline` | 中 | fewshot 里放一条 event 正例（考试/面试/答辩），并在 system 里重申"要你到场 ≠ 要你交东西" |
 
-不达标时的优先级：先减 fewshot → 再精简 system → 最后才考虑流式输出（流式对 JSON 抽取不友好，要用也只在 `chat` 意图下开）。
+### 9.6 当前时间的注入格式（写死，别自创）
+
+```
+【当前时间】2026-10-29 星期四 10:52（Asia/Shanghai）
+解析"明天/下周三/三小时后"这类相对时间时，一律以此为准，并换算成带时区的 ISO8601。
+```
+
+日期与星期都由主进程算（用 `src/shared/localDay.ts` 的本地日实现，**不许 `toISOString().slice(0,10)`**），拼进 system 消息末尾。同一进程内可按小时缓存，避免每条消息重算。
+
+### 9.7 Key 的读取优先级（v0.22）
+
+```
+1. safeStorage 加密文件（userData/ai-key.bin）—— 打包版唯一来源
+2. process.env.ZHIPU_API_KEY —— 开发期来源，由 .env.local 提供
+3. 都没有 → ai.health 返回 { configured: false }，ai.* 调用返回 AI_NOT_CONFIGURED
+```
+
+- `.env.local` 已在 `.gitignore` 里（`ZHIPU_API_KEY=…` 一行）。主进程仅在 `!app.isPackaged` 时读取它，**打包产物绝不读**。
+- v1 **不提供**"在界面里输入 key"的通道：04 没有设置页，加了也没人调。`writeKey()` 写好并导出，留给将来的设置页，但**不许注册成 IPC**。
+- 任何日志、错误 `detail`、`console.*` 里都不许出现 key 的前 6 位。用它做断言（见 16 号开工词自检表）。

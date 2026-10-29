@@ -161,9 +161,13 @@
 
 ## W4 · AI 接入
 
-**只许改**：`src/main/ai/**`、`src/main/services/aiService.ts`
+> **v0.22 起以 `docs/kickoff/16-W4-AI接入.md` 为准**，本节只保留归属与验收要点。
+> 原「第 0 步自己去验多模态」已由架构方做完（结论在 `03 §9`），施工方只需复核一次。
 
-**前置**：先完成 03 §6 的真机验证，把结论记录在 `docs/` 的变更记录里。**验证不通过，先停下来报告，不要自己换模型。**
+**只许改**：`src/main/ai/**`、`src/main/services/aiService.ts`、`scripts/verify-ai.mjs`、`docs/verify-ai-result.md`、`tests/ai/**`，
+以及 `src/main/ipc/{registry,guards}.ts` **里属于这 6 条通道的那几行**（v0.22 新开授权：否则这 6 条通道永远没人接）。
+
+**前置**：`03 §9` 的实测结论已就位（含 key 的三级读取优先级）。**验证不通过，先停下来报告，不要自己换模型。**
 
 **交付**
 

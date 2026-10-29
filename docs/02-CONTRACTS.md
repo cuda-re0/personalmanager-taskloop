@@ -390,6 +390,8 @@ export type PublicSettings = AppSettings;
 
 **关于 `AppSettings` 的 key 数量**：01 §2.7 列出 15 条，本节定型 **14 条**——少的那条是 `ai.apiKey`，它存 `safeStorage`、不入 settings 表，因此不进类型。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
 
+**`ai.apiKey` 的读取优先级（v0.22）**：`safeStorage` 文件 > `process.env.ZHIPU_API_KEY`（开发期由 `.env.local` 提供，该文件已被 gitignore）> 未配置（`ai.health` 返回 `configured: false`，`ai.*` 调用返回 `AI_NOT_CONFIGURED`）。v1 不提供"界面输入 key"的通道——设置页还不存在，加了没人调；`writeKey()` 写好导出留着即可，**不许注册成 IPC**。详见 `03-AI-CONTRACT.md` §9.7。
+
 **`Bootstrap.channels` 在 W9（外部通知渠道）落地前恒为 `[]`。** 不许为了凑形状返回一个 `available: true` 的假渠道——那会让设置页显示"可用"，用户配完发不出任何通知。
 
 **本节代码块一旦被施工方抄走，就不再改动其内部注释。** 需要补充说明时写在代码块外（就像上面这段），否则每个抄过旧版的施工方都会被判"与文档不一致"。这是本项目已实际踩过的坑。

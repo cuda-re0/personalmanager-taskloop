@@ -1,7 +1,8 @@
 # W9 重做 · 悬浮窗形态（v0.21）
 
 > **这份开工词是自包含的**：不读其它会话记录也能施工。必读章节：`04-UI-SPEC.md` §5（悬浮窗）、`02-CONTRACTS.md` §3.7b（hud 通道）、§3.0（AppSettings）。
-> **起点**：`cbf5eca`（工作区干净，395 条测试全绿，typecheck / lint / build 零错）。
+> **起点**：`cbf5eca` 或其后的纯文档提交（工作区干净，395 条测试全绿，typecheck / lint / build 零错）。
+> 判断方法：`git diff --stat cbf5eca HEAD -- src` 必须为空；非空说明中间有人改了代码，停下来问清楚。
 
 ## 0. 为什么重做
 
@@ -24,6 +25,7 @@
 
 ```
 src/shared/types/ipc.ts                     HudMode 值域、AppSettings 两个 key 增删、HudApi 去掉 setExpanded
+src/shared/types/events.ts                  `hud.mode.changed` 的 mode 类型硬编码着 'dock-bar' | 'float-pod'，改成 HudMode
 src/shared/channels.ts                      删 hud.setExpanded
 src/main/ipc/guards.ts                      删 hudSetExpanded、hudModeSchema 改值域
 src/main/ipc/registry.ts                    删 setExpanded 那行、更新 hud 段注释与条数
