@@ -6,8 +6,9 @@ import { appError } from './errors'
  *
  * 图：
  *   todo ──开始──→ doing ──提交完成──→ reviewing ──通过──→ done
- *    ↑              │  ↑                  │                  │
- *    └──放弃────────┘  └──驳回────────────┘                  │
+ *    │  ↑           │  ↑                 │                  │
+ *    │  └──放弃─────┘  └──驳回───────────┘                  │
+ *    └─────提交完成──────────────────────→┘                 │
  *                                                           │
  *   done ──24h 内撤销──→ doing（同时写一条负流水冲销）
  *   任意状态 ──归档──→ archived
@@ -19,7 +20,9 @@ import { appError } from './errors'
  */
 
 const EDGES: Record<TaskStatus, TaskStatus[]> = {
-  todo: ['doing', 'discarded', 'archived'],
+  // v0.25：todo 可直达 reviewing。界面没有「开始」按钮，新建任务默认就是 todo，
+  // 不允许这条边等于「新建的限时/活动任务永远完不成」。01 §3 的调度器同样需要这条边。
+  todo: ['doing', 'reviewing', 'discarded', 'archived'],
   doing: ['todo', 'reviewing', 'discarded', 'archived'],
   reviewing: ['doing', 'done', 'discarded', 'archived'],
   done: ['doing', 'archived'],

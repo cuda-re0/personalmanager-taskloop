@@ -331,8 +331,9 @@ CREATE TABLE settings (
                     │
   (AI 产出草稿)      │
   会话卡片 ──确认──→ todo ──开始──→ doing ──提交完成──→ reviewing ──通过──→ done
-                     ↑                │  ↑                  │              │
-                     └──── 放弃 ──────┘  └──── 驳回 ─────────┘              │
+                     ↑  │             │  ↑                  │              │
+                     │  └──── 放弃 ───┘  └──── 驳回 ─────────┘              │
+                     └────── 提交完成 ─────────────────────→┘               │
                                                                            │
   done ──24h 内撤销──→ doing（同时写一条负流水冲销）                          │
   任意状态 ──归档──→ archived ←─────────────────────────────────────────────┘
@@ -340,6 +341,7 @@ CREATE TABLE settings (
 
 约束：
 
+- **`todo → reviewing` 是合法边（v0.25）**：界面没有「开始」按钮，新建任务默认就是 `todo`，不允许这条边等于「新建的限时/活动任务永远完不成」。这条边**不改 `started_at`**（没开始过就是没开始过），`task.complete` 仍要求前置状态为 `reviewing`。调度器（W8）判定 `event` 超期时走的也是这条边。
 - `draft` **不是** tasks 的状态。草稿只存在于 `messages.meta_json`。`tasks.status` 合法值 = `todo|doing|reviewing|done|discarded|archived`。
 - **`deadline` / `event`**：进入 `done` 必须同时满足：`completed_at` 非空、`points_awarded` 非空、`point_ledger` 有对应 `task_done` 行（且 `occurrence_id IS NULL`）。三者同一事务写入。
 - **`daily`**：任务本身**永不进入 `done`**，它一直在 `todo`/`doing`，直到 `active_to` 到期或用户手动归档。每天的状态体现在 `task_occurrences.status` 上。`tasks.points_awarded` 对 daily 恒为 NULL。
