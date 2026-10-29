@@ -126,9 +126,10 @@
 }
 
 /* 日历层（04 §4② v0.28）：点日历某天后整块替换 ③④ 积分面板。
-   配额与 .points-panel 一致（实测详情收起态 348px），内容超高在层内滚动 */
+   口径与 .points-panel 一致（04 §4① v0.29 比例模型）：吃下半块剩余、内部滚动，
+   随下半块按比例伸缩，不再定高 */
 .calendar-dayview {
-  flex: 0 0 348px;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;

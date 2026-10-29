@@ -9,6 +9,8 @@ import { TasksPanel } from './features/tasks/TasksPanel'
 import { CalendarPanel } from './features/calendar/CalendarPanel'
 import { CalendarDayView } from './features/calendar/CalendarDayView'
 import { PointsPanel } from './features/points/PointsPanel'
+import { RightSplit } from './features/RightSplit'
+import { SPLIT_STORAGE_KEY, parseSplit, serializeSplit } from './features/splitModel'
 import { AppHeader } from './components/AppHeader'
 
 /**
@@ -32,12 +34,25 @@ if (!container) throw new Error('#root not found')
  * 再点同一天 = 关闭（置 null 回积分面板），点其他天 = 内容直接切换。
  * 接受的副作用（kickoff/25 写明）：积分面板被替换期间其 tab 状态重置，回来回到默认，
  * 不为此做状态提升。
+ * v0.29（用户裁决）：右栏改「比例配额 + 可拖分割线」——两半 flex-basis 0、按 r / 1-r
+ * 等 ratio 分配（flexGrow 行内给出），窗口高度变化时上下等比伸缩，不回到
+ * 「一侧定高、另一侧吸差」。r 持久化在渲染层 localStorage（SPLIT_STORAGE_KEY），
+ * 惰性初始化读一次；拖动中不落盘，pointerup 写一次。
  */
 function App(): ReactElement {
   const [dayDetail, setDayDetail] = useState<string | null>(null)
+  /** 下半份额 r（0~1 小数）：非法存储值由 parseSplit 回落默认 0.71 */
+  const [ratio, setRatio] = useState<number>(() =>
+    parseSplit(window.localStorage.getItem(SPLIT_STORAGE_KEY))
+  )
   /** 点日期：同日再点关闭回积分面板；点其他天切换到那天（04 §4② v0.28） */
   const toggleDay = useCallback((day: string): void => {
     setDayDetail(prev => (prev === day ? null : day))
+  }, [])
+
+  /** 拖动结束（pointerup）落盘一次，move 期间不写 localStorage */
+  const commitSplit = useCallback((r: number): void => {
+    window.localStorage.setItem(SPLIT_STORAGE_KEY, serializeSplit(r))
   }, [])
 
   return (
@@ -46,9 +61,14 @@ function App(): ReactElement {
       <div className="app-shell" style={{ flex: '1 1 auto', minHeight: 0, height: 'auto' }}>
         <ChatPanel />
         <aside className="right-col">
-          <TasksPanel />
-          <CalendarPanel selectedDay={dayDetail} onSelectDay={toggleDay} />
-          {dayDetail ? <CalendarDayView day={dayDetail} /> : <PointsPanel />}
+          <div className="right-half" style={{ flexGrow: 1 - ratio }}>
+            <TasksPanel />
+          </div>
+          <RightSplit ratio={ratio} onChange={setRatio} onCommit={commitSplit} />
+          <div className="right-half" style={{ flexGrow: ratio }}>
+            <CalendarPanel selectedDay={dayDetail} onSelectDay={toggleDay} />
+            {dayDetail ? <CalendarDayView day={dayDetail} /> : <PointsPanel />}
+          </div>
         </aside>
       </div>
     </div>

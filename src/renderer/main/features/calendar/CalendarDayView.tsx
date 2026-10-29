@@ -14,7 +14,7 @@ import './calendar.css'
  * 点行 → 高亮 ① 对应任务，本层**不关**；关闭路径只有「再点同一天」（index 的 toggle）。
  * 数据在挂载时拉取（useDayOccurrences），没选日子本组件不存在、零请求。
  *
- * 高度配额与 `.points-panel` 相同（flex: 0 0 348px，实测锁定），内容超高在层内滚动。
+ * 高度配额与 `.points-panel` 相同（04 §4① v0.29 比例模型：吃下半块剩余、层内滚动）。
  */
 export function CalendarDayView({ day }: { day: string }): ReactElement {
   const rows = useDayOccurrences(day)

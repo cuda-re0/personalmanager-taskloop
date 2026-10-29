@@ -5,11 +5,11 @@
 .points-panel {
   display: flex;
   flex-direction: column;
-  /* 定高配额（04 §4① v0.28）：实测详情收起态 348px 取整锁定——内容变化只发生在
-     ①（弹性 + 内部滚）与本面板内部的两处 overflow-y，②③④ 高度一个像素都不许动。
-     日历层（.calendar-dayview）替换本面板时沿用同一配额，两处数字必须一致。
-     border-box：348 是含 border-top 的外框高（与日历层同口径，切换不跳动）。 */
-  flex: 0 0 348px;
+  /* 比例配额（04 §4① v0.29）：吃下半块内日历（240px 定高）之外的剩余、内部滚动，
+     随下半块按比例伸缩，不再定高（v0.28 的定高口径作废）。
+     日历层（.calendar-dayview）替换本面板时同一口径，切换不跳动。 */
+  flex: 1 1 auto;
+  min-height: 0;
   box-sizing: border-box;
   border-top: 1px solid var(--border);
 }

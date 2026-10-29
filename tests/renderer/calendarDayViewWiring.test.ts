@@ -60,16 +60,19 @@ describe('③④ 槽位二选一（index.tsx）', () => {
   })
 })
 
-describe('右栏框架固定（04 §4① v0.28）', () => {
-  it('积分区定高配额 348px（实测详情收起态锁定），日历层沿用同一配额', () => {
+describe('右栏比例配额（04 §4① v0.29）', () => {
+  it('③④ 吃下半块剩余（flex: 1 1 auto + min-height: 0），随下半块等比伸缩、不再定高', () => {
     const points = ruleBody(POINTS_CSS, '.points-panel {')
-    expect(points).toMatch(/flex:\s*0 0 348px/)
-    expect(points).not.toMatch(/flex:\s*1 1 auto/)
+    expect(points).toMatch(/flex:\s*1 1 auto/)
+    expect(points).toMatch(/min-height:\s*0/)
+    expect(points).not.toMatch(/flex:\s*0 0 \d+px/)
     const dayview = ruleBody(CALENDAR_CSS, '.calendar-dayview {')
-    expect(dayview).toMatch(/flex:\s*0 0 348px/)
+    expect(dayview).toMatch(/flex:\s*1 1 auto/)
+    expect(dayview).toMatch(/min-height:\s*0/)
+    expect(dayview).not.toMatch(/flex:\s*0 0 \d+px/)
   })
 
-  it('① 任务区吃剩余空间且不许挤压别人（min-height: 0 + 内部滚动）', () => {
+  it('① 任务区占满上半块且内部滚动（min-height: 0 + overflow-y），详情展开不动分割线', () => {
     const tasks = ruleBody(TASKS_CSS, '.tasks-panel {')
     expect(tasks).toMatch(/min-height:\s*0/)
     expect(tasks).toMatch(/overflow-y:\s*auto/)
