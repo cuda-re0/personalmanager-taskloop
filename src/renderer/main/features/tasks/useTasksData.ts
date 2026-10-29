@@ -75,8 +75,13 @@ export interface TasksData {
   confirmId: string | null
   /** focus-task 高亮的任务 id（1.2s 后自动清空） */
   focusId: string | null
+  /** 该任务行内的失败红字（v0.24）；按 taskId 匹配，不叠多行 */
+  notice: { taskId: string; message: string } | null
   actions: TasksActions
 }
+
+/** 行内红字的停留时长（04 §4① v0.24） */
+const NOTICE_MS = 2600
 
 export function useTasksData(): TasksData {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -84,6 +89,8 @@ export function useTasksData(): TasksData {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [focusId, setFocusId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ taskId: string; message: string } | null>(null)
+  const noticeTimer = useRef<number | null>(null)
   const reloadSeq = useRef(0)
 
   const reloadTasks = useCallback(() => {
@@ -156,6 +163,27 @@ export function useTasksData(): TasksData {
     return () => window.clearTimeout(timer)
   }, [focusId])
 
+  /**
+   * 行内红字自动消失（04 §4① v0.24）。
+   *
+   * 定时器跟着 `notice` 变：同一任务连续失败只会重置计时（新对象 → effect 重跑 → 先清旧的），
+   * 不叠加多行。StrictMode 下 effect 跑两次也安全——「先清后设」。
+   */
+  useEffect(() => {
+    if (notice === null) return
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => {
+      noticeTimer.current = null
+      setNotice(null)
+    }, NOTICE_MS)
+    return () => {
+      if (noticeTimer.current !== null) {
+        window.clearTimeout(noticeTimer.current)
+        noticeTimer.current = null
+      }
+    }
+  }, [notice])
+
   /** 按父任务分组的子步骤 */
   const subtasksByParent = useMemo(() => {
     const map = new Map<string, Task[]>()
@@ -198,6 +226,8 @@ export function useTasksData(): TasksData {
       .then(res => {
         if (!res.ok) {
           console.error('[tasks] 提交完成失败', res.error)
+          // 行内红字用主进程文案原样（04 §4① v0.24），不在这里另写句子
+          setNotice({ taskId: task.id, message: res.error.message })
           return
         }
         const complete = noPoints
@@ -205,7 +235,11 @@ export function useTasksData(): TasksData {
           : window.api.task.complete({ id: task.id, quality: 'met' })
         void complete
           .then(done => {
-            if (!done.ok) console.error('[tasks] task.complete 失败', done.error)
+            if (!done.ok) {
+              console.error('[tasks] task.complete 失败', done.error)
+              // 典型：requires_evidence=1 且没附证据 → EVIDENCE_REQUIRED「证据不能为空」
+              setNotice({ taskId: task.id, message: done.error.message })
+            }
             // 成功后的刷新走 task.updated / points.changed 事件
           })
           .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
@@ -321,5 +355,14 @@ export function useTasksData(): TasksData {
     ]
   )
 
-  return { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, actions }
+  return {
+    tasks,
+    occurrences,
+    subtasksByParent,
+    expandedId,
+    confirmId,
+    focusId,
+    notice,
+    actions
+  }
 }

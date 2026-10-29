@@ -7,7 +7,7 @@ import type { DailyRow, TaskGroups } from './tasksModel'
 import { groupTasks, isStepChecked, remainingLabel } from './tasksModel'
 import { NewTaskForm } from './NewTaskForm'
 import { useTasksData } from './useTasksData'
-import type { TasksActions } from './useTasksData'
+import type { TasksActions, TasksData } from './useTasksData'
 import './tasks.css'
 
 /**
@@ -92,6 +92,8 @@ interface TaskGroupProps {
   expandedId: string | null
   confirmingId: string | null
   focusId: string | null
+  /** 行内失败红字（v0.24）：按 taskId 匹配，只有失败那条行才会渲染 */
+  notice: TasksData['notice']
   subtasksByParent: Map<string, Task[]>
   actions: TasksActions
   now: Date
@@ -106,6 +108,7 @@ function TaskGroup({
   expandedId,
   confirmingId,
   focusId,
+  notice,
   subtasksByParent,
   actions,
   now,
@@ -152,6 +155,10 @@ function TaskGroup({
             <span className="task-title">{task.title}</span>
             <span className="task-remaining">{remainingLabel(task, now)}</span>
           </div>
+          {/* 完成被拒（如证据不足）的就地反馈：文案 = AppError.message 原样，2.6s 自动消失 */}
+          {notice !== null && notice.taskId === task.id ? (
+            <div className="task-notice">{notice.message}</div>
+          ) : null}
           {expandedId === task.id ? (
             <TaskDetail
               actions={actions}
@@ -258,7 +265,7 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
 
 /** 右栏① 外壳：三组固定顺序 每日 → 限时 → 活动（04 §4①），空组不显示标题 */
 export function TasksPanel(): ReactElement {
-  const { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, actions } =
+  const { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, notice, actions } =
     useTasksData()
   const groups: TaskGroups = useMemo(
     () => groupTasks(tasks, occurrences),
@@ -284,6 +291,7 @@ export function TasksPanel(): ReactElement {
         confirmingId={confirmId}
         focusId={focusId}
         label={TYPE_LABEL.deadline}
+        notice={notice}
         now={now}
         onDropRow={actions.reorder}
         onExpand={actions.expand}
@@ -296,6 +304,7 @@ export function TasksPanel(): ReactElement {
         confirmingId={confirmId}
         focusId={focusId}
         label={TYPE_LABEL.event}
+        notice={notice}
         now={now}
         onDropRow={actions.reorder}
         onExpand={actions.expand}

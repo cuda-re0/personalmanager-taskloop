@@ -15,6 +15,14 @@ const SOURCE = readFileSync(
   'utf8'
 )
 
+const USE_TASKS_SOURCE = readFileSync(
+  resolve(process.cwd(), 'src/renderer/main/features/tasks/useTasksData.ts'),
+  'utf8'
+)
+
+/** submitAndComplete 那一段：完成链路的两个失败分支都在这里 */
+const SUBMIT_SOURCE = USE_TASKS_SOURCE.slice(USE_TASKS_SOURCE.indexOf('const submitAndComplete'))
+
 describe('TasksPanel 的 hook 实例纪律', () => {
   it('useTasksData() 只调用一次（多实例会让确认条永远弹不出来）', () => {
     // 只数「赋值调用」，注释里提到这个名字不算（详情组件的注释专门解释了为什么不能调）
@@ -26,5 +34,45 @@ describe('TasksPanel 的 hook 实例纪律', () => {
     // TaskDetail 的签名里必须能拿到 actions
     expect(SOURCE).toMatch(/function TaskDetail\(\{[^}]*actions[^}]*\}: DetailProps\)/)
     expect(SOURCE).toMatch(/interface DetailProps[\s\S]*?actions: TasksActions/)
+  })
+})
+
+/**
+ * 完成被拒的行内反馈（v0.24）。
+ *
+ * 这条 bug 的本质是「失败只有 console.error，界面上零反馈」，而这一块全是 UI 状态机，
+ * 没有可测的纯逻辑。结构断言是唯一可行的验证方式（04 §4① v0.24 也这么要求的）——
+ * 只要有人把某个失败分支的 setNotice 删掉、或者把红字做成全局一条，这里就会红。
+ */
+describe('完成被拒的行内红字（v0.24）', () => {
+  it('submitAndComplete 的两个失败分支都写入 notice，而不是只打控制台', () => {
+    const notices = SUBMIT_SOURCE.match(/setNotice\(/g) ?? []
+    expect(notices).toHaveLength(2)
+    expect(SUBMIT_SOURCE).toMatch(
+      /if \(!res\.ok\)[\s\S]{0,200}?setNotice\(\{ taskId: task\.id, message: res\.error\.message \}\)/
+    )
+    expect(SUBMIT_SOURCE).toMatch(
+      /if \(!done\.ok\)[\s\S]{0,300}?setNotice\(\{ taskId: task\.id, message: done\.error\.message \}\)/
+    )
+  })
+
+  it('文案零新增：显示的是 AppError.message 原样，代码里不写死中文句子', () => {
+    expect(SUBMIT_SOURCE).not.toMatch(/message:\s*['"`]/)
+    // console.error 保留（失败原因仍要进控制台），但必须同时有 setNotice
+    expect(SUBMIT_SOURCE).toContain("console.error('[tasks] task.complete 失败'")
+  })
+
+  it('计时器有清理：notice 的 effect 返回清理函数，且新失败先清旧的', () => {
+    expect(USE_TASKS_SOURCE).toContain('clearTimeout')
+    expect(USE_TASKS_SOURCE).toMatch(/\}, \[notice\]\)/)
+    const noticeEffect = USE_TASKS_SOURCE.slice(USE_TASKS_SOURCE.indexOf('notice === null'))
+    // 清理函数里要 clearTimeout（卸载/重跑都不留计时器）
+    expect(noticeEffect).toMatch(/return \(\) => \{[\s\S]*?clearTimeout/)
+  })
+
+  it('行内渲染：按 notice.taskId 匹配到具体那一行，不是全局一条', () => {
+    expect(SOURCE).toContain('task-notice')
+    expect(SOURCE).toContain('notice.taskId === task.id')
+    expect(SOURCE).toContain('{notice.message}')
   })
 })

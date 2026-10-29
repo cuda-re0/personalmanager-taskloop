@@ -52,7 +52,7 @@
 | `INVALID_INPUT` | 任务标题最多 40 个字 | — |
 | `INVALID_INPUT` | 应得分必须 ≥ 1 | — |
 | `INVALID_INPUT` | 文字证据不能为空 | — |
-| `EVIDENCE_REQUIRED` | 证据不能为空 | 卡片切到"补证据"态，不弹通用错误 |
+| `EVIDENCE_REQUIRED` | 证据不能为空 | 右栏 ① 该任务行内**一行红字**（文案即本列），2.6s 后消失；任务停在 `reviewing`，不弹通用错误、不弹 modal、不加"去附证据"之类的引导文案 |
 | `INVALID_INPUT` | 附件证据缺少附件 id | — |
 | `INVALID_INPUT` | 附件内容为空 | — |
 | `INVALID_INPUT` | 附件存放路径非法 | — |
@@ -302,6 +302,7 @@
 - 点击行展开详情（`detail_md` + 步骤勾选 + 提醒偏移 + `[完成]`），就地展开，不弹窗。
 - 步骤勾选只改子任务状态，不影响父任务；父任务 `[完成]` 时若还有未勾步骤，弹一个就地确认条（不是 modal）。
 - 已完成的限时/活动不在此列表，进 ④。
+- **完成被拒的反馈（v0.24）**：`task.transition` 或 `task.complete` 失败时，在该任务行内就地显示一行红字（`AppError.message` 原样），2.6s 自动消失。只有这一种反馈形式，不弹 toast、不弹 modal、不在页头汇总。
 
 ### ② 日历
 

@@ -60,6 +60,14 @@
   outline-offset: -1.5px;
 }
 
+/* 完成被拒（如证据不足）时就地显示主进程的中文短句，2.6s 后消失；不新增前缀文案 */
+.task-notice {
+  padding: 2px 0 6px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .task-title {
   flex: 1 1 auto;
   min-width: 0;
