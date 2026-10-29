@@ -127,6 +127,11 @@ export function useTasksData(): TasksData {
     const off = window.api.onEvent((e: DomainEvent) => {
       switch (e.type) {
         case 'task.created':
+          // 兜底（23 号开工词）：任何「建 daily 的入口」漏了补行，界面都能自愈一次；
+          // task.updated / task.removed 不加——每次改任务都多打一次 IPC，没必要
+          reloadTasks()
+          reloadOccurrences()
+          break
         case 'task.updated':
         case 'task.removed':
           reloadTasks()

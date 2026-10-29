@@ -3,6 +3,7 @@ import type {
   EventResult,
   Evidence,
   NotifyChannel,
+  Occurrence,
   PointEntry,
   Priority,
   Quality,
@@ -24,6 +25,7 @@ import * as occurrenceService from '../db/occurrenceService'
 import type { SqlValue } from '../db/mappers'
 import * as ledgerRepo from '../db/repositories/ledgerRepo'
 import * as messageRepo from '../db/repositories/messageRepo'
+import * as occurrenceRepo from '../db/repositories/occurrenceRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as taskRepo from '../db/repositories/taskRepo'
 import { assertTransition } from '../db/stateMachine'
@@ -159,6 +161,34 @@ export function createTask(input: CreateTaskInput): Task {
     statsRepo.bumpTasksCreated(isoToLocalDay(now))
     return task
   })
+}
+
+/** createManualTask 的返回：任务 + 本次新建的「今天」occurrence（registry 据此决定发不发事件） */
+export interface CreateManualTaskResult {
+  task: Task
+  createdOccurrences: Occurrence[]
+}
+
+/**
+ * 手动建任务（CH.task.createManual）。createTask 函数体保持原样（promoteDraft 依赖它，
+ * 且 promoteDraft 自己已经 ensure 过）。
+ *
+ * 这里只补一件事：daily 建完立刻补今天的 occurrence——否则右栏「每日」组只渲染
+ * 「今天且 pending」的行，没有 occurrence 就等于这个任务在界面上不存在，
+ * 要等打开日历（listByRange 内部 ensureRange）才被补出来，看起来像"建了但丢了"。
+ *
+ * 只补今天：未来几天的行由 occurrence.today / listByRange 按需补
+ * （OCCURRENCE_HORIZON_MONTHS 那套机制不动）；activeFrom 在未来时今天不会有行，
+ * 自然查不到、上层就不发事件。
+ */
+export function createManualTask(input: CreateTaskInput): CreateManualTaskResult {
+  const task = createTask(input)
+  if (input.type !== 'daily') return { task, createdOccurrences: [] }
+  const today = todayLocalDay()
+  occurrenceService.ensureRange(today, today)
+  // 刚建的任务此前不可能有行，今天查到的就是本次新建的（至多 1 条）
+  const createdOccurrences = occurrenceRepo.listByTask(task.id).filter(o => o.day === today)
+  return { task, createdOccurrences }
 }
 
 export function getTask(id: string): Task | null {

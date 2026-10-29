@@ -281,8 +281,16 @@ const TABLE: Row[] = [
     })
   }),
   row(CH.task.createManual, g.createManual, input => {
-    const task = taskService.createTask({ type: input.type, title: input.title, ...input.patch })
+    const { task, createdOccurrences } = taskService.createManualTask({
+      type: input.type,
+      title: input.title,
+      ...input.patch
+    })
     broadcast({ type: 'task.created', task })
+    // 只推今天新建的行、没有就不发：未来日期会让所有每日任务提前出现多行（同上方 occurrence.today 的口径）
+    if (createdOccurrences.length > 0) {
+      broadcast({ type: 'occurrence.created', occurrences: createdOccurrences })
+    }
     // createTask 里 bumpTasksCreated 了，把最新的当日统计推出去
     broadcast({ type: 'daystats.changed', day: statsRepo.getDay(todayLocalDay()) })
     return task

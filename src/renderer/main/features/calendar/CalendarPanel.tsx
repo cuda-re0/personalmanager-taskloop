@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fmtPoints } from '@shared/format'
 import type { DayTaskItem } from '@shared/types/domain'
 import { TYPE_LABEL } from '../chat/chatViewModel'
@@ -25,6 +25,41 @@ import './calendar.css'
  */
 
 const ROW_META_SEP = ' · '
+
+/** 与 calendar.css 里 `.calendar-floor` 的 max-height 保持一致：首帧没量到高度时的估算值 */
+const FLOOR_MAX_HEIGHT = 200
+
+/** 浮层与被点行之间的间隙（px） */
+const FLOOR_GAP = 2
+/** 下方空间不够时，距面板底的缓冲（px）——越过就翻到被点行上方 */
+const FLOOR_MARGIN = 8
+
+/**
+ * 浮层纵向位置（23 号开工词问题 2）：贴着被点那一行的下边缘展开；
+ * 下方放不下（浮层底会越过面板底缓冲线）就翻到该行上方，仍出界就钳回 0。
+ *
+ * 输入全是相对 `.calendar-panel`（offsetParent）的几何量：
+ * 格子的 offsetTop/offsetHeight、浮层实测高度（首帧没量到时传 FLOOR_MAX_HEIGHT 估算）、面板高。
+ */
+export function floorTopOf(
+  cellTop: number,
+  cellHeight: number,
+  floorHeight: number,
+  panelHeight: number
+): number {
+  let top = cellTop + cellHeight + FLOOR_GAP
+  if (top + floorHeight > panelHeight - FLOOR_MARGIN) {
+    top = cellTop - floorHeight - FLOOR_GAP
+  }
+  if (top < 0) top = 0
+  return top
+}
+
+/** 被点格子的几何（相对 offsetParent，即 `.calendar-panel`）：浮层以这一行为锚 */
+interface CellAnchor {
+  top: number
+  height: number
+}
 
 function FloorRow({
   item,
@@ -59,6 +94,13 @@ export function CalendarPanel(): ReactElement {
   const grid = useMemo(() => buildMonthGrid(year, month), [year, month])
   const today = toLocalDay(new Date())
   const rootRef = useRef<HTMLElement | null>(null)
+  const floorRef = useRef<HTMLDivElement | null>(null)
+
+  /** 被点格子的位置（点的时候从 e.currentTarget 一次性取走，不在渲染期查 DOM） */
+  const [anchor, setAnchor] = useState<CellAnchor | null>(null)
+  /** 浮层实测高度 / 面板高度（渲染后量一次；内容变化或换日会重量） */
+  const [floorHeight, setFloorHeight] = useState<number | null>(null)
+  const [panelHeight, setPanelHeight] = useState(0)
 
   // 点外部关闭（04 §4②）。点日历块内的另一天由格子自己处理，不在这里关
   useEffect(() => {
@@ -71,6 +113,30 @@ export function CalendarPanel(): ReactElement {
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [selectedDay, actions])
+
+  // 浮层收起时把锚点一并清掉（切月 / 点外部 / focusTask 都走这里）
+  useEffect(() => {
+    if (!selectedDay) setAnchor(null)
+  }, [selectedDay])
+
+  // 浮层挂载后量一次真实高度（layout 阶段完成，首帧画出来前就位，不闪）
+  useLayoutEffect(() => {
+    if (!selectedDay) {
+      setFloorHeight(null)
+      return
+    }
+    setPanelHeight(rootRef.current?.offsetHeight ?? 0)
+    setFloorHeight(floorRef.current?.offsetHeight ?? null)
+  }, [selectedDay, detail])
+
+  // 纵向位置：贴被点行下方；下方放不下翻到行上方（23 号开工词问题 2）
+  const floorTop = useMemo(
+    () =>
+      anchor
+        ? floorTopOf(anchor.top, anchor.height, floorHeight ?? FLOOR_MAX_HEIGHT, panelHeight)
+        : 0,
+    [anchor, floorHeight, panelHeight]
+  )
 
   return (
     <section className="calendar-panel" ref={rootRef}>
@@ -133,7 +199,11 @@ export function CalendarPanel(): ReactElement {
                 aria-pressed={day === selectedDay}
                 className={cls}
                 key={key}
-                onClick={() => actions.selectDay(day)}
+                onClick={e => {
+                  // 锚定这一行：offsetParent 是 .calendar-panel（grid 未定位），数字可直接用
+                  setAnchor({ top: e.currentTarget.offsetTop, height: e.currentTarget.offsetHeight })
+                  actions.selectDay(day)
+                }}
                 type="button"
               >
                 {content}
@@ -144,7 +214,7 @@ export function CalendarPanel(): ReactElement {
       </div>
 
       {selectedDay ? (
-        <div className="calendar-floor">
+        <div className="calendar-floor" ref={floorRef} style={{ top: floorTop }}>
           <div className="calendar-floor-head">
             <span>{floorTitle(selectedDay)}</span>
             <button
