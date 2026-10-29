@@ -60,6 +60,11 @@
   outline-offset: -1.5px;
 }
 
+/* 今日已完成的行（v0.27 用户裁决「已完成的变淡显示」）：整行弱化，不加删除线、不加文字 */
+.task-row--done {
+  opacity: 0.5;
+}
+
 /* 完成被拒（如证据不足）时就地显示主进程的中文短句，2.6s 后消失；不新增前缀文案 */
 .task-notice {
   padding: 2px 0 6px;
@@ -91,6 +96,16 @@
 
 .task-check:hover {
   border-color: var(--accent);
+}
+
+/* 已打卡的勾选框（v0.27）：实心，按钮本身 disabled，点了没反应 ≠ disabled */
+.task-check--on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.task-check:disabled {
+  cursor: default;
 }
 
 /* focus-task 的短暂高亮（日历浮层 / ④ 明细点行过来） */

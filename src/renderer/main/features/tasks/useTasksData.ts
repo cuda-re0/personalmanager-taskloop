@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DomainEvent } from '@shared/types/events'
 import type { Occurrence, Task, TaskPatch, TaskStatus, TaskType } from '@shared/types/domain'
 import { toLocalDay as localDayOf } from '@shared/localDay'
-import { isStepChecked } from './tasksModel'
+import { isDoneToday, isStepChecked } from './tasksModel'
 import { onFocusTask } from './focusTask'
 
 /**
@@ -26,6 +26,9 @@ import { onFocusTask } from './focusTask'
  */
 
 const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'reviewing']
+
+/** 今日已完成行的拉取状态（v0.27：done 且今天完成的保留、变淡、沉底，第二天自然消失） */
+const DONE_STATUS: TaskStatus[] = ['done']
 
 /**
  * 只收今天的 occurrence（v0.21）。
@@ -67,6 +70,8 @@ export interface TasksActions {
 
 export interface TasksData {
   tasks: Task[]
+  /** 今日已完成的顶层任务（v0.27）：done 且 completedAt 是今天，行保留、变淡、沉底 */
+  doneTasks: Task[]
   occurrences: Occurrence[]
   /** 父任务 id → 子步骤（展开详情用） */
   subtasksByParent: Map<string, Task[]>
@@ -85,6 +90,7 @@ const NOTICE_MS = 2600
 
 export function useTasksData(): TasksData {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [doneTasks, setDoneTasks] = useState<Task[]>([])
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -121,9 +127,28 @@ export function useTasksData(): TasksData {
       .catch((e: unknown) => console.error('[tasks] occurrence.today 调用失败', e))
   }, [])
 
+  /**
+   * 今日已完成的顶层任务（v0.27）。通道过滤只到 status='done'，「completedAt 是今天」
+   * 在渲染层过滤（现成通道，不动 repo）；明天这条过滤自然为空，行自动消失。
+   */
+  const reloadDoneTasks = useCallback(() => {
+    void window.api.task
+      .list({ status: DONE_STATUS })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] task.list(done) 失败', res.error)
+          return
+        }
+        const today = localDayOf(new Date())
+        setDoneTasks(res.data.filter(t => isDoneToday(t, today)))
+      })
+      .catch((e: unknown) => console.error('[tasks] task.list(done) 调用失败', e))
+  }, [])
+
   useEffect(() => {
     reloadTasks()
     reloadOccurrences()
+    reloadDoneTasks()
     const off = window.api.onEvent((e: DomainEvent) => {
       switch (e.type) {
         case 'task.created':
@@ -134,7 +159,9 @@ export function useTasksData(): TasksData {
           break
         case 'task.updated':
         case 'task.removed':
+          // 完成会把任务挪进 done 集合，done 路也要跟着重拉（v0.27）
           reloadTasks()
+          reloadDoneTasks()
           break
         case 'occurrence.created':
           setOccurrences(prev => mergeTodayOccurrences(prev, e.occurrences))
@@ -362,6 +389,7 @@ export function useTasksData(): TasksData {
 
   return {
     tasks,
+    doneTasks,
     occurrences,
     subtasksByParent,
     expandedId,

@@ -47,41 +47,47 @@ function DailyGroup({
   return (
     <section className="task-group">
       <h3 className="task-group-title">{TYPE_LABEL.daily}</h3>
-      {rows.map(({ occurrence, task }) => (
-        <div key={occurrence.id}>
-          <div
-            className={[
-              'task-row',
-              task && focusId === task.id ? 'task-row--focus' : ''
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            data-task-id={task?.id}
-            onClick={() => task && onExpand(task.id)}
-            role="presentation"
-          >
-            <button
-              aria-label={occurrence.taskTitle ?? task?.title ?? ''}
-              className="task-check"
-              onClick={event => {
-                event.stopPropagation()
-                onComplete(occurrence.id)
-              }}
-              type="button"
-            />
-            <span className="task-title">{occurrence.taskTitle ?? task?.title ?? ''}</span>
-            <span className="task-streak">{task?.streakCurrent ?? 0}</span>
+      {rows.map(({ occurrence, task }) => {
+        const done = occurrence.status === 'done'
+        return (
+          <div key={occurrence.id}>
+            <div
+              className={[
+                'task-row',
+                done ? 'task-row--done' : '',
+                task && focusId === task.id ? 'task-row--focus' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              data-task-id={task?.id}
+              onClick={() => task && onExpand(task.id)}
+              role="presentation"
+            >
+              {/* 已打卡（v0.27）：呈已勾状态且真的 disabled，行保留、变淡、沉底 */}
+              <button
+                aria-label={occurrence.taskTitle ?? task?.title ?? ''}
+                className={done ? 'task-check task-check--on' : 'task-check'}
+                disabled={done}
+                onClick={event => {
+                  event.stopPropagation()
+                  onComplete(occurrence.id)
+                }}
+                type="button"
+              />
+              <span className="task-title">{occurrence.taskTitle ?? task?.title ?? ''}</span>
+              <span className="task-streak">{task?.streakCurrent ?? 0}</span>
+            </div>
+            {task && expandedId === task.id ? (
+              <TaskDetail
+                actions={actions}
+                confirming={false}
+                subtasks={subtasksByParent.get(task.id) ?? []}
+                task={task}
+              />
+            ) : null}
           </div>
-          {task && expandedId === task.id ? (
-            <TaskDetail
-              actions={actions}
-              confirming={false}
-              subtasks={subtasksByParent.get(task.id) ?? []}
-              task={task}
-            />
-          ) : null}
-        </div>
-      ))}
+        )
+      })}
     </section>
   )
 }
@@ -134,6 +140,7 @@ function TaskGroup({
           <div
             className={[
               'task-row',
+              task.status === 'done' ? 'task-row--done' : '',
               dragOverId === task.id ? 'task-row--drop' : '',
               focusId === task.id ? 'task-row--focus' : ''
             ]
@@ -153,7 +160,10 @@ function TaskGroup({
           >
             <span aria-hidden className={`task-dot task-dot--${task.status}`} />
             <span className="task-title">{task.title}</span>
-            <span className="task-remaining">{remainingLabel(task, now)}</span>
+            {/* 今日已完成（v0.27）：右列留空，不显示「逾期」之类的剩余时间 */}
+            <span className="task-remaining">
+              {task.status === 'done' ? '' : remainingLabel(task, now)}
+            </span>
           </div>
           {/* 完成被拒（如证据不足）的就地反馈：文案 = AppError.message 原样，2.6s 自动消失 */}
           {notice !== null && notice.taskId === task.id ? (
@@ -226,7 +236,8 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
         </ul>
       ) : null}
       {offsets ? <div className="task-offsets">{offsets}</div> : null}
-      {task.type !== 'daily' ? (
+      {/* 今日已完成的任务没有 [完成] 入口（v0.27）：detail_md / 步骤 / 偏移照常展示 */}
+      {task.type !== 'daily' && task.status !== 'done' ? (
         confirming ? (
           <div className="task-confirm-bar">
             <button
@@ -265,11 +276,12 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
 
 /** 右栏① 外壳：三组固定顺序 每日 → 限时 → 活动（04 §4①），空组不显示标题 */
 export function TasksPanel(): ReactElement {
-  const { tasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, notice, actions } =
+  const { tasks, doneTasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, notice, actions } =
     useTasksData()
   const groups: TaskGroups = useMemo(
-    () => groupTasks(tasks, occurrences),
-    [tasks, occurrences]
+    // 活跃 + 今日已完成一起进模型：done 沉底、变淡是模型层排好的（v0.27）
+    () => groupTasks([...tasks, ...doneTasks], occurrences),
+    [tasks, doneTasks, occurrences]
   )
   const now = new Date()
 

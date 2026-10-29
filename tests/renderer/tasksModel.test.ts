@@ -82,7 +82,7 @@ describe('compareTasks（04 §4① 组内排序）', () => {
 })
 
 describe('groupTasks（三组分列）', () => {
-  it('每日组只收 pending 的今日 occurrence，限时/活动按类型分列，子任务不单列', () => {
+  it('每日组收今日 pending+done（v0.27），pending 在前；限时/活动按类型分列，子任务不单列', () => {
     const dailyTask = makeTask({ id: 't-daily', type: 'daily', title: '背单词', sortKey: 1 })
     const step = makeTask({ id: 't-step', type: 'deadline', title: '步骤', parentId: 't-deadline' })
     const deadlineTask = makeTask({ id: 't-deadline', type: 'deadline', title: '交作业', sortKey: 2 })
@@ -94,7 +94,7 @@ describe('groupTasks（三组分列）', () => {
     ]
 
     const groups = groupTasks(tasks, occurrences, '2026-10-28')
-    expect(groups.daily.map(r => r.occurrence.id)).toEqual(['o-1'])
+    expect(groups.daily.map(r => r.occurrence.id)).toEqual(['o-1', 'o-2'])
     expect(groups.daily[0].task?.id).toBe('t-daily')
     expect(groups.deadline.map(t => t.id)).toEqual(['t-deadline'])
     expect(groups.event.map(t => t.id)).toEqual(['t-event'])
@@ -110,6 +110,53 @@ describe('groupTasks（三组分列）', () => {
     const groups = groupTasks([dailyTask], occurrences, '2026-10-28')
     expect(groups.daily.length).toBe(1)
     expect(groups.daily[0].occurrence.day).toBe('2026-10-28')
+  })
+})
+
+describe('groupTasks 今日已完成（v0.27：保留、沉底、跨天消失）', () => {
+  const today = '2026-10-28'
+  /** 今天下午完成的 done 任务（UTC 06:00 = 本地 14:00，避开跨日边界） */
+  const doneTodayAt = (id: string, sortKey: number, day = '2026-10-28'): Task =>
+    makeTask({
+      id,
+      type: 'deadline',
+      title: id,
+      sortKey,
+      status: 'done',
+      completedAt: `${day}T06:00:00.000Z`
+    })
+
+  it('每日组：pending 在前、done 沉底，各段内部按原 sortKey；非今天的 done 不出现', () => {
+    const task = makeTask({ id: 't-daily', type: 'daily', title: '背单词', sortKey: 1 })
+    const occurrences = [
+      makeOccurrence({ id: 'o-done-b', taskId: 't-daily', day: today, status: 'done' }),
+      makeOccurrence({ id: 'o-pending-b', taskId: 't-daily', day: today }),
+      makeOccurrence({ id: 'o-done-a', taskId: 't-daily', day: today, status: 'done' }),
+      // 别的天不算（含未来预生成与过去的 done）
+      makeOccurrence({ id: 'o-tomorrow', taskId: 't-daily', day: '2026-10-29' }),
+      makeOccurrence({ id: 'o-yesterday-done', taskId: 't-daily', day: '2026-10-27', status: 'done' })
+    ]
+
+    const groups = groupTasks([task], occurrences, today)
+    expect(groups.daily.map(r => r.occurrence.id)).toEqual(['o-pending-b', 'o-done-b', 'o-done-a'])
+  })
+
+  it('限时组：活跃行在前（原排序不动），今日 done 沉底（内部保持原排序）', () => {
+    const activeLow = makeTask({ id: 'active-low', type: 'deadline', title: 'A', sortKey: 1 })
+    const activeHigh = makeTask({ id: 'active-high', type: 'deadline', title: 'B', sortKey: 2 })
+    const doneB = doneTodayAt('done-b', 3)
+    const doneA = doneTodayAt('done-a', 4)
+
+    const groups = groupTasks([doneB, activeLow, doneA, activeHigh], [], today)
+    expect(groups.deadline.map(t => t.id)).toEqual(['active-low', 'active-high', 'done-b', 'done-a'])
+  })
+
+  it('跨天消失：completedAt 为昨天的 done 任务不进分组结果（靠过滤，无清理逻辑）', () => {
+    const yesterday = doneTodayAt('done-old', 1, '2026-10-27')
+
+    const groups = groupTasks([yesterday], [], today)
+    expect(groups.deadline).toEqual([])
+    expect(groups.event).toEqual([])
   })
 })
 

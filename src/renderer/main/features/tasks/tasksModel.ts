@@ -1,4 +1,4 @@
-import type { Occurrence, Task } from '@shared/types/domain'
+import type { Occurrence, Task, TaskType } from '@shared/types/domain'
 import { toLocalDay as localDayOf } from '@shared/localDay'
 
 /**
@@ -19,6 +19,18 @@ export function compareTasks(a: Task, b: Task): number {
   return a.sortKey - b.sortKey
 }
 
+/**
+ * 今日已完成（v0.27 用户裁决「已完成的变淡显示」）：done 且 completedAt 的本地日是今天。
+ * 明天这条自然为 false——限时/活动组的行靠它过滤，跨天自动消失，不做任何清理逻辑。
+ */
+export function isDoneToday(task: Task, today: string): boolean {
+  return (
+    task.status === 'done' &&
+    task.completedAt !== null &&
+    localDayOf(new Date(task.completedAt)) === today
+  )
+}
+
 /** 每日组的一行：今日 occurrence + 联带的任务（streak 显示用） */
 export interface DailyRow {
   occurrence: Occurrence
@@ -32,8 +44,9 @@ export interface TaskGroups {
 }
 
 /**
- * 三组分列（04 §4①）。每日组 = **today 这一天**仍 pending 的 occurrence；
- * 限时/活动组 = 顶层任务（子步骤跟父任务展开，不单列）。
+ * 三组分列（04 §4①）。每日组 = **today 这一天**的 pending + done occurrence（v0.27：
+ * 打完卡当天行还在，变淡沉底）；限时/活动组 = 顶层任务（子步骤跟父任务展开，不单列），
+ * 活跃行在前（原排序），今日已完成的沉底（内部保持原排序），非今天的 done 不出现。
  *
  * `today` 显式传参（默认取本地今天）而不是在函数里读时钟：这是纯模型，要可测。
  * 过滤掉非今天的行是硬要求（v0.21）——`ensureRange` 会预生成今天~+3 天的 occurrence，
@@ -46,14 +59,24 @@ export function groupTasks(
 ): TaskGroups {
   const byId = new Map(tasks.map(t => [t.id, t]))
   const daily = occurrences
-    .filter(o => o.status === 'pending' && o.day === today)
+    .filter(o => o.day === today && (o.status === 'pending' || o.status === 'done'))
     .map(o => ({ occurrence: o, task: byId.get(o.taskId) ?? null }))
-    .sort((a, b) => (a.task?.sortKey ?? 0) - (b.task?.sortKey ?? 0))
+    .sort((a, b) => {
+      // pending 在前、done 沉底（v0.27），各段内部按原 sortKey
+      const rank = (r: DailyRow): number => (r.occurrence.status === 'pending' ? 0 : 1)
+      if (rank(a) !== rank(b)) return rank(a) - rank(b)
+      return (a.task?.sortKey ?? 0) - (b.task?.sortKey ?? 0)
+    })
   const topLevel = tasks.filter(t => t.parentId === null)
+  // 活跃在前（原排序不动），今日 done 沉底（内部保持原排序）；done 但不是今天的直接不出现
+  const byType = (type: TaskType): Task[] => [
+    ...topLevel.filter(t => t.type === type && t.status !== 'done').sort(compareTasks),
+    ...topLevel.filter(t => t.type === type && isDoneToday(t, today)).sort(compareTasks)
+  ]
   return {
     daily,
-    deadline: topLevel.filter(t => t.type === 'deadline').sort(compareTasks),
-    event: topLevel.filter(t => t.type === 'event').sort(compareTasks)
+    deadline: byType('deadline'),
+    event: byType('event')
   }
 }
 

@@ -76,3 +76,29 @@ describe('完成被拒的行内红字（v0.24）', () => {
     expect(SOURCE).toContain('{notice.message}')
   })
 })
+
+/**
+ * 今日已完成保留并变淡（v0.27 用户裁决）。
+ * 行为全在纯模型（tasksModel.test.ts 已测），这里锁渲染结构：变淡类、disabled、右列留空。
+ */
+describe('今日已完成行（v0.27）', () => {
+  const CSS = readFileSync(
+    resolve(process.cwd(), 'src/renderer/main/features/tasks/tasks.css'),
+    'utf8'
+  )
+
+  it('完成态类是整行 opacity .5（全站唯一的弱化表达），不搞删除线/文字', () => {
+    expect(CSS).toMatch(/\.task-row--done\s*\{[^}]*opacity:\s*0\.5;/)
+  })
+
+  it('每日 done 行的勾选框真的 disabled 且呈已勾状态', () => {
+    expect(SOURCE).toContain('task-check--on')
+    expect(SOURCE).toContain('disabled={done}')
+    expect(SOURCE).toMatch(/const done = occurrence\.status === 'done'/)
+  })
+
+  it('限时/活动 done 行：右列留空、详情无 [完成] 入口', () => {
+    expect(SOURCE).toMatch(/task\.status === 'done' \? '' : remainingLabel\(task, now\)/)
+    expect(SOURCE).toMatch(/task\.type !== 'daily' && task\.status !== 'done' \? \(/)
+  })
+})
