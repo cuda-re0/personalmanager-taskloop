@@ -10,10 +10,10 @@
 
 .right-col {
   display: flex;
-  flex: 0 0 400px;
+  flex: 0 0 460px;
   flex-direction: column;
-  width: 400px;
-  min-width: 400px;
+  width: 460px;
+  min-width: 460px;
   border-left: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { DayStat, PointEntry } from '@shared/types/domain'
+import type { DayStat } from '@shared/types/domain'
 import {
+  LEDGER_VIEW_LABEL,
   RANGE_LABEL,
   barsOf,
-  canUndoEntry,
   formatSigned,
   lastDays,
   monthStartOf,
@@ -101,41 +101,8 @@ describe('显示格式（04 §4③：金额走 fmtPoints，±N 带符号）', ()
     expect(timeLabel('not-a-date')).toBe('')
   })
 
-  it('三个切换的标签是登记过的固定串', () => {
+  it('三个切换的标签是登记过的固定串，第四个标签是「明细」', () => {
     expect(RANGE_LABEL).toEqual({ today: '今日', week: '本周', month: '本月' })
-  })
-})
-
-describe('④ 行尾 [撤销] 的三条件（04 §4④）', () => {
-  /** 造一条流水，只有用到的字段有值 */
-  function entry(patch: Partial<PointEntry> = {}): PointEntry {
-    return {
-      id: 'e1',
-      taskId: 't1',
-      occurrenceId: null,
-      delta: 20,
-      kind: 'award',
-      reasonCode: 'task_done',
-      reasonText: '交作业',
-      day: '2026-10-28',
-      createdAt: '2026-10-28T01:00:00.000Z',
-      reversedAt: null,
-      ...patch
-    }
-  }
-
-  it('计分完成行（task_done + 无 occurrence + 未冲销）才显示', () => {
-    expect(canUndoEntry(entry())).toBe(true)
-  })
-
-  it('三条缺一条都不显示', () => {
-    // 已冲销：再撤就是重复冲销
-    expect(canUndoEntry(entry({ reversedAt: '2026-10-28T02:00:00.000Z' }))).toBe(false)
-    // 每日打卡：撤销在 ① 的勾选框（occurrence.undo），不在这里
-    expect(canUndoEntry(entry({ occurrenceId: 'o1' }))).toBe(false)
-    // 不是完成发分：冲销行、里程碑奖励、手工调整都没有撤销入口
-    for (const reasonCode of ['streak_bonus', 'manual_adjust', 'quality_bonus'] as const) {
-      expect(canUndoEntry(entry({ reasonCode }))).toBe(false)
-    }
+    expect(LEDGER_VIEW_LABEL).toBe('明细')
   })
 })

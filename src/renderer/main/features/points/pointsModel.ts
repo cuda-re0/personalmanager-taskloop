@@ -1,4 +1,4 @@
-import type { DayStat, PointEntry } from '@shared/types/domain'
+import type { DayStat } from '@shared/types/domain'
 import { fmtPoints } from '@shared/format'
 
 /**
@@ -12,17 +12,22 @@ import { fmtPoints } from '@shared/format'
 
 export type LedgerRange = 'today' | 'week' | 'month'
 
-/** 04 §4④ 顶部的三个切换（已登记的固定标签） */
+/** 04 §4④ 顶部的三个范围切换（已登记的固定标签） */
 export const RANGE_LABEL: Record<LedgerRange, string> = {
   today: '今日',
   week: '本周',
   month: '本月'
 }
 
+/** ④ 的第四个标签：切**视图**而不是数据范围（04 §4④ v0.26） */
+export const LEDGER_VIEW_LABEL = '明细'
+
 const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n))
 
-/** 本地日历日 `YYYY-MM-DD`：实现统一在 `@shared/localDay`（v0.20），这里只保留旧名 */
-export { toLocalDay as localDayOf } from '@shared/localDay'
+/** 本地日历日 `YYYY-MM-DD`（渲染层自用，不引主进程模块） */
+export function localDayOf(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
 
 /** 日期加减：按 UTC 午夜算再拆回字符串，避免夏令时把天数算歪 */
 export function shiftDay(day: string, delta: number): string {
@@ -107,19 +112,4 @@ export function timeLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-}
-
-/**
- * 04 §4④ 的 `[撤销]` 三条件，缺一不可：
- * - `reasonCode === 'task_done'`：只有完成发分有撤销入口（冲销行、奖励行、手工调整都没有）；
- * - `occurrenceId === null`：非空的是每日打卡，撤销在 ① 的勾选框（走 `occurrence.undo`）；
- * - `reversedAt === null`：已冲销的行再撤就是重复冲销。
- *
- * **不判 24h 窗口**（04 §4④）：窗口要读 `completed_at`，渲染层不重复算主进程的规则，
- * 超窗的行照常显示 `[撤销]`，点下去由 `task.undo` 报「超过 24 小时的完成记录不能撤销」。
- */
-export function canUndoEntry(entry: PointEntry): boolean {
-  return (
-    entry.reasonCode === 'task_done' && entry.occurrenceId === null && entry.reversedAt === null
-  )
 }

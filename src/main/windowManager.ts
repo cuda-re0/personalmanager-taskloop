@@ -30,12 +30,14 @@ const webPreferences = {
  * 最小尺寸按两栏的真实下限取（v0.21）：会话区 `min-width:520` + 右栏固定 `400` = 920，
  * 加 20 余量取 940。原来的 680 是给「右栏收起成 48px 图标条」的响应式留的，
  * 那条一直没实现，680 直接导致两栏互相挤压、日历 7 列塌成几列、出现横向滚动条。
+ * v0.26 右栏 400 → 460，下限同步 +40 取 980（520 + 460 = 980，不再留余量：
+ * 窗口再小只会压到会话区，压破 min-width 就出横向滚动条）。
  */
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 940,
+    minWidth: 980,
     minHeight: 560,
     show: false,
     backgroundColor: '#ffffff',

@@ -13,21 +13,24 @@ import {
 } from './ledgerModel'
 
 /**
- * 明细页的数据入口（04 §4④ v0.24）。
+ * 明细视图的数据入口（04 §4④ v0.26）。
  *
  * 只调两条已接通的读通道，不新增 IPC：`points.ledger` 取当月流水、
  * `points.monthStats` 取当月日聚合（净额从后者求和，见 `monthNetOf` 的注释）。
  *
+ * 请求时机：本 hook 随 `LedgerView` 挂载才执行（`PointsPanel` 用条件渲染），
+ * 所以"没点 `明细` 就不发请求"由挂载时机保证，不靠额外的开关变量。
+ *
  * 月份状态放在这里而不是组件里：`shiftMonth` 的「不许翻到未来月」要拿今天的月份比，
  * 而组件里不许做日期算术（硬性口径 3）。组件只调 `shiftMonth(±1)` 和读 `canGoNext`。
  *
- * 失败策略：`console.error` 就地记，列表保持空——本页只读，重进即可，不弹提示不写红字。
+ * 失败策略：`console.error` 就地记，列表保持空——本视图只读，重进即可，不弹提示不写红字。
  */
 
 /** 一个月最多取多少条流水（04 §4④ 定的 500；超出时列表截断、净额不受影响） */
 const LEDGER_LIMIT = 500
 
-export interface LedgerPageData {
+export interface LedgerViewData {
   /** 当前查看的月份，值为当月 1 号 `YYYY-MM-01` */
   month: string
   /** 当月净额（来自 `DayStat` 求和，不是流水求和） */
@@ -39,7 +42,7 @@ export interface LedgerPageData {
   shiftMonth(delta: number): void
 }
 
-export function useLedgerPage(): LedgerPageData {
+export function useLedgerView(): LedgerViewData {
   const [today, setToday] = useState(() => toLocalDay(new Date()))
   const [month, setMonth] = useState(() => monthStartOf(today))
   const [entries, setEntries] = useState<PointEntry[]>([])
@@ -81,7 +84,7 @@ export function useLedgerPage(): LedgerPageData {
     reload(month)
   }, [reload, month])
 
-  // 完成/撤销/手动调整之后，本页若正开着也要跟着变（与右栏 ④ 同一条事件路径）
+  // 完成或手动调整之后，本视图若正开着也要跟着变（与 ④ 平铺流水同一条事件路径）
   useEffect(() => {
     const off = window.api.onEvent((e: DomainEvent) => {
       if (e.type === 'points.changed' || e.type === 'daystats.changed') reload(month)
