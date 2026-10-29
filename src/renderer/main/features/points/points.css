@@ -190,3 +190,169 @@
   color: var(--danger);
   font-size: 12px;
 }
+
+/* ---------- 明细页（04 §4④ v0.24）---------- */
+
+.ledger-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* 页头 48px：← / 月份切换 / 当月净额。三列 1fr auto 1fr，月份恒居中 */
+.ledger-page-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 48px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ledger-page-back,
+.ledger-page-step {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ledger-page-back {
+  justify-self: start;
+}
+
+.ledger-page-back:hover,
+.ledger-page-step:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 当月时 › 是灰的（canGoNext=false），视觉与行为一致 */
+.ledger-page-step:disabled {
+  color: var(--text-faint);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ledger-page-months {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ledger-page-month {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-page-net {
+  justify-self: end;
+  font-size: 15px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-page-net--neg {
+  color: var(--danger);
+}
+
+.ledger-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* 分组头：吸顶，滚动时压住上方行（只有日期与当日净额，没有相对时间词） */
+.ledger-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.ledger-group-net {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-group-net--neg {
+  color: var(--danger);
+}
+
+.ledger-group-list {
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+}
+
+/* 明细页的行：32px 高、整行可点（无行尾按钮，撤销只在右栏 ④） */
+.ledger-page-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ledger-page-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 已冲销行与右栏 ④ 同一处理：整行降不透明度，不加文字 */
+.ledger-page-row--reversed {
+  opacity: 0.5;
+}
+
+/* ④ tabs 行最右端的 ›（图标，不是文案） */
+.points-open {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.points-open:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}

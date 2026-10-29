@@ -11,11 +11,19 @@ import './points.css'
  * 文字只有三类：字段值（余额、时:分、原因/标题、±N）、本文件登记的固定标签
  * （`今日` / `本周` / `本月`、行尾的 `撤销`）、以及 §4③ 写明的 `今日 +N` / `本周 +N` 两行。
  * 不写说明、不写图例、不写空状态文案（§7：明细无流水时留白）。
+ *
+ * v0.24：tabs 行最右端多一个 `›`，点开整窗明细页（`LedgerPage`）。它是图标不是文案；
+ * ④ 原有的 tab、列表、行尾 `[撤销]`、已冲销态、就地提示全部保留。
  */
 
 const RANGES = ['today', 'week', 'month'] as const
 
-export function PointsPanel(): ReactElement {
+export interface PointsPanelProps {
+  /** 打开整窗明细页（视图切换由 index.tsx 持有，这里只上报意图） */
+  onOpenLedger(): void
+}
+
+export function PointsPanel({ onOpenLedger }: PointsPanelProps): ReactElement {
   const { balance, todayPoints, weekPoints, bars, entries, range, notice, setRange, undo } =
     usePointsData()
 
@@ -53,6 +61,9 @@ export function PointsPanel(): ReactElement {
               {RANGE_LABEL[item]}
             </button>
           ))}
+          <button aria-label="明细" className="points-open" onClick={onOpenLedger} type="button">
+            ›
+          </button>
         </div>
         <ul className="ledger-list">
           {entries.map(entry => (
