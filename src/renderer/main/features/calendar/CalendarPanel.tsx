@@ -1,14 +1,10 @@
 import type { ReactElement } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { fmtPoints } from '@shared/format'
-import type { DayTaskItem } from '@shared/types/domain'
-import { TYPE_LABEL } from '../chat/chatViewModel'
+import { useMemo } from 'react'
 import {
   WEEKDAY_HEADERS,
   buildMonthGrid,
   dayOf,
   dotStateOf,
-  floorTitle,
   monthTitle,
   toLocalDay
 } from './calendarModel'
@@ -16,130 +12,28 @@ import { useCalendarData } from './useCalendarData'
 import './calendar.css'
 
 /**
- * 右栏②「日历」（04 §4②）：月视图 7 列（周一起始）+ 红点行 + 按日展开浮层。
+ * 右栏②「日历」（04 §4②）：月视图 7 列（周一起始）+ 红点行。
+ *
+ * 选中态受控：`selectedDay` / `onSelectDay` 由 index.tsx 持有（v0.28）——
+ * 选中某天时 ③④ 积分面板整块替换为日历层（CalendarDayView），不在本组件内弹层。
+ * 再点同一天由 index 的 toggle 置空关闭；点其他天直接切换。
  *
  * 可见文字只有字段值与 04 已登记的固定标签：
- * 月份（`2026 年 10 月`）、星期（`一`…`日`）、日期数字、浮层标题（`10 月 27 日 周二`）、
- * 任务标题、`HH:mm`、类型标签（04 §4① 的 `每日/限时/活动`，日历里只会出现后两者）、`N 分`。
- * 不加图例、不加说明文字；空列表留白（04 §7）。
+ * 月份（`2026 年 10 月`）、星期（`一`…`日`）、日期数字。不加图例、不加说明文字。
  */
-
-const ROW_META_SEP = ' · '
-
-/** 与 calendar.css 里 `.calendar-floor` 的 max-height 保持一致：首帧没量到高度时的估算值 */
-const FLOOR_MAX_HEIGHT = 200
-
-/** 浮层与被点行之间的间隙（px） */
-const FLOOR_GAP = 2
-/** 下方空间不够时，距面板底的缓冲（px）——越过就翻到被点行上方 */
-const FLOOR_MARGIN = 8
-
-/**
- * 浮层纵向位置（23 号开工词问题 2）：贴着被点那一行的下边缘展开；
- * 下方放不下（浮层底会越过面板底缓冲线）就翻到该行上方，仍出界就钳回 0。
- *
- * 输入全是相对 `.calendar-panel`（offsetParent）的几何量：
- * 格子的 offsetTop/offsetHeight、浮层实测高度（首帧没量到时传 FLOOR_MAX_HEIGHT 估算）、面板高。
- */
-export function floorTopOf(
-  cellTop: number,
-  cellHeight: number,
-  floorHeight: number,
-  panelHeight: number
-): number {
-  let top = cellTop + cellHeight + FLOOR_GAP
-  if (top + floorHeight > panelHeight - FLOOR_MARGIN) {
-    top = cellTop - floorHeight - FLOOR_GAP
-  }
-  if (top < 0) top = 0
-  return top
-}
-
-/** 被点格子的几何（相对 offsetParent，即 `.calendar-panel`）：浮层以这一行为锚 */
-interface CellAnchor {
-  top: number
-  height: number
-}
-
-function FloorRow({
-  item,
-  onSelect
+export function CalendarPanel({
+  selectedDay,
+  onSelectDay
 }: {
-  item: DayTaskItem
-  onSelect(taskId: string): void
+  selectedDay: string | null
+  onSelectDay(day: string): void
 }): ReactElement {
-  const done = item.status === 'done'
-  // 类型标签 + 分值（04 §4② 行格式）；分值为 null 时只给类型，不写占位符
-  const meta =
-    item.points === null
-      ? TYPE_LABEL[item.type]
-      : `${TYPE_LABEL[item.type]}${ROW_META_SEP}${fmtPoints(item.points)} 分`
-  return (
-    <li>
-      <button
-        className={`calendar-row${done ? ' calendar-row--done' : ''}`}
-        onClick={() => onSelect(item.taskId)}
-        type="button"
-      >
-        <span className="calendar-row-time">{item.time}</span>
-        <span className="calendar-row-title">{item.title}</span>
-        <span className="calendar-row-meta">{meta}</span>
-      </button>
-    </li>
-  )
-}
-
-export function CalendarPanel(): ReactElement {
-  const { year, month, index, selectedDay, detail, actions } = useCalendarData()
+  const { year, month, index, actions } = useCalendarData()
   const grid = useMemo(() => buildMonthGrid(year, month), [year, month])
   const today = toLocalDay(new Date())
-  const rootRef = useRef<HTMLElement | null>(null)
-  const floorRef = useRef<HTMLDivElement | null>(null)
-
-  /** 被点格子的位置（点的时候从 e.currentTarget 一次性取走，不在渲染期查 DOM） */
-  const [anchor, setAnchor] = useState<CellAnchor | null>(null)
-  /** 浮层实测高度 / 面板高度（渲染后量一次；内容变化或换日会重量） */
-  const [floorHeight, setFloorHeight] = useState<number | null>(null)
-  const [panelHeight, setPanelHeight] = useState(0)
-
-  // 点外部关闭（04 §4②）。点日历块内的另一天由格子自己处理，不在这里关
-  useEffect(() => {
-    if (!selectedDay) return
-    const onPointerDown = (e: PointerEvent): void => {
-      const root = rootRef.current
-      if (root && e.target instanceof Node && root.contains(e.target)) return
-      actions.close()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [selectedDay, actions])
-
-  // 浮层收起时把锚点一并清掉（切月 / 点外部 / focusTask 都走这里）
-  useEffect(() => {
-    if (!selectedDay) setAnchor(null)
-  }, [selectedDay])
-
-  // 浮层挂载后量一次真实高度（layout 阶段完成，首帧画出来前就位，不闪）
-  useLayoutEffect(() => {
-    if (!selectedDay) {
-      setFloorHeight(null)
-      return
-    }
-    setPanelHeight(rootRef.current?.offsetHeight ?? 0)
-    setFloorHeight(floorRef.current?.offsetHeight ?? null)
-  }, [selectedDay, detail])
-
-  // 纵向位置：贴被点行下方；下方放不下翻到行上方（23 号开工词问题 2）
-  const floorTop = useMemo(
-    () =>
-      anchor
-        ? floorTopOf(anchor.top, anchor.height, floorHeight ?? FLOOR_MAX_HEIGHT, panelHeight)
-        : 0,
-    [anchor, floorHeight, panelHeight]
-  )
 
   return (
-    <section className="calendar-panel" ref={rootRef}>
+    <section className="calendar-panel">
       <div className="calendar-head">
         <button
           aria-label="上个月"
@@ -185,56 +79,24 @@ export function CalendarPanel(): ReactElement {
             ]
               .filter(Boolean)
               .join(' ')
-            const content = (
-              <>
-                <span className="calendar-daynum">{dayNum}</span>
-                <span className="calendar-dotrow" aria-hidden>
-                  {dot === 'none' ? null : <span className={`calendar-dot calendar-dot--${dot}`} />}
-                </span>
-              </>
-            )
-            // 任意日期都可点（04 §4② v0.21）：没任务的日子也要能点开、看到空白浮层
+            // 任意日期都可点（04 §4② v0.21）；再点同一天由 index 的 toggle 关闭（v0.28）
             return (
               <button
                 aria-pressed={day === selectedDay}
                 className={cls}
                 key={key}
-                onClick={e => {
-                  // 锚定这一行：offsetParent 是 .calendar-panel（grid 未定位），数字可直接用
-                  setAnchor({ top: e.currentTarget.offsetTop, height: e.currentTarget.offsetHeight })
-                  actions.selectDay(day)
-                }}
+                onClick={() => onSelectDay(day)}
                 type="button"
               >
-                {content}
+                <span className="calendar-daynum">{dayNum}</span>
+                <span className="calendar-dotrow" aria-hidden>
+                  {dot === 'none' ? null : <span className={`calendar-dot calendar-dot--${dot}`} />}
+                </span>
               </button>
             )
           })
         )}
       </div>
-
-      {selectedDay ? (
-        <div className="calendar-floor" ref={floorRef} style={{ top: floorTop }}>
-          <div className="calendar-floor-head">
-            <span>{floorTitle(selectedDay)}</span>
-            <button
-              aria-label="关闭"
-              className="calendar-floor-close"
-              onClick={actions.close}
-              type="button"
-            >
-              ×
-            </button>
-          </div>
-          <ul
-            className={`calendar-floor-list${detail.length === 0 ? ' calendar-floor-list--empty' : ''}`}
-          >
-            {detail.map(item => (
-              <FloorRow item={item} key={item.taskId} onSelect={actions.focusTask} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </section>
   )
 }

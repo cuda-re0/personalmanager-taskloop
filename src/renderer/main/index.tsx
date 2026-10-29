@@ -1,11 +1,13 @@
 import '../shared/styles/tokens.css'
 import { StrictMode, type ReactElement } from 'react'
+import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RUBRIC_VERSION } from '@shared/points/rubric'
 import type { Task } from '@shared/types/domain'
 import { ChatPanel } from './features/chat/ChatPanel'
 import { TasksPanel } from './features/tasks/TasksPanel'
 import { CalendarPanel } from './features/calendar/CalendarPanel'
+import { CalendarDayView } from './features/calendar/CalendarDayView'
 import { PointsPanel } from './features/points/PointsPanel'
 import { AppHeader } from './components/AppHeader'
 
@@ -24,11 +26,20 @@ if (!container) throw new Error('#root not found')
  * 外层 flex 列容器与 app-shell 的 flex:1 是 W9 挂顶栏时唯一的布局改动；
  * `.app-shell` 自己的样式（features/tasks/tasks.css）零改动，靠行内 flex 覆盖它的 height:100%。
  *
- * v0.26：明细改成 ④ 面板里的第四个标签，**本文件不再有视图状态**。
- * v0.24/v0.25 那套整窗明细页、覆盖层、`visibility` 隐藏工作台的做法整体作废——
- * 左栏会话区因此永远不需要"隐藏 / 恢复"，草稿与附件不会被卸载。
+ * v0.26：明细改成 ④ 面板里的第四个标签，**本文件不再有明细视图状态**。
+ * v0.28：日历层替换积分区——「当前选中的日历日」提升为本文件的状态（`dayDetail`），
+ * ③④ 槽位按它二选一渲染 `<PointsPanel />` 或 `<CalendarDayView />`（就地替换，不弹层）。
+ * 再点同一天 = 关闭（置 null 回积分面板），点其他天 = 内容直接切换。
+ * 接受的副作用（kickoff/25 写明）：积分面板被替换期间其 tab 状态重置，回来回到默认，
+ * 不为此做状态提升。
  */
 function App(): ReactElement {
+  const [dayDetail, setDayDetail] = useState<string | null>(null)
+  /** 点日期：同日再点关闭回积分面板；点其他天切换到那天（04 §4② v0.28） */
+  const toggleDay = useCallback((day: string): void => {
+    setDayDetail(prev => (prev === day ? null : day))
+  }, [])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <AppHeader />
@@ -36,8 +47,8 @@ function App(): ReactElement {
         <ChatPanel />
         <aside className="right-col">
           <TasksPanel />
-          <CalendarPanel />
-          <PointsPanel />
+          <CalendarPanel selectedDay={dayDetail} onSelectDay={toggleDay} />
+          {dayDetail ? <CalendarDayView day={dayDetail} /> : <PointsPanel />}
         </aside>
       </div>
     </div>

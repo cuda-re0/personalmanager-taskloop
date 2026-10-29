@@ -188,7 +188,7 @@ describe('整窗明细页机制已彻底删除（口径 1）', () => {
     for (const token of [
       '<aside className="right-col">',
       '<TasksPanel />',
-      '<CalendarPanel />',
+      '<CalendarPanel selectedDay={dayDetail} onSelectDay={toggleDay} />',
       '<PointsPanel />'
     ]) {
       expect(INDEX_CODE, token).toContain(token)

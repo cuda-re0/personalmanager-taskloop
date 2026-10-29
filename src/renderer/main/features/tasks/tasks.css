@@ -23,6 +23,7 @@
 
 .tasks-panel {
   flex: 1 1 auto;
+  min-height: 0; /* 框架固定（04 §4① v0.28）：详情展开只让本段内部滚动，不许挤压 ②③④ */
   display: flex;
   flex-direction: column;
   gap: 12px;

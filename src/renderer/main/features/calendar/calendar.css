@@ -125,63 +125,45 @@
   background: transparent;
 }
 
-/* 按日展开的浮层：左右与网格 16px 内缩对齐、最大高 200px、覆盖下方区块、不挤压布局。
-   纵向位置由内联 top 给出（贴被点那一行的下边缘，下方放不下翻到行上方，见 floorTopOf） */
-.calendar-floor {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  z-index: 20;
-  max-height: 200px;
+/* 日历层（04 §4② v0.28）：点日历某天后整块替换 ③④ 积分面板。
+   配额与 .points-panel 一致（实测详情收起态 348px），内容超高在层内滚动 */
+.calendar-dayview {
+  flex: 0 0 348px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg);
-  box-shadow: var(--shadow-float);
+  border-top: 1px solid var(--border);
   box-sizing: border-box;
   overflow: hidden;
 }
 
-.calendar-floor-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+/* 标题与 ③ 的留白口径一致：左 16px、右 20px */
+.calendar-dayview-head {
+  flex: 0 0 auto;
+  padding: 12px 20px 8px 16px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
-.calendar-floor-close {
-  padding: 0 4px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--text-sub);
-  font: inherit;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.calendar-floor-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.calendar-floor-list {
+.calendar-dayview-list {
   margin: 0;
-  padding: 4px;
+  padding: 0 4px;
   list-style: none;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
 
-/* 空日留白，不写"暂无任务"（04 §7）；给一段高度，浮层不至缩成一条细边 */
-.calendar-floor-list--empty {
+/* 空日留白，不写"暂无任务"（04 §7）；给一段高度，层不至于缩成一条细边 */
+.calendar-dayview-list--empty {
   min-height: 40px;
+}
+
+/* 勾是状态显示不是打卡控件（打卡在 ①），指针样式收回 */
+.calendar-dayview .task-check {
+  cursor: inherit;
 }
 
 .calendar-row {
@@ -204,19 +186,9 @@
   background: var(--bg-hover);
 }
 
+/* 完成情况只由勾的形状承载（空心/实心），已完成行整行降透明度，不加文字、不加删除线 */
 .calendar-row--done {
   opacity: 0.55;
-}
-
-.calendar-row--done .calendar-row-title {
-  text-decoration: line-through;
-}
-
-.calendar-row-time {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--text-sub);
-  font-variant-numeric: tabular-nums;
 }
 
 .calendar-row-title {
@@ -226,11 +198,4 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 13px;
-}
-
-.calendar-row-meta {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--text-sub);
-  font-variant-numeric: tabular-nums;
 }
