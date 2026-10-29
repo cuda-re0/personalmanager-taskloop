@@ -13,12 +13,12 @@
 | 线 | 内容 | 状态 | 落点 |
 |---|---|---|---|
 | W0 | 脚手架 | ✅ | `e380896` 之前 |
-| W1 | 数据层（表 / repo / service / 迁移 / 测试宿主） | ✅ 收工 | 末笔 `885058e`（rowid 全序微补丁） |
+| W1 | 数据层（表 / repo / service / 迁移 / 测试宿主） | ✅ 收工；状态机补 `todo → reviewing`（`7ed2759`，审核 PASS） | 末笔 `885058e`（rowid 全序微补丁） |
 | W3 | 会话 UI（消息流 / 草稿卡 / 输入区） | ✅ 收工 | 末笔 `98ed377` |
 | W11 | 附件存储（落盘 / 去重 / `app://attach` 协议） | ✅ 收工 | 末笔 `2cd3df6`（base64 预检补丁） |
 | W2 | IPC 与事件总线（36 条通道 + bus + 测试） | ✅ 收工 | 末笔 `424e834` |
 | W5 | 草稿 → 任务（promoteDraft 幂等 / 右栏①） | ✅ 收工 | 末笔 `32eb447` + `a8ebb93`（幂等零广播） |
-| W6 | 完成与积分（`task.complete` / `task.undo` / 右栏③④） | 🔁 **明细页返工中**（`4be440b` 审核不通过：翻月 P1 + 卸载工作台 P1，见 `kickoff/21`） | 上一笔 `4be440b` |
+| W6 | 完成与积分（`task.complete` / `task.undo` / 右栏③④） | ✅ 交付并审核 PASS（明细页返工 `b930338`），**待用户手点验收** | `b930338` |
 | W6B | 日历（红点 / 按日浮层 / focus-task） | ✅ 收工 | `949747e`（纯渲染层） |
 | W9 | 悬浮窗（dock-bar / float-pod / 顶栏开关） | 🔁 **重做中**（用户否掉形态，见 `kickoff/15`） | `83ee042`，重做起点 `b88f334` |
 | W4 | AI 接入（消息 → 草稿 / 审核 / health） | ✅ 收工（审核 PASS，交付时 40 文件 / 459 条） | `0e3927a` |
@@ -31,7 +31,7 @@
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 42 文件 / 495 条（`4be440b` 起；W4 交付时 40/459，W5 补丁后 40/463）
+npm test            # 43 文件 / 508 条（`b930338` 起）
 npm run build
 ```
 
