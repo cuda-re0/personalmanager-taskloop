@@ -136,22 +136,39 @@ describe('视图切换（src/renderer/main/index.tsx）', () => {
 
   it('顶栏在分支之外：两种视图都保留（HUD 开关不能被藏掉）', () => {
     const headerAt = INDEX_CODE.indexOf('<AppHeader />')
-    const branchAt = INDEX_CODE.indexOf("{view === 'workbench'")
+    const shellAt = INDEX_CODE.indexOf('<div className="app-shell"')
     expect(headerAt).toBeGreaterThan(0)
-    expect(branchAt).toBeGreaterThan(headerAt)
+    expect(shellAt).toBeGreaterThan(headerAt)
   })
 
-  it('工作台分支里三条挂载原样保留', () => {
-    const branch = INDEX_CODE.slice(INDEX_CODE.indexOf("{view === 'workbench'"))
+  // v0.25 返工的核心：工作台不许被卸载（草稿/附件/发送中/滚动位置都在组件状态里）
+  it("工作台不在任何条件分支里：没有 `view === 'workbench' ?`，也不是 && 的右操作数", () => {
+    expect(INDEX_CODE).not.toContain("view === 'workbench' ?")
+    expect(INDEX_CODE).not.toMatch(/\?\s*\(\s*<div className="app-shell"/)
+    expect(INDEX_CODE).not.toMatch(/&&\s*\(\s*<div className="app-shell"/)
+  })
+
+  it('三条挂载原样保留在工作台里（ChatPanel 在 app-shell 之内）', () => {
+    const shellAt = INDEX_CODE.indexOf('<div className="app-shell"')
+    const chatAt = INDEX_CODE.indexOf('<ChatPanel />')
+    expect(shellAt).toBeGreaterThan(0)
+    expect(chatAt).toBeGreaterThan(shellAt)
     for (const token of [
-      '<ChatPanel />',
       '<aside className="right-col">',
       '<TasksPanel />',
       '<CalendarPanel />',
       '<PointsPanel onOpenLedger={openLedger} />'
     ]) {
-      expect(branch, token).toContain(token)
+      expect(INDEX_CODE, token).toContain(token)
     }
+  })
+
+  it('隐藏靠受 view 控制的内联 style，且不用 hidden 属性（类选择器会盖掉它）', () => {
+    expect(INDEX_CODE).not.toContain('hidden=')
+    expect(INDEX_CODE).toContain("visibility: view === 'ledger' ? 'hidden' : 'visible'")
+    expect(INDEX_CODE).toContain("pointerEvents: view === 'ledger' ? 'none' : 'auto'")
+    // display:none 会让滚动容器失去布局、scrollTop 归零，所以明确不许走那条
+    expect(INDEX_CODE).not.toContain("display: view === 'ledger' ? 'none'")
   })
 
   it('明细页分支挂的是 LedgerPage，切换函数靠 props 传（不走 context）', () => {
@@ -159,14 +176,13 @@ describe('视图切换（src/renderer/main/index.tsx）', () => {
     expect(INDEX_CODE).not.toContain('createContext')
   })
 
-  it('点行跳回：同一次交互里设视图 + 记下要 focus 的任务', () => {
-    expect(INDEX_CODE).toMatch(/setView\('workbench'\) setPendingFocus\(taskId\)/)
+  it('点行跳回：同一次交互里切视图 + 同步派发 focus（工作台没卸载，不需要延后）', () => {
+    expect(INDEX_CODE).toMatch(/setView\('workbench'\) emitFocusTask\(taskId\)/)
   })
 
-  it('focus-task 在挂载之后派发（子组件 effect 先于父组件，事件必被接住）', () => {
-    expect(INDEX_CODE).toMatch(
-      /useEffect\(\(\) => \{ if \(view !== 'workbench' \|\| pendingFocus === null\) return emitFocusTask\(pendingFocus\)/
-    )
+  it('临时状态 pendingFocus 已删除（口径 5）', () => {
+    expect(INDEX_CODE).not.toContain('pendingFocus')
+    expect(INDEX_CODE).not.toContain('setPendingFocus')
   })
 })
 

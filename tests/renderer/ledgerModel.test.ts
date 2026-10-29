@@ -13,6 +13,7 @@ import {
   shiftMonthOf,
   stepMonthOf
 } from '../../src/renderer/main/features/points/ledgerModel'
+import { monthStartOf } from '../../src/renderer/main/features/points/pointsModel'
 
 /**
  * 明细页（04 §4④ v0.24）的纯模型。
@@ -89,6 +90,49 @@ describe('翻月与页头文案', () => {
     expect(monthLabelOf('2026-01-01')).toBe('2026年1月')
     expect(dayLabelOf('2026-10-28')).toBe('10月28日')
     expect(dayLabelOf('2026-01-05')).toBe('1月5日')
+  })
+})
+
+/**
+ * v0.25 返工：`stepMonthOf` 曾复用 `canGoNextMonth` 的 `<` 判据，把 `next === 本月`
+ * 也判成非法 —— 于是「上月 → 本月」这一格永远走不动（按钮亮着、点了没反应）。
+ * 两个谓词回答的是不同问题：前者问"当前月还能不能往后"，后者问"落月合不合法"。
+ */
+describe('翻月（v0.25：上月 → 本月这一格）', () => {
+  it('上月点 › 回到本月（返工的核心用例）', () => {
+    expect(stepMonthOf('2026-09-01', 1, '2026-10-29')).toBe('2026-10-01')
+  })
+
+  it('本月点 › 原地不动（原有语义，不能被顺手改坏）', () => {
+    expect(stepMonthOf('2026-10-01', 1, '2026-10-29')).toBe('2026-10-01')
+  })
+
+  it('跨月后：10 月能前进到 11 月（应用开着过夜那种）', () => {
+    expect(stepMonthOf('2026-10-01', 1, '2026-11-03')).toBe('2026-11-01')
+  })
+
+  it('前两月点 › 只走一格（到次月，不是直接到本月）', () => {
+    expect(stepMonthOf('2026-08-01', 1, '2026-10-29')).toBe('2026-09-01')
+  })
+
+  it('跨年：去年 12 月点 › 到今年 1 月', () => {
+    expect(stepMonthOf('2025-12-01', 1, '2026-01-01')).toBe('2026-01-01')
+  })
+
+  it('未来月仍然挡住：落月晚于本月不动', () => {
+    expect(stepMonthOf('2026-11-01', 1, '2026-10-29')).toBe('2026-11-01')
+    expect(stepMonthOf('2026-12-01', 1, '2026-12-31')).toBe('2026-12-01')
+  })
+
+  it('不变量：按钮亮着就必须动（过去 24 个月逐一验证，含跨年）', () => {
+    const today = '2026-10-29'
+    const thisMonth = monthStartOf(today)
+    for (let back = 1; back <= 24; back += 1) {
+      const month = shiftMonthOf(thisMonth, -back)
+      expect(canGoNextMonth(month, today), `${month} 的 › 应该是亮的`).toBe(true)
+      expect(stepMonthOf(month, 1, today), `${month} 点亮着的 › 必须前进`).not.toBe(month)
+      expect(stepMonthOf(month, 1, today)).toBe(shiftMonthOf(month, 1))
+    }
   })
 })
 

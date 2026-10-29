@@ -57,13 +57,17 @@ export function canGoNextMonth(month: string, today: string): boolean {
 }
 
 /**
- * 翻月一步：目标落在未来月时**原样返回当前月**（04 §4④「当月不可往后翻」）。
- * 按钮的 `disabled` 是第一道闸，这里是不依赖 UI 的第二道——只靠 disabled 的话，
- * 将来任何别处调用 `shiftMonth(+1)` 都能翻进未来月。
+ * 翻月一步：落月晚于本月时**原样返回当前月**（04 §4④「当月不可往后翻」）。
+ *
+ * 这里曾把两个问题混成一个谓词（v0.25 更正）：`canGoNextMonth(month)` 问的是
+ * 「**当前所在月**还能不能往后翻」（按钮灰不灰），判据是 `month < 本月`；
+ * 而这里问的是「**这一次翻出去的落月**合不合法」，判据是 `next <= 本月`。
+ * 复用 `<` 会让 `next === 本月` 被判非法，于是「上月 → 本月」这一格永远走不动
+ * （`canGoNext` 亮着、点了没反应）。
  */
 export function stepMonthOf(month: string, delta: number, today: string): string {
   const next = shiftMonthOf(month, delta)
-  return canGoNextMonth(next, today) ? next : month
+  return next <= monthStartOf(today) ? next : month
 }
 
 /**
