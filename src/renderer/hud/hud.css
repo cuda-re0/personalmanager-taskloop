@@ -219,7 +219,12 @@
 
 .hud-row-title.is-done {
   color: var(--text-faint);
-  text-decoration: line-through;
+}
+
+/* 已完成的限时/活动行整行变淡（04 §5.3 v0.38）：不加删除线、不加文字、不显示分值。
+   每日打卡不挂 `is-done`，打卡完成不是"失败"，不跟着变淡。 */
+.hud-row-item:has(.hud-row-title.is-done) .hud-row {
+  opacity: 0.5;
 }
 
 /* 行内红字：`AppError.message` 原样，4s 消失（与主窗同口径） */

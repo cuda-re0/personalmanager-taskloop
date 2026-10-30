@@ -99,25 +99,7 @@ describe('今日积分格式（04 §5.2 的 今日 +42）', () => {
   })
 })
 
-describe('列表拼装（每日打卡在前，限时/活动在后，最多 6 条）', () => {
-  const occurrences = [
-    makeOccurrence({ id: 'o1', taskId: 't1', day: '2026-10-28', taskTitle: '报告初稿' }),
-    makeOccurrence({
-      id: 'o2',
-      taskId: 't2',
-      day: '2026-10-28',
-      status: 'done',
-      taskTitle: '客户回访'
-    })
-  ]
-  const tasks = [
-    makeTask({ id: 'a', title: '报销单' }),
-    makeTask({ id: 'b', title: '季度复盘' }),
-    makeTask({ id: 'c', title: '合同归档' }),
-    makeTask({ id: 'd', title: '预算表' }),
-    makeTask({ id: 'e', title: '招聘需求' })
-  ]
-
+describe('列表拼装（完成沉底 → 每日 → 限时 → 活动，04 §5.3 v0.38）', () => {
   it('每日任务不进任务行（否则同标题两行，任务行点完成会被服务端拒绝）', () => {
     const daily = makeTask({ id: 'd1', title: '每日A', type: 'daily' })
     const deadline = makeTask({ id: 'e1', title: '限时B' })
@@ -126,15 +108,74 @@ describe('列表拼装（每日打卡在前，限时/活动在后，最多 6 条
       [daily, deadline]
     )
     expect(rows).toEqual([
-      { kind: 'occurrence', id: 'o1', title: '每日A', done: false },
-      { kind: 'task', id: 'e1', title: '限时B', done: false }
+      {
+        kind: 'occurrence',
+        id: 'o1',
+        title: '每日A',
+        done: false,
+        type: 'daily',
+        completable: true
+      },
+      {
+        kind: 'task',
+        id: 'e1',
+        title: '限时B',
+        done: false,
+        type: 'deadline',
+        completable: false
+      }
     ])
   })
 
-  it('每日在前、任务在后，完成的打卡仍留在列表里（与 3/5 对得上）', () => {
-    const rows = buildRows(occurrences, tasks)
-    expect(rows.map(r => r.id)).toEqual(['o1', 'o2', 'a', 'b', 'c', 'd'])
-    expect(rows[1]).toEqual({ kind: 'occurrence', id: 'o2', title: '客户回访', done: true })
+  it('顺序：每日① 每日② 限时 活动 已完成限时（不再截断到 6 条）', () => {
+    const occurrences = [
+      makeOccurrence({ id: 'o1', taskId: 't1', day: '2026-10-30', taskTitle: '每日①' }),
+      makeOccurrence({ id: 'o2', taskId: 't2', day: '2026-10-30', taskTitle: '每日②' })
+    ]
+    const tasks = [
+      makeTask({ id: 'done-dl', title: '已完成限时', status: 'done', dueAt: '2026-10-30T09:00:00' }),
+      makeTask({ id: 'ev', title: '活动', type: 'event', dueAt: '2026-10-31T18:00:00' }),
+      makeTask({ id: 'dl', title: '限时', dueAt: '2026-10-30T20:00:00' })
+    ]
+    expect(buildRows(occurrences, tasks).map(r => r.title)).toEqual([
+      '每日①',
+      '每日②',
+      '限时',
+      '活动',
+      '已完成限时'
+    ])
+  })
+
+  it('已完成的活动排在未完成的限时之后（沉底优先于类型档）', () => {
+    const tasks = [
+      makeTask({ id: 'ev', title: '活动', type: 'event', status: 'done', dueAt: '2026-10-30T08:00:00' }),
+      makeTask({ id: 'dl', title: '限时', dueAt: '2026-10-31T08:00:00' })
+    ]
+    expect(buildRows([], tasks).map(r => r.id)).toEqual(['dl', 'ev'])
+  })
+
+  it('同档内按 dueAt 升序，dueAt 为 null 的排最后', () => {
+    const tasks = [
+      makeTask({ id: 'none', title: '无限期', dueAt: null }),
+      makeTask({ id: 'late', title: '晚', dueAt: '2026-10-31T20:00:00' }),
+      makeTask({ id: 'early', title: '早', dueAt: '2026-10-30T08:00:00' })
+    ]
+    expect(buildRows([], tasks).map(r => r.id)).toEqual(['early', 'late', 'none'])
+  })
+
+  it('completable：每日行为 true，限时/活动行为 false', () => {
+    const rows = buildRows(
+      [makeOccurrence({ id: 'o1', taskId: 'd1', day: '2026-10-30', taskTitle: '每日' })],
+      [
+        makeTask({ id: 'dl', title: '限时' }),
+        makeTask({ id: 'ev', title: '活动', type: 'event' })
+      ]
+    )
+    expect(rows.map(r => [r.type, r.completable])).toEqual([
+      ['daily', true],
+      ['deadline', false],
+      ['event', false]
+    ])
   })
 })
 

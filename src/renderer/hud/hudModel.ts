@@ -10,16 +10,22 @@ import { fmtPoints } from '@shared/format'
  * - 界面串只用 04 已登记的：`● 3/5`、`今日 +42`、任务标题、v0.31 长条上的 `周X`——本文件不产出别的文案。
  */
 
+/** 行类型档（排序第二级：每日 → 限时 → 活动，04 §5.3 v0.38） */
+export type HudRowType = 'daily' | 'deadline' | 'event'
+
 /** 一行 = 一个每日任务今日打卡，或一个限时/活动任务 */
 export interface HudRow {
   kind: 'occurrence' | 'task'
   id: string
   title: string
   done: boolean
+  type: HudRowType
+  /** 只有每日打卡能在 HUD 里勾；限时/活动一律要过审，这里只起提醒作用（v0.38） */
+  completable: boolean
 }
 
-/** 展开列表最多 6 条（04 §5.3） */
-export const ROW_LIMIT = 6
+/** 类型档的排序权重（写死，不参与任何积分/业务判断） */
+const TYPE_RANK: Record<HudRowType, number> = { daily: 0, deadline: 1, event: 2 }
 
 /**
  * 本地日历日 `YYYY-MM-DD`。
@@ -61,36 +67,73 @@ export function todayPointsLabel(points: number): string {
   return `今日 ${points > 0 ? '+' : ''}${fmtPoints(points)}`
 }
 
+/** `dueAt` → 时间戳；null / 空串 / 解析不出数字一律 null（同档内排在最后） */
+function dueTimestamp(dueAt: string | null): number | null {
+  if (dueAt === null || dueAt.length === 0) return null
+  const at = Date.parse(dueAt)
+  return Number.isNaN(at) ? null : at
+}
+
 /**
- * 列表行：先每日打卡（今天的固定动作），再限时/活动（服务端已按 sortKey 排序）。
- * 已完成的每日打卡仍留在列表里（`●` 态），否则"3/5"与列表对不上。
+ * 列表行（04 §5.3 v0.38）：不再截断，列表本身滚动。
+ *
+ * 排序三级，写死：
+ * 1. 已完成的沉底（`done ? 1 : 0` 升序）；
+ * 2. 类型档升序：`daily` → `deadline` → `event`；
+ * 3. 同档内 `deadline` / `event` 按 `dueAt` 升序，缺失或非法值排同档最后；
+ *    `daily` 没有截止时间，不参与这级比较（靠 `sort` 的稳定性保持传入顺序）。
  *
  * **每日任务必须从 `tasks` 里滤掉**：`bootstrap.tasks` 是"活跃任务"，其中包含每日任务的
  * 任务行（status=todo），而那一天的动作在 occurrence 上。不滤掉会出现两行同标题——
  * 打卡行正常，任务行走 `task.complete` 被服务端拒绝（"每日任务不进入审核/完成状态"）。
  */
-export function buildRows(
-  occurrences: Occurrence[],
-  tasks: Task[],
-  limit = ROW_LIMIT
-): HudRow[] {
-  const rows: HudRow[] = [
+export function buildRows(occurrences: Occurrence[], tasks: Task[]): HudRow[] {
+  const entries: { row: HudRow; due: number | null }[] = [
     ...occurrences.map(o => ({
-      kind: 'occurrence' as const,
-      id: o.id,
-      title: o.taskTitle ?? '',
-      done: o.status === 'done'
+      row: {
+        kind: 'occurrence' as const,
+        id: o.id,
+        title: o.taskTitle ?? '',
+        done: o.status === 'done',
+        // occurrence 只由每日任务产生，类型恒为 daily
+        type: 'daily' as const,
+        completable: true
+      },
+      due: null
     })),
     ...tasks
       .filter(t => t.type !== 'daily')
       .map(t => ({
-        kind: 'task' as const,
-        id: t.id,
-        title: t.title,
-        done: t.status === 'done'
+        row: {
+          kind: 'task' as const,
+          id: t.id,
+          title: t.title,
+          done: t.status === 'done',
+          type: t.type,
+          completable: false
+        },
+        due: dueTimestamp(t.dueAt)
       }))
   ]
-  return limit > 0 ? rows.slice(0, limit) : rows
+
+  // ES2019 起 Array.prototype.sort 是稳定排序，相等项保持传入顺序
+  entries.sort((a, b) => {
+    const doneDiff = Number(a.row.done) - Number(b.row.done)
+    if (doneDiff !== 0) return doneDiff
+
+    const rankDiff = TYPE_RANK[a.row.type] - TYPE_RANK[b.row.type]
+    if (rankDiff !== 0) return rankDiff
+
+    if (a.row.type === 'daily') return 0
+
+    if (a.due === null || b.due === null) {
+      if (a.due === b.due) return 0
+      return a.due === null ? 1 : -1
+    }
+    return a.due - b.due
+  })
+
+  return entries.map(entry => entry.row)
 }
 
 /** 没做的数量（未打卡的每日任务 + 未完成的任务） */

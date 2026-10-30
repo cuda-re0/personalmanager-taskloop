@@ -16,7 +16,7 @@ import { buildRows, composeHudBg, localDayOf, type HudRow } from './hudModel'
  * 界面上的 `--hud-bg` 由 `app.setting.changed` 的回归值兜住。
  */
 
-const ACTIVE_STATUS = new Set(['todo', 'doing', 'reviewing'])
+const ACTIVE_STATUS = new Set(['todo', 'doing', 'reviewing', 'pending_review'])
 /** 行内红字停留时长：`AppError.message` 原样展示，够看清即可（与主窗同口径） */
 const ERROR_TTL_MS = 4000
 const DEFAULT_THEME_BG = '#ffffff'
@@ -53,7 +53,7 @@ export interface HudRowError {
 export interface HudActions {
   /** 手动切换形态：点球 → `panel`，ESC → `ball`（主进程换 bounds + 广播） */
   setMode(mode: HudMode): void
-  /** 勾一行：每日 → `occurrence.complete`；限时/活动 → 先 reviewing 再 `task.complete` */
+  /** 勾一行：只有每日打卡能勾（`occurrence.complete`）；限时/活动不提供完成，直接返回 */
   completeRow(row: HudRow): void
   /** 一句话加任务：`task.createManual`（deadline / medium / 无 due_at）。成功返回 true */
   addTask(title: string): Promise<boolean>
@@ -108,16 +108,38 @@ function upsertOccurrences(list: Occurrence[], incoming: Occurrence[]): Occurren
   return [...map.values()]
 }
 
+/**
+ * 任务增量（04 §5.3 v0.38）：
+ * - 活跃态（含 `pending_review`）正常 upsert；
+ * - 未命中但**今天改过** → 保留并更新。完成态就靠这条留在列表里"变灰沉底"；
+ * - 未命中且跨日 → 移除。
+ */
 function upsertTask(list: Task[], task: Task): Task[] {
   const index = list.findIndex(t => t.id === task.id)
-  // 已完成/丢弃/归档的任务不在 HUD 列表里（bootstrap 的 tasks 也只给活跃三条状态）
-  if (!ACTIVE_STATUS.has(task.status)) {
+  const today = localDayOf(new Date())
+  const keep = ACTIVE_STATUS.has(task.status) || localDayOf(new Date(task.updatedAt)) === today
+  if (!keep) {
     return index >= 0 ? list.filter(t => t.id !== task.id) : list
   }
   if (index < 0) return [...list, task]
   const next = [...list]
   next[index] = task
   return next
+}
+
+/**
+ * 首载补拉今天已完成/错过（v0.38）：`bootstrap.tasks` 只给活跃三态，
+ * 不补这一次，"完成变灰沉底"只在本次会话内成立，重启后那些行就没了。
+ * 只收 `updatedAt` 落在今天的，跨日的历史完成不进 HUD。
+ */
+function mergeTodayFinished(active: Task[], finished: Task[]): Task[] {
+  const today = localDayOf(new Date())
+  const map = new Map(active.map(t => [t.id, t] as const))
+  for (const task of finished) {
+    if (localDayOf(new Date(task.updatedAt)) !== today) continue
+    if (!map.has(task.id)) map.set(task.id, task)
+  }
+  return [...map.values()]
 }
 
 export function useHudData(): HudData {
@@ -176,8 +198,14 @@ export function useHudData(): HudData {
 
     const off = window.api.onEvent(handleEvent)
 
-    void Promise.all([window.api.hud.getState(), window.api.app.getBootstrap()])
-      .then(([state, bootstrap]) => {
+    // 第三路是 v0.38 的首载补拉：今天的 `done` / `missed` 任务（bootstrap 只给活跃态）。
+    // 失败只记控制台，不拦住 HUD——活跃任务照样显示，只是少了今天的完成行。
+    void Promise.all([
+      window.api.hud.getState(),
+      window.api.app.getBootstrap(),
+      window.api.task.list({ status: ['done', 'missed'] })
+    ])
+      .then(([state, bootstrap, finished]) => {
         if (!alive) return
         if (!state.ok) {
           console.error('[hud] hud.getState 失败', state.error)
@@ -187,13 +215,14 @@ export function useHudData(): HudData {
           console.error('[hud] app.getBootstrap 失败', bootstrap.error)
           return
         }
+        if (!finished.ok) console.error('[hud] task.list 补拉失败', finished.error)
         const { tasks, todayOccurrences, today, settings } = bootstrap.data
         setSnapshot({
           ready: true,
           // 形态以窗口状态为准（settings 里的是上次落库值，可能还没同步到窗口）
           mode: state.data.mode,
           occurrences: todayOccurrences,
-          tasks,
+          tasks: mergeTodayFinished(tasks, finished.ok ? finished.data : []),
           points: today.points,
           background: settings['hud.background'],
           opacity: settings['hud.opacity']
@@ -241,30 +270,15 @@ export function useHudData(): HudData {
 
   const completeRow = useCallback(
     (row: HudRow): void => {
+      // 限时/活动只起提醒作用：HUD 不给完成入口，也就不替用户绕过审核发分（v0.38）
+      if (!row.completable) return
       if (row.done) return
-      if (row.kind === 'occurrence') {
-        void window.api.occurrence
-          .complete({ id: row.id })
-          .then(res => {
-            if (!res.ok) showError(row.id, res.error.message)
-          })
-          .catch((e: unknown) => console.error('[hud] occurrence.complete 调用失败', e))
-        return
-      }
-      // 与主窗 [完成（计分）] 同一条路径：done 只能从 reviewing 进入（01 §3），
-      // 所以先 transition 再 complete，参数 quality='met'
-      void window.api.task
-        .transition({ id: row.id, to: 'reviewing' })
+      void window.api.occurrence
+        .complete({ id: row.id })
         .then(res => {
-          if (!res.ok) {
-            showError(row.id, res.error.message)
-            return undefined
-          }
-          return window.api.task.complete({ id: row.id, quality: 'met' }).then(done => {
-            if (!done.ok) showError(row.id, done.error.message)
-          })
+          if (!res.ok) showError(row.id, res.error.message)
         })
-        .catch((e: unknown) => console.error('[hud] task.complete 调用失败', e))
+        .catch((e: unknown) => console.error('[hud] occurrence.complete 调用失败', e))
     },
     [showError]
   )

@@ -161,9 +161,17 @@ describe('背景与透明度（04 §5.4）', () => {
     expect(ruleBody(CSS, '.hud-bar-track {')).toMatch(/stroke:\s*var\(--border\)/)
   })
 
-  it('容器上没有任何 opacity（文字不会跟着变淡）', () => {
+  it('容器上没有 opacity（文字不会跟着变淡）；唯一的 opacity 是已完成限时/活动行整行 .5', () => {
     const withoutComments = stripComments(CSS)
-    expect(withoutComments).not.toMatch(/(^|[^-])opacity\s*:/)
+    // 面板与长条不许用 opacity 做透明度（04 §5.4：透明度只进 --hud-bg 的 alpha）
+    for (const selector of ['.hud-panel {', '.hud-ball {']) {
+      expect(ruleBody(withoutComments, selector)).not.toMatch(/opacity\s*:/)
+    }
+    // v0.38：已完成的限时/活动行整行变淡是规格要求，全文件只此一处
+    expect(withoutComments.match(/opacity\s*:/g)).toHaveLength(1)
+    expect(ruleBody(withoutComments, '.hud-row-item:has(.hud-row-title.is-done) .hud-row {')).toMatch(
+      /opacity:\s*0\.5/
+    )
   })
 })
 
@@ -294,11 +302,21 @@ describe('可见性同步（v0.31 / 原 kickoff 29）', () => {
   })
 })
 
-describe('完成与错误（04 §5.3）', () => {
-  it('每日走 occurrence.complete、限时可完成走 transition → task.complete', () => {
+describe('完成与错误（04 §5.3 v0.38）', () => {
+  it('只有每日打卡能勾：走 occurrence.complete，不替用户走 transition → task.complete', () => {
     expect(DATA).toMatch(/occurrence\s*\.complete\(\{ id: row\.id \}\)/)
-    expect(DATA).toMatch(/transition\(\{ id: row\.id, to: 'reviewing' \}\)/)
-    expect(DATA).toMatch(/task\.complete\(\{ id: row\.id, quality: 'met' \}\)/)
+    // 限时/活动只起提醒作用，HUD 里没有完成这两类的通道调用
+    expect(DATA).not.toMatch(/transition\(/)
+    expect(DATA).not.toMatch(/task\.complete/)
+    expect(DATA).toMatch(/if \(!row\.completable\) return/)
+  })
+
+  it('限时/活动行不渲染 hud-check（不进 DOM），整行 onClick 为空函数', () => {
+    // 圆圈只在 completable 时才渲染：不是 hidden、不是 disabled
+    expect(PANEL).toMatch(/\{row\.completable \? \(\s*<button/)
+    expect(PANEL.match(/hud-check is-done' : 'hud-check'/g)).toHaveLength(1)
+    expect(PANEL).toMatch(/\) : null\}/)
+    expect(PANEL).toMatch(/onClick=\{row\.completable \? undefined : \(\) => undefined\}/)
   })
 
   it('失败在行内显示 AppError.message 原文，4s 消失', () => {
