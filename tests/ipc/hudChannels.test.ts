@@ -88,11 +88,17 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     closeTestDb()
   })
 
-  it('四条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
-    for (const ch of [CH.hud.setMode, CH.hud.moveTo, CH.hud.setVisible, CH.hud.getState]) {
+  it('五条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
+    for (const ch of [
+      CH.hud.setMode,
+      CH.hud.moveTo,
+      CH.hud.dragBy,
+      CH.hud.setVisible,
+      CH.hud.getState
+    ]) {
       expect(wired.has(ch)).toBe(true)
     }
-    expect(wired.size).toBe(41)
+    expect(wired.size).toBe(42)
   })
 
   it('hud.getState 返回 { mode, displayId, visible }，不含 expanded', () => {
@@ -131,11 +137,23 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
   })
 
+  it('hud.dragBy → 相对位移生效；end:true 才落库（v0.32）', () => {
+    callOk(CH.hud.dragBy, { dx: -45, dy: 20, end: false })
+    expect(win.getBounds()).toEqual({ x: 1743, y: 124, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: null, y: null })
+
+    callOk(CH.hud.dragBy, { dx: 0, dy: 0, end: true })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1743, y: 124 })
+    expect(callOk<{ mode: string }>(CH.hud.getState).mode).toBe('ball')
+  })
+
   it('非法入参统一 INVALID_INPUT（04 §1.1「请求参数格式不正确」），且不改窗口', () => {
     const before = win.getBounds()
     for (const [channel, input] of [
       [CH.hud.setMode, { mode: 'flying' }],
       [CH.hud.moveTo, { x: 1 }],
+      // dragBy 少 end 字段 → 形状不完整
+      [CH.hud.dragBy, { dx: 1, dy: 2 }],
       [CH.hud.setVisible, {}]
     ] as const) {
       const result = call(channel, input)

@@ -19,7 +19,7 @@
 
 /* ---------------- 长条（132×40 胶囊；形态值仍是 ball） ---------------- */
 
-/* 整条可拖：drag 区收不到 click，点击热区是覆盖全条的 .hud-hit */
+/* 整条交给渲染层判手势（默认 no-drag，不写原生拖动属性）：点按展开 / 长按拖动见 04 §5.2.2 */
 .hud-ball {
   position: relative;
   display: flex;
@@ -32,7 +32,6 @@
   border-radius: 999px;
   background: var(--hud-bg);
   overflow: hidden;
-  -webkit-app-region: drag;
 }
 
 .hud-bar-ring {
@@ -64,15 +63,18 @@
   color: var(--text-sub);
 }
 
-/* 覆盖整条的 no-drag 热区 */
+/* 覆盖整条的热区：承接 pointer 事件（点按展开 / 长按拖动，见 HudBall） */
 .hud-hit {
   position: absolute;
   inset: 0;
   padding: 0;
   border: none;
   background: transparent;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
+  cursor: grab;
+}
+
+.hud-hit.is-dragging {
+  cursor: grabbing;
 }
 
 /* ---------------- 面板 ---------------- */
@@ -122,8 +124,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 头部的空白把手：面板拉到最窄 280 时也要留得出可抓的一小段 */
 .hud-grow {
   flex: 1 1 auto;
+  min-width: 24px;
 }
 
 .hud-tabs {

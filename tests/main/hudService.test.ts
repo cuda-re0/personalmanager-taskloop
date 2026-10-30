@@ -626,4 +626,67 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
     expect(hudService.getState().mode).toBe('ball')
   })
+
+  it('dragBy(-20, 30, false)：窗口跟着平移，但位置不落库', () => {
+    const { win } = attachDefault()
+    expect(settingRepo.get('hud.position')).toEqual({ x: null, y: null })
+
+    hudService.dragBy(-20, 30, false)
+    expect(win.getBounds()).toEqual({ x: 1768, y: 134, width: 132, height: 40 })
+    // 拖动中不写库：拖到一半退出会停在半路
+    expect(settingRepo.get('hud.position')).toEqual({ x: null, y: null })
+    expect(hudService.getState().mode).toBe('ball')
+  })
+
+  it('dragBy 拖出工作区：整条被 clamp 回屏内（不锁边，只是不出屏）', () => {
+    const { win } = attachDefault()
+    hudService.dragBy(500, 2000, false)
+    expect(win.getBounds()).toEqual({ x: 1788, y: 1000, width: 132, height: 40 })
+
+    hudService.dragBy(-3000, -3000, false)
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 132, height: 40 })
+  })
+
+  it('dragBy(0, 0, true)：贴右边松手 → 位置落库，形态仍是长条', () => {
+    const { win } = attachDefault()
+    hudService.dragBy(-10, 40, false)
+    hudService.dragBy(0, 0, true)
+
+    expect(win.getBounds()).toEqual({ x: 1778, y: 144, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1778, y: 144 })
+    expect(hudService.getState().mode).toBe('ball')
+    expect(modeEvents()).toEqual([])
+  })
+
+  it('长条拖离边缘 > 48 后松手：主进程判形态 → 展开成面板（走 enterMode）', () => {
+    const { win } = attachDefault()
+    hudService.dragBy(-988, 0, false)
+    // 拖动中不判形态：已经到屏幕中间了，还是长条
+    expect(hudService.getState().mode).toBe('ball')
+    expect(win.getBounds()).toEqual({ x: 800, y: 104, width: 132, height: 40 })
+
+    hudService.dragBy(0, 0, true)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.getBounds()).toEqual({ x: 800, y: 104, width: 360, height: 480 })
+    expect(win.resizable()).toBe(true)
+    expect(modeEvents()).toEqual([{ type: 'hud.mode.changed', mode: 'panel' }])
+    expect(settingRepo.get('hud.mode')).toBe('panel')
+    expect(settingRepo.get('hud.position')).toEqual({ x: 800, y: 104 })
+  })
+
+  it('面板态调 dragBy：直接返回，bounds 与落库位置都不动', () => {
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    const before = win.getBounds()
+    const stored = settingRepo.get('hud.position')
+    win.boundsCalls.length = 0
+
+    hudService.dragBy(60, 60, false)
+    hudService.dragBy(60, 60, true)
+
+    expect(win.boundsCalls).toHaveLength(0)
+    expect(win.getBounds()).toEqual(before)
+    expect(settingRepo.get('hud.position')).toEqual(stored)
+    expect(hudService.getState().mode).toBe('panel')
+  })
 })

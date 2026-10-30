@@ -39,6 +39,13 @@ export function ratioLabel(done: number, total: number): string {
 }
 
 /**
+ * 长条手势判定阈值（04 §5.2.2 v0.32）：按住 ≥260ms 进入拖动，
+ * 未到 260ms 但位移已 >4px 视为手抖（既不展开也不拖）。
+ */
+export const LONG_PRESS_MS = 260
+export const TAP_TOLERANCE = 4
+
+/**
  * 星期几（v0.31 长条最右一格）：`周日`…`周六`。
  * 硬编码而不用 `toLocaleDateString('zh-CN', { weekday })`——那个依赖 ICU 数据，
  * 打包/精简运行时的输出可能与开发时不一致。

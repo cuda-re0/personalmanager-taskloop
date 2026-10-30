@@ -168,18 +168,16 @@ describe('背景与透明度（04 §5.4）', () => {
 })
 
 describe('长条态（v0.31：132×40 胶囊 / 拖 vs 点）', () => {
-  it('长条铺满窗口：胶囊圆角 999px、整条 drag', () => {
+  it('长条铺满窗口：胶囊圆角 999px', () => {
     expect(ruleBody(CSS, '.hud-ball {')).toMatch(/width:\s*100%/)
     expect(ruleBody(CSS, '.hud-ball {')).toMatch(/height:\s*100%/)
     expect(ruleBody(CSS, '.hud-ball {')).toMatch(/border-radius:\s*999px/)
-    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/-webkit-app-region:\s*drag/)
   })
 
-  it('内容三段：环 / 完成数比 / 星期，另铺一层整条 no-drag 热区', () => {
+  it('内容三段：环 / 完成数比 / 星期，另铺一层整条热区', () => {
     for (const cls of ['hud-bar-ring', 'hud-bar-ratio', 'hud-bar-week', 'hud-hit']) {
       expect(BALL).toContain(cls)
     }
-    expect(ruleBody(CSS, '.hud-hit {')).toMatch(/-webkit-app-region:\s*no-drag/)
     expect(ruleBody(CSS, '.hud-hit {')).toMatch(/inset:\s*0/)
     expect(BALL).toMatch(/weekdayLabel\(new Date\(\)\)/)
     expect(BALL).toMatch(/ratioLabel\(data\.done, data\.total\)/)
@@ -206,6 +204,50 @@ describe('长条态（v0.31：132×40 胶囊 / 拖 vs 点）', () => {
     expect(ruleBody(CSS, '.hud-head {')).toMatch(/-webkit-app-region:\s*drag/)
     expect(ruleBody(CSS, '.hud-tabs {')).toMatch(/-webkit-app-region:\s*no-drag/)
     expect(ruleBody(CSS, '.hud-panel {')).toMatch(/height:\s*100%/)
+  })
+})
+
+describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
+  it('整条不再用原生 drag：.hud-ball / .hud-hit 里都没有 app-region', () => {
+    expect(ruleBody(CSS, '.hud-ball {')).not.toMatch(/-webkit-app-region/)
+    expect(ruleBody(CSS, '.hud-hit {')).not.toMatch(/-webkit-app-region/)
+    // drag 只剩面板头部那一处（tab 与设置页的 no-drag 是它的子元素，得留着）
+    expect((CSS.match(/-webkit-app-region:\s*drag/g) ?? []).length).toBe(1)
+  })
+
+  it('手势走 pointer 事件 + 指针捕获，点击只由 pointerup 判定（没有 onClick）', () => {
+    for (const handler of [
+      'onPointerDown',
+      'onPointerMove',
+      'onPointerUp',
+      'onPointerCancel',
+      'setPointerCapture'
+    ]) {
+      expect(BALL).toContain(handler)
+    }
+    expect(BALL).not.toMatch(/\bonClick=/)
+    // 位移取屏幕坐标差值（窗口自己在动，clientX 会漂）
+    expect(BALL).toMatch(/e\.screenX/)
+    expect(BALL).toMatch(/e\.screenY/)
+    // 一帧最多一次 IPC
+    expect(BALL).toMatch(/requestAnimationFrame/)
+    expect(BALL).toMatch(/dragBy\(\{ dx, dy, end \}\)/)
+  })
+
+  it('拖动中是唯一新增的视觉反馈：cursor grab / .is-dragging grabbing', () => {
+    expect(ruleBody(CSS, '.hud-hit {')).toMatch(/cursor:\s*grab/)
+    expect(ruleBody(CSS, '.hud-hit.is-dragging {')).toMatch(/cursor:\s*grabbing/)
+  })
+
+  it('阈值常量在 hudModel 里，不写死在组件里', () => {
+    expect(MODEL).toMatch(/export const LONG_PRESS_MS = 260/)
+    expect(MODEL).toMatch(/export const TAP_TOLERANCE = 4/)
+    expect(BALL).toMatch(/LONG_PRESS_MS/)
+    expect(BALL).toMatch(/TAP_TOLERANCE/)
+  })
+
+  it('面板最窄也有可抓的空白：.hud-grow 留 24px 底宽', () => {
+    expect(ruleBody(CSS, '.hud-grow {')).toMatch(/min-width:\s*24px/)
   })
 })
 

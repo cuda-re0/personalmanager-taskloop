@@ -74,6 +74,8 @@ export const CH = {
   hud: {
     setMode: 'hud:setMode',
     moveTo: 'hud:moveTo',
+    /** 长条长按拖动（v0.32）：相对位移，end=true 时落库并判形态 */
+    dragBy: 'hud:dragBy',
     setVisible: 'hud:setVisible',
     getState: 'hud:getState'
   },

@@ -22,6 +22,9 @@ import * as settingRepo from '../db/repositories/settingRepo'
  * - 判定在 `move` 里去抖 `MOVE_JUDGE_MS`(120ms)，并在 `settle()` 里补判一次（快拖快放不到 120ms）；
  *   程序化 `setBounds` 的回声按目标 x/y 丢弃，否则"展开 → 面板贴边 → 收球 → 长条被拖开 → 展开"
  *   会无限自我切换。
+ *
+ * 长条拖动（v0.32，04 §5.2.2）：长条整条 no-drag，手势由渲染层判（点按 / 长按 / 手抖），
+ * 拖动只发相对位移到 `dragBy()`；**拖动中不判形态**，`end:true` 时才落库并判一次。
  */
 
 export interface Rect {
@@ -594,6 +597,52 @@ export function moveTo(x: number, y: number): void {
   current.displayId = area.displayId
   persistPosition(anchor)
   persistDisplayId(area.displayId)
+  applyBounds()
+}
+
+/**
+ * 长条态拖动（04 §5.2.2 v0.32：点按展开 / 长按拖动）。
+ *
+ * 渲染层只发**相对上一帧的位移**（`screenX/Y` 差值），坐标与形态判定全在这里：
+ * - 整条不出屏：位移后的落点仍过 `clampBallPoint`（v0.31 既定口径）；
+ * - `end:false` 只移窗、**不落库**——拖到一半就写 `hud.position` 会让下次启动停在半路；
+ * - `end:true` 才落库并判一次形态：离左右边 > 48 → 展开成面板（走 `enterMode`，不自己 setBounds）。
+ * - 面板态直接忽略：面板走 `.hud-head` 的原生拖动，这条路只服务长条。
+ */
+export function dragBy(dx: number, dy: number, end: boolean): void {
+  const current = requireState()
+  if (current.mode !== 'ball') return
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
+
+  const rect = requirePort().getBounds()
+  const area = requireDisplays().nearestWorkArea(rect)
+  anchor = clampBallPoint(area.workArea, {
+    x: rect.x + Math.round(dx),
+    y: rect.y + Math.round(dy)
+  })
+  current.displayId = area.displayId
+
+  if (!end) {
+    // applyBounds 内部设 expectedRect：窗口回抛的 move 是回声，不会触发 judgeShape
+    applyBounds()
+    return
+  }
+
+  persistPosition(anchor)
+  persistDisplayId(area.displayId)
+
+  // 松手才判形态（拖动中窗口变大 = 指针相对位置突变 = 手感跳）
+  const step = resolveDragStep('ball', area.workArea, {
+    x: anchor.x,
+    y: anchor.y,
+    width: BALL_W,
+    height: BALL_H
+  })
+  if (step === 'expand') {
+    const panel = peekPanelBounds(area.workArea, anchor, panelSize)
+    enterMode('panel', area, { x: panel.x, y: panel.y })
+    return
+  }
   applyBounds()
 }
 

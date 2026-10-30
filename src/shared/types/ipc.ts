@@ -72,7 +72,7 @@ export interface Bootstrap {
  * ------------------------------------------------------------------ */
 
 /**
- * 悬浮形态（04 §5.2 v0.30）：`ball` 56×56 圆球 / `panel` 可拉伸面板。
+ * 悬浮形态（04 §5.2 v0.31）：`ball` 132×40 长条 / `panel` 可拉伸面板。
  * 值域与 `hud.mode` 的库里旧值不同——`dock-bar` / `float-pod` / 任何未知串一律按 `ball` 起
  * （见 `hudService.resolveLayout`），不给旧形态留兼容分支。
  */
@@ -264,9 +264,15 @@ export interface Api {
   }
 
   hud: {
-    /** 手动切换形态（点球展开 / ESC 收回）：主进程换 bounds + 广播 `hud.mode.changed` */
+    /** 手动切换形态（点长条展开 / ESC 收回）：主进程换 bounds + 广播 `hud.mode.changed` */
     setMode(input: { mode: HudMode }): Promise<IpcResult<void>>
     moveTo(input: { x: number; y: number }): Promise<IpcResult<void>>
+    /**
+     * 长条长按拖动（04 §5.2.2 v0.32）：`dx/dy` 是相对上一帧的屏幕位移（DIP），
+     * `end:false` 只移窗不落库；`end:true` 落 `hud.position` 并在主进程判一次形态。
+     * 面板态直接忽略（面板走 `.hud-head` 的原生拖动）。
+     */
+    dragBy(input: { dx: number; dy: number; end: boolean }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
     getState(): Promise<IpcResult<{ mode: HudMode; displayId: number; visible: boolean }>>
   }
