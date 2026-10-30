@@ -2,7 +2,8 @@ import { computePlannedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
 import type { PublicSettings } from '@shared/types/ipc'
 import { snapDifficulty } from '@shared/taskRules'
-import type { Difficulty, TaskDraft, TaskType } from '@shared/types/domain'
+import type { Attachment, Difficulty, Evidence, TaskDraft, TaskType } from '@shared/types/domain'
+import type { EvidenceView } from './chatTypes'
 
 /** 类型标签。三个词来自 04 §4① 的分组标题，不是新文案。 */
 export const TYPE_LABEL: Record<TaskType, string> = {
@@ -155,4 +156,43 @@ export function localToDueHint(value: string): string {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return ''
   return d.toISOString()
+}
+
+/**
+ * Evidence[] → 卡片渲染数据（v0.36）。
+ *
+ * 放在这个纯函数模块里而不是 `useChatData`：它要能被 node 环境的测试直接引入
+ * （`tsconfig.test.json` 只带 ES2022，没有 DOM——一个 `window` 就把整个模块拖红）。
+ * 附件元数据从外部缓存取；**取不到的条目直接跳过**，不造占位符、不写「附件失效」。
+ */
+export function toEvidenceViews(
+  evidence: Evidence[],
+  attachments: Record<string, Attachment>
+): EvidenceView[] {
+  const views: EvidenceView[] = []
+  evidence.forEach((item, i) => {
+    if (item.kind === 'text') {
+      views.push({
+        key: `${item.addedAt}-${i}`,
+        kind: 'text',
+        text: item.text,
+        url: null,
+        attachmentKind: null,
+        mime: null
+      })
+      return
+    }
+    const file = attachments[item.attachmentId]
+    if (!file) return
+    // v0.8：是截图还是 PDF 全看 Attachment.kind
+    views.push({
+      key: `${item.addedAt}-${i}`,
+      kind: 'attachment',
+      text: null,
+      url: file.url,
+      attachmentKind: file.kind,
+      mime: file.mime
+    })
+  })
+  return views
 }

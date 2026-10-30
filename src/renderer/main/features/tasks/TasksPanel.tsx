@@ -80,6 +80,7 @@ function DailyGroup({
             {task && expandedId === task.id ? (
               <TaskDetail
                 actions={actions}
+                busy={false}
                 confirming={false}
                 subtasks={subtasksByParent.get(task.id) ?? []}
                 task={task}
@@ -103,6 +104,8 @@ interface TaskGroupProps {
   subtasksByParent: Map<string, Task[]>
   actions: TasksActions
   now: Date
+  /** 正在送审的任务 id：期间 [完成] 禁用，一次只允许一份请求 */
+  reviewingIds: ReadonlySet<string>
   onExpand(taskId: string): void
   onDropRow(draggedId: string, targetId: string | null): void
 }
@@ -118,6 +121,7 @@ function TaskGroup({
   subtasksByParent,
   actions,
   now,
+  reviewingIds,
   onExpand,
   onDropRow
 }: TaskGroupProps): ReactElement | null {
@@ -140,7 +144,9 @@ function TaskGroup({
           <div
             className={[
               'task-row',
-              task.status === 'done' ? 'task-row--done' : '',
+              // v0.34：missed（审核驳回且已过截止）与 done **同档**——沉底、变淡、右列留空，
+              // 复用同一个类名与样式，不新增视觉、不加任何文字
+              task.status === 'done' || task.status === 'missed' ? 'task-row--done' : '',
               dragOverId === task.id ? 'task-row--drop' : '',
               focusId === task.id ? 'task-row--focus' : ''
             ]
@@ -160,9 +166,9 @@ function TaskGroup({
           >
             <span aria-hidden className={`task-dot task-dot--${task.status}`} />
             <span className="task-title">{task.title}</span>
-            {/* 今日已完成（v0.27）：右列留空，不显示「逾期」之类的剩余时间 */}
+            {/* 今日已完成 / 今日判失败（v0.27 / v0.34）：右列留空，不显示「逾期」之类的剩余时间 */}
             <span className="task-remaining">
-              {task.status === 'done' ? '' : remainingLabel(task, now)}
+              {task.status === 'done' || task.status === 'missed' ? '' : remainingLabel(task, now)}
             </span>
           </div>
           {/* 完成被拒（如证据不足）的就地反馈：文案 = AppError.message 原样，2.6s 自动消失 */}
@@ -172,6 +178,7 @@ function TaskGroup({
           {expandedId === task.id ? (
             <TaskDetail
               actions={actions}
+              busy={reviewingIds.has(task.id)}
               confirming={confirmingId === task.id}
               subtasks={subtasksByParent.get(task.id) ?? []}
               task={task}
@@ -196,6 +203,8 @@ interface DetailProps {
   task: Task
   subtasks: Task[]
   confirming: boolean
+  /** 该任务正在送审/审核中（v0.34）：[完成] 与确认条按钮禁用，防止重复发请求 */
+  busy: boolean
   /**
    * 必须由 `TasksPanel` 传下来，**不能**在详情里再调 `useTasksData()`：
    * 那是另一个实例，`subtasksByParent` 恒空、`confirmId` 也不是同一份状态，
@@ -205,7 +214,7 @@ interface DetailProps {
 }
 
 /** 就地展开的详情（04 §4①）：detail_md + 步骤勾选 + 提醒偏移 + [完成]。没有类型入口 */
-function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): ReactElement {
+function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps): ReactElement {
   const offsets = reminderSummary(task.type, task.dailyTime, task.reminderOffsets)
   return (
     <div className="task-detail">
@@ -236,12 +245,14 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
         </ul>
       ) : null}
       {offsets ? <div className="task-offsets">{offsets}</div> : null}
-      {/* 今日已完成的任务没有 [完成] 入口（v0.27）：detail_md / 步骤 / 偏移照常展示 */}
-      {task.type !== 'daily' && task.status !== 'done' ? (
+      {/* 今日已完成 / 今日判失败的任务没有 [完成] 入口（v0.27 / v0.34）：
+          detail_md / 步骤 / 偏移照常展示 */}
+      {task.type !== 'daily' && task.status !== 'done' && task.status !== 'missed' ? (
         confirming ? (
           <div className="task-confirm-bar">
             <button
               className="btn btn--primary"
+              disabled={busy}
               onClick={() => actions.confirmComplete(task)}
               type="button"
             >
@@ -249,6 +260,7 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
             </button>
             <button
               className="btn btn--faint"
+              disabled={busy}
               onClick={() => actions.confirmCompleteNoPoints(task)}
               type="button"
             >
@@ -262,6 +274,7 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
           <div className="task-detail-actions">
             <button
               className="btn btn--primary"
+              disabled={busy}
               onClick={() => actions.completeTask(task)}
               type="button"
             >
@@ -276,12 +289,23 @@ function TaskDetail({ task, subtasks, confirming, actions }: DetailProps): React
 
 /** 右栏① 外壳：三组固定顺序 每日 → 限时 → 活动（04 §4①），空组不显示标题 */
 export function TasksPanel(): ReactElement {
-  const { tasks, doneTasks, occurrences, subtasksByParent, expandedId, confirmId, focusId, notice, actions } =
-    useTasksData()
+  const {
+    tasks,
+    doneTasks,
+    missedTasks,
+    reviewingIds,
+    occurrences,
+    subtasksByParent,
+    expandedId,
+    confirmId,
+    focusId,
+    notice,
+    actions
+  } = useTasksData()
   const groups: TaskGroups = useMemo(
-    // 活跃 + 今日已完成一起进模型：done 沉底、变淡是模型层排好的（v0.27）
-    () => groupTasks([...tasks, ...doneTasks], occurrences),
-    [tasks, doneTasks, occurrences]
+    // 活跃 + 今日已完成 + 今日判失败一起进模型：done / missed 沉底、变淡是模型层排好的（v0.27 / v0.34）
+    () => groupTasks([...tasks, ...doneTasks, ...missedTasks], occurrences),
+    [tasks, doneTasks, missedTasks, occurrences]
   )
   const now = new Date()
 
@@ -307,6 +331,7 @@ export function TasksPanel(): ReactElement {
         now={now}
         onDropRow={actions.reorder}
         onExpand={actions.expand}
+        reviewingIds={reviewingIds}
         subtasksByParent={subtasksByParent}
         tasks={groups.deadline}
       />
@@ -320,6 +345,7 @@ export function TasksPanel(): ReactElement {
         now={now}
         onDropRow={actions.reorder}
         onExpand={actions.expand}
+        reviewingIds={reviewingIds}
         subtasksByParent={subtasksByParent}
         tasks={groups.event}
       />

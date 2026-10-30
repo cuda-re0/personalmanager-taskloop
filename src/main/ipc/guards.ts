@@ -16,7 +16,15 @@ import { clampOpacity, clampSize } from '../services/hudService'
 
 export const INVALID_INPUT_MESSAGE = '请求参数格式不正确'
 
-const taskStatusSchema = z.enum(['todo', 'doing', 'reviewing', 'done', 'discarded', 'archived'])
+const taskStatusSchema = z.enum([
+  'todo',
+  'doing',
+  'reviewing',
+  'done',
+  'missed',
+  'discarded',
+  'archived'
+])
 const taskTypeSchema = z.enum(['daily', 'deadline', 'event'])
 const difficultySchema = z.enum(['trivial', 'easy', 'medium', 'hard', 'epic'])
 const notifyChannelSchema = z.enum(['inapp', 'toast', 'mail', 'webhook'])
@@ -250,6 +258,15 @@ export const g = {
   aiReview: z.object({ taskId: z.string().min(1), userText: z.string().max(2000).optional() }),
   // 无入参：preload 的 invoke(ch) 不带 payload，收到的是 undefined
   aiHealth: z.object({}).optional(),
+  // 附件（v0.36）：`add` 只校验形状，白名单 mime 与大小上限仍归 attachmentService
+  //（`sourcePath` / `base64` 二选一由服务判：两个都给以 sourcePath 为准，都不给抛 INVALID_INPUT）
+  attachmentAdd: z.object({
+    name: z.string(),
+    mime: z.string(),
+    base64: z.string().optional(),
+    sourcePath: z.string().optional()
+  }),
+  attachmentGet: z.object(idInput),
   // points
   balance: z.undefined(),
   ledger: z.object({
@@ -315,6 +332,8 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.ai.rejectDrafts]: g.aiRejectDrafts,
   [CH.ai.review]: g.aiReview,
   [CH.ai.health]: g.aiHealth,
+  [CH.attachment.add]: g.attachmentAdd,
+  [CH.attachment.get]: g.attachmentGet,
   [CH.points.balance]: g.balance,
   [CH.points.ledger]: g.ledger,
   [CH.points.monthStats]: g.monthStats,

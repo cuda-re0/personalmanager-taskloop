@@ -42,7 +42,9 @@ export const CH = {
     list: 'msg:list'
   },
   attachment: {
-    add: 'attachment:add'
+    add: 'attachment:add',
+    /** v0.36：证据卡片要 mime/url 才能画缩略图或角标，缺 Attachment 时按 id 补拉 */
+    get: 'attachment:get'
   },
   ai: {
     confirmDraft: 'ai:confirmDraft',

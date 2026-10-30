@@ -46,15 +46,20 @@ export interface ReviewView {
   evidence: EvidenceView[]
   /** 连续 need_evidence 次数，>=3 才出现「直接标记完成（不计分）」 */
   needEvidenceCount: number
-  /** 仅 activity：结果档，默认 'met'（04 §3.3）；其他类型为 null */
+  /** 该任务最后一条审核卡（v0.36）：只有它带动作按钮，更早的卡只读 */
+  isLatest: boolean
+  /** 仅 activity：AI 判的那一档（04 §3.3 v0.35 起卡片不给下拉）；其他类型为 null */
   result: EventResult | null
   /** 仅限时：`提前 4 天` / `逾期 3 天`；取不到 completedAt 为 null，整条不显示 */
   leadLabel: string | null
 }
 
 /**
- * 会话区的全部副作用出口。W3 阶段每个实现体只做本地 mock + TODO(W5)，
- * 组件本身不知道有没有后端。
+ * 会话区的全部副作用出口。组件本身不知道有没有后端。
+ *
+ * v0.36：审核卡只剩三个动作——补证据、重审、不计分直达。`completeTask` / `continueTask`
+ * / `setEventResult` / `removeEvidence` 已删（pass 自动完成、驳回自动回 doing 或判 missed，
+ * 结果档下拉与移除按钮都没有存在理由）。
  */
 export interface ChatActions {
   patchDraft(localId: string, patch: DraftPatch): void
@@ -63,14 +68,12 @@ export interface ChatActions {
   retry(messageId: string): void
   openTask(taskId: string): void
   snoozeReminder(reminderId: string): void
-  addEvidence(taskId: string): void
-  removeEvidence(taskId: string, key: string): void
-  reReview(taskId: string): void
-  /** 活动卡片改选结果档（04 §3.3），分值随之重算 */
-  setEventResult(taskId: string, result: EventResult): void
-  completeTask(taskId: string): void
-  continueTask(taskId: string): void
-  markDoneWithoutPoints(taskId: string): void
+  /** 选完文件调：内部 `attachment.add` → `task.addEvidence`。失败返回 AppError.message 原文 */
+  addEvidence(taskId: string, file: File): Promise<string | null>
+  /** 补完证据后重跑 AI 审核（内部走 reviewFlow.runReview）。失败返回原文 */
+  reReview(taskId: string): Promise<string | null>
+  /** 连续 3 次 need_evidence 后的防死锁出口：`task.complete({ noPoints:true })` */
+  markDoneWithoutPoints(taskId: string): Promise<string | null>
 }
 
 export interface ChatData {

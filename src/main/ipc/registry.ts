@@ -7,9 +7,11 @@ import { broadcast } from '../bus'
 import { appError } from '../db/errors'
 import { monthBounds, addDays, isoToLocalDay, todayLocalDay } from '../db/localDay'
 import * as occurrenceService from '../db/occurrenceService'
+import * as attachmentRepo from '../db/repositories/attachmentRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as messageService from '../services/messageService'
+import * as attachmentService from '../services/attachmentService'
 import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
 import * as taskService from '../services/taskService'
@@ -24,10 +26,10 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 43 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 45 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
- * **W4 起 msg 两条 + ai 四条**，
- * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16）；
+ * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**，
+ * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -53,9 +55,8 @@ export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
   // W9：通知渠道 + 悬浮窗（悬浮窗五条已随 W9 接通，不在表内）
   [CH.channel.list]: { owner: 'W9' },
   [CH.channel.setConfig]: { owner: 'W9' },
-  [CH.channel.setGlobal]: { owner: 'W9' },
-  // W11：附件存储
-  [CH.attachment.add]: { owner: 'W11' }
+  [CH.channel.setGlobal]: { owner: 'W9' }
+  // v0.36：attachment.add / attachment.get 已随 W7 接通，不在表内
 }
 
 /* ------------------------------------------------------------------ *
@@ -98,7 +99,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 43 条
+ * WIRED：本轮接通的 45 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -430,7 +431,17 @@ const TABLE: Row[] = [
     hudService.dragTo(input.x, input.y, input.end)
   ),
   row(CH.hud.setVisible, g.hudSetVisible, input => hudService.setVisible(input.visible)),
-  row(CH.hud.getState, g.hudGetState, () => hudService.getState())
+  row(CH.hud.getState, g.hudGetState, () => hudService.getState()),
+
+  /* ---------------- attachment（2，v0.36 · W7 证据） ---------------- */
+  // 附件没有域事件：加完只回 Attachment，审核卡靠动作返回后重取任务拿到新证据。
+  // 校验（mime 白名单、体积上限）全在 attachmentService，这里不重复。
+  row(CH.attachment.add, g.attachmentAdd, input => attachmentService.add(input)),
+  row(CH.attachment.get, g.attachmentGet, input => {
+    const found = attachmentRepo.attachmentById(input.id)
+    if (found === null) throw appError('NOT_FOUND', '附件不存在', { detail: input.id })
+    return found
+  })
 ]
 
 /** 已接通的通道名（代码里的数据，供覆盖测试用） */

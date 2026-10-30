@@ -45,21 +45,25 @@ describe('TasksPanel 的 hook 实例纪律', () => {
  * 只要有人把某个失败分支的 setNotice 删掉、或者把红字做成全局一条，这里就会红。
  */
 describe('完成被拒的行内红字（v0.24）', () => {
-  it('submitAndComplete 的两个失败分支都写入 notice，而不是只打控制台', () => {
+  it('submitAndComplete 的三个失败分支都写入 notice，而不是只打控制台', () => {
+    // v0.34 起多一条：送审失败（runReview 返回 error）也要落到同一行的红字里
     const notices = SUBMIT_SOURCE.match(/setNotice\(/g) ?? []
-    expect(notices).toHaveLength(2)
+    expect(notices).toHaveLength(3)
     expect(SUBMIT_SOURCE).toMatch(
       /if \(!res\.ok\)[\s\S]{0,200}?setNotice\(\{ taskId: task\.id, message: res\.error\.message \}\)/
     )
     expect(SUBMIT_SOURCE).toMatch(
       /if \(!done\.ok\)[\s\S]{0,300}?setNotice\(\{ taskId: task\.id, message: done\.error\.message \}\)/
     )
+    expect(SUBMIT_SOURCE).toMatch(
+      /result\.kind === 'error'[\s\S]{0,80}?setNotice\(\{ taskId: task\.id, message: result\.message \}\)/
+    )
   })
 
   it('文案零新增：显示的是 AppError.message 原样，代码里不写死中文句子', () => {
     expect(SUBMIT_SOURCE).not.toMatch(/message:\s*['"`]/)
     // console.error 保留（失败原因仍要进控制台），但必须同时有 setNotice
-    expect(SUBMIT_SOURCE).toContain("console.error('[tasks] task.complete 失败'")
+    expect(SUBMIT_SOURCE).toMatch(/console\.error\('\[tasks\] task\.complete/)
   })
 
   it('计时器有清理：notice 的 effect 返回清理函数，且新失败先清旧的', () => {
@@ -97,8 +101,12 @@ describe('今日已完成行（v0.27）', () => {
     expect(SOURCE).toMatch(/const done = occurrence\.status === 'done'/)
   })
 
-  it('限时/活动 done 行：右列留空、详情无 [完成] 入口', () => {
-    expect(SOURCE).toMatch(/task\.status === 'done' \? '' : remainingLabel\(task, now\)/)
-    expect(SOURCE).toMatch(/task\.type !== 'daily' && task\.status !== 'done' \? \(/)
+  it('限时/活动 done 行：右列留空、详情无 [完成] 入口（v0.34 起 missed 与 done 同档）', () => {
+    expect(SOURCE).toMatch(
+      /task\.status === 'done' \|\| task\.status === 'missed' \? '' : remainingLabel\(task, now\)/
+    )
+    expect(SOURCE).toMatch(
+      /task\.type !== 'daily' && task\.status !== 'done' && task\.status !== 'missed' \? \(/
+    )
   })
 })

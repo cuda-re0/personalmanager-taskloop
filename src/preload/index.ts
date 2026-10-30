@@ -75,7 +75,8 @@ const api: Api = {
   },
 
   attachment: {
-    add: input => invoke<Attachment>(CH.attachment.add, input)
+    add: input => invoke<Attachment>(CH.attachment.add, input),
+    get: input => invoke<Attachment>(CH.attachment.get, input)
   },
 
   ai: {

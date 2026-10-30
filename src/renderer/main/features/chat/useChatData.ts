@@ -5,29 +5,24 @@ import { snapDifficulty } from '@shared/taskRules'
 import type {
   Attachment,
   EventResult,
-  Evidence,
   Message,
   ReviewVerdict,
   Task,
   TaskCreatePatch,
   TaskDraft
 } from '@shared/types/domain'
-import type { ChatActions, ChatData, DraftPatch, DraftView, EvidenceView, ReviewView } from './chatTypes'
+import type { ChatActions, ChatData, DraftPatch, DraftView, ReviewView } from './chatTypes'
 import {
   TYPE_DEFAULT_OFFSETS,
   draftPointsOf,
   dueHintToLocal,
   leadLabel,
   normalizeDraft,
-  pointsConfigOf
+  pointsConfigOf,
+  toEvidenceViews
 } from './chatViewModel'
-import {
-  FIXTURE_MESSAGES,
-  FIXTURE_TASKS,
-  findAttachment,
-  makeBulkMessages,
-  makeOlderMessages
-} from './__fixtures__/messages'
+import { countNeedEvidence, runReview } from '../tasks/reviewFlow'
+import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtures__/messages'
 
 /**
  * 会话区唯一的数据入口。
@@ -101,28 +96,17 @@ export function scoreOf(
   }
 }
 
-function toEvidenceViews(evidence: Evidence[]): EvidenceView[] {
-  return evidence.map((item, i) => {
-    if (item.kind === 'text') {
-      return {
-        key: `${item.addedAt}-${i}`,
-        kind: 'text' as const,
-        text: item.text,
-        url: null,
-        attachmentKind: null,
-        mime: null
-      }
+/** File → base64（readAsDataURL 的结果截到第一个逗号之后）。上传只走这一条链路，一次一个文件 */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('文件读取失败'))
+    reader.onload = () => {
+      const raw = typeof reader.result === 'string' ? reader.result : ''
+      const comma = raw.indexOf(',')
+      resolve(comma >= 0 ? raw.slice(comma + 1) : raw)
     }
-    // v0.8：是截图还是 PDF 全看 Attachment.kind
-    const file = findAttachment(item.attachmentId)
-    return {
-      key: `${item.addedAt}-${i}`,
-      kind: 'attachment' as const,
-      text: null,
-      url: file?.url ?? null,
-      attachmentKind: file?.kind ?? null,
-      mime: file?.mime ?? null
-    }
+    reader.readAsDataURL(file)
   })
 }
 
@@ -190,26 +174,89 @@ export function useChatData(): ChatData {
   })
   const [drafts, setDrafts] = useState<Record<string, TaskDraft>>({})
   const [confirmed, setConfirmed] = useState<Record<string, string>>({})
-  const [tasks] = useState<Record<string, Task>>(() => {
-    const map: Record<string, Task> = {}
-    for (const task of FIXTURE_TASKS) map[task.id] = task
-    return map
-  })
-  const [evidence, setEvidence] = useState<Record<string, Evidence[]>>(() => {
-    const map: Record<string, Evidence[]> = {}
-    for (const task of FIXTURE_TASKS) map[task.id] = task.evidence
-    return map
-  })
-  // task-report 已经连续 3 次 need_evidence，用来看「直接标记完成（不计分）」出口
-  const [needCount] = useState<Record<string, number>>({ 'task-report': 3 })
-  // 活动的结果档：初始为空，渲染时先取该条消息自己的 verdict.result，
-  // 用户改过才用这里的覆盖值（result 是任务属性，改一处两张卡都变）
-  const [results, setResults] = useState<Record<string, EventResult>>({})
+  /**
+   * 审核卡的数据源（v0.36）：任务与附件元数据全部从主进程取，不再读 fixture。
+   * `tasks` / `evidence` 两个 fixture 派生量已删——真任务的 `task_review` 消息以前在这里
+   * 找不到 task，被 `if (!task) continue` 整块跳过，卡片永远不出现。
+   */
+  const [taskById, setTaskById] = useState<Record<string, Task>>({})
+  const [attachmentById, setAttachmentById] = useState<Record<string, Attachment>>({})
+  /** 取不到的 id：记下来就**不再重试**，否则每次渲染都重打一次 IPC */
+  const missing = useRef<Set<string>>(new Set())
   const [sending, setSending] = useState(false)
   const [hasMore, setHasMore] = useState(() => bulkCount() === 0)
   const olderPool = useRef<Message[]>(bulkCount() === 0 ? makeOlderMessages(60) : [])
   const seq = useRef(0)
   const ackTimer = useRef<number | null>(null)
+
+  /**
+   * 拉一个任务进缓存（施工词 33 §2(a) 的三个刷新入口都走它）。
+   * `force` 用在卡片动作之后：那时需要的是「动作后的真状态」，不能被 missing 拦住。
+   */
+  const fetchTask = useCallback(async (taskId: string, force = false): Promise<void> => {
+    if (!force && missing.current.has(taskId)) return
+    try {
+      const res = await window.api.task.get({ id: taskId })
+      if (!res.ok) {
+        missing.current.add(taskId)
+        console.warn('[chat] 任务取不到，审核卡不渲染', taskId, res.error)
+        return
+      }
+      missing.current.delete(taskId)
+      // task.get 回 `Task & { subtasks }`，卡片只要 Task 那部分
+      const task: Task = res.data
+      setTaskById(prev => ({ ...prev, [taskId]: task }))
+    } catch (e: unknown) {
+      missing.current.add(taskId)
+      console.warn('[chat] task.get 调用失败', taskId, e)
+    }
+  }, [])
+
+  /** 拉一条附件元数据（证据缩略图/角标要 url、kind、mime） */
+  const fetchAttachment = useCallback(async (attachmentId: string): Promise<void> => {
+    if (missing.current.has(attachmentId)) return
+    try {
+      const res = await window.api.attachment.get({ id: attachmentId })
+      if (!res.ok) {
+        missing.current.add(attachmentId)
+        console.warn('[chat] 附件取不到，该条证据不渲染', attachmentId, res.error)
+        return
+      }
+      missing.current.delete(attachmentId)
+      setAttachmentById(prev => ({ ...prev, [attachmentId]: res.data }))
+    } catch (e: unknown) {
+      missing.current.add(attachmentId)
+      console.warn('[chat] attachment.get 调用失败', attachmentId, e)
+    }
+  }, [])
+
+  /** 把一批消息里引用的任务全部并发拉进来（去重后一次 Promise.all，不串行） */
+  const fetchReviewTasks = useCallback(
+    (list: Message[]): void => {
+      const ids = new Set<string>()
+      for (const message of list) {
+        if (message.meta.kind === 'task_review') ids.add(message.meta.taskId)
+      }
+      if (ids.size === 0) return
+      void Promise.all([...ids].map(id => fetchTask(id)))
+    },
+    [fetchTask]
+  )
+
+  /** 任务进缓存后，把它的证据附件也补齐（同样并发、同样记 missing） */
+  useEffect(() => {
+    const ids = new Set<string>()
+    for (const task of Object.values(taskById)) {
+      for (const item of task.evidence) {
+        if (item.kind === 'attachment') ids.add(item.attachmentId)
+      }
+    }
+    const pending = [...ids].filter(
+      id => attachmentById[id] === undefined && !missing.current.has(id)
+    )
+    if (pending.length === 0) return
+    void Promise.all(pending.map(id => fetchAttachment(id)))
+  }, [taskById, attachmentById, fetchAttachment])
 
   useEffect(() => {
     return () => {
@@ -233,6 +280,8 @@ export function useChatData(): ChatData {
         setCfg(nextCfg)
         setMessages(res.data.messages)
         setHasMore(false)
+        // 刷新时机①：首载拿到 bootstrap 消息之后，把审核消息引用的任务并发拉进来
+        fetchReviewTasks(res.data.messages)
         const nextDrafts: Record<string, TaskDraft> = {}
         const promoted: Record<string, string> = {}
         for (const message of res.data.messages) {
@@ -255,7 +304,32 @@ export function useChatData(): ChatData {
     return () => {
       alive = false
     }
-  }, [])
+  }, [fetchReviewTasks])
+
+  /**
+   * 审核消息实时化（施工词 33 §2(c)）。
+   *
+   * **只处理** `message.appended` 且 `meta.kind === 'task_review'`：主进程每次 `ai.review`
+   * 都会落一条这样的消息，不订阅就得重启才看得见。其它事件类型一律忽略——发送链路的
+   * 实时化不在本单范围（乐观消息与 message.appended 会撞出两个气泡）。
+   * `task.created` / `task.updated` 只用来**原地替换缓存**（不额外打 IPC）。
+   */
+  useEffect(() => {
+    if (typeof window.api === 'undefined') return
+    const off = window.api.onEvent(e => {
+      if (e.type === 'task.created' || e.type === 'task.updated') {
+        setTaskById(prev => (prev[e.task.id] === undefined ? prev : { ...prev, [e.task.id]: e.task }))
+        return
+      }
+      if (e.type !== 'message.appended') return
+      const message = e.message
+      if (message.meta.kind !== 'task_review') return
+      setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]))
+      // 刷新时机④：新审核消息 → 拉它指向的任务
+      void fetchTask(message.meta.taskId)
+    })
+    return off
+  }, [fetchTask])
 
   const draftViews = useMemo(() => {
     const views: Record<string, DraftView> = {}
@@ -269,28 +343,42 @@ export function useChatData(): ChatData {
     return views
   }, [drafts, confirmed])
 
+  /**
+   * 审核卡渲染数据（施工词 33 §2(e)）。
+   *
+   * - 任务与附件都来自主进程缓存；取不到 task 的消息整条不渲染（同 v0.34 行为，但数据源真了）。
+   * - `isLatest`：同一任务**最后一条** `task_review` 才有动作按钮。补证据后重审会产生新的
+   *   一条消息，旧卡若还能点「重新审核」，一次操作会连发三份 AI 请求、落三条消息。
+   * - `needEvidenceCount` 从消息派生（连续 need_evidence 的条数），不再有 fixture 计数。
+   */
   const reviewViews = useMemo(() => {
     const views: Record<string, ReviewView> = {}
+    const latestByTask = new Map<string, string>()
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const meta = messages[i].meta
+      if (meta.kind !== 'task_review') continue
+      if (!latestByTask.has(meta.taskId)) latestByTask.set(meta.taskId, messages[i].id)
+    }
     for (const message of messages) {
       if (message.meta.kind !== 'task_review') continue
-      const task = tasks[message.meta.taskId]
+      const task = taskById[message.meta.taskId]
       if (!task) continue
-      const list = evidence[task.id] ?? []
       const isEvent = task.type === 'event'
-      const result = isEvent ? (results[task.id] ?? message.meta.verdict.result ?? 'met') : null
+      const result = isEvent ? (message.meta.verdict.result ?? 'met') : null
       const score = scoreOf(task, message.meta.verdict, result)
       views[message.id] = {
-        task: { ...task, evidence: list },
+        task,
         planned: task.pointsPlanned,
         awarded: score.awarded,
-        evidence: toEvidenceViews(list),
-        needEvidenceCount: needCount[task.id] ?? 0,
+        evidence: toEvidenceViews(task.evidence, attachmentById),
+        needEvidenceCount: countNeedEvidence(messages, task.id),
         result,
-        leadLabel: score.leadLabel
+        leadLabel: score.leadLabel,
+        isLatest: latestByTask.get(message.meta.taskId) === message.id
       }
     }
     return views
-  }, [messages, tasks, evidence, needCount, results])
+  }, [messages, taskById, attachmentById])
 
   // localId → 所在消息的 id（promoteDraft 必须按消息定位草稿）
   const draftMessageIds = useMemo(() => {
@@ -313,11 +401,6 @@ export function useChatData(): ChatData {
     },
     [cfg]
   )
-
-  const setEventResult = useCallback((taskId: string, result: EventResult) => {
-    // TODO(W6): 换成 api.task.complete({ id, result })，现在只改本地展示
-    setResults(prev => ({ ...prev, [taskId]: result }))
-  }, [])
 
   const confirmDraft = useCallback(
     (localId: string) => {
@@ -375,37 +458,72 @@ export function useChatData(): ChatData {
     // TODO(W2): 换成 api.reminder.snooze({ id, minutes: 15 })
   }, [])
 
-  const addEvidence = useCallback((_taskId: string) => {
-    // TODO(W5): 证据采集面板 + api.task.addEvidence({ id, evidence })
+  /**
+   * 证据上传（施工词 33 §4）：File → base64 → `attachment.add` → **立即** `task.addEvidence`。
+   *
+   * 顺序写死：先落附件拿到 `Attachment{ id, kind, url }`，再把它作为证据挂到任务上；
+   * 不做「先攒着、提交时一起写」——草稿丢了证据就丢了。mime 原样传 `file.type`（空串也照传），
+   * 白名单与体积上限全在主进程，渲染层不重复校验，错误原文直接回给卡片显示。
+   */
+  const addEvidence = useCallback(async (taskId: string, file: File): Promise<string | null> => {
+    try {
+      const base64 = await readFileAsBase64(file)
+      const added = await window.api.attachment.add({
+        name: file.name,
+        mime: file.type,
+        base64
+      })
+      if (!added.ok) return added.error.message
+      const attached = await window.api.task.addEvidence({
+        id: taskId,
+        evidence: {
+          kind: 'attachment',
+          attachmentId: added.data.id,
+          addedAt: new Date().toISOString()
+        }
+      })
+      if (!attached.ok) return attached.error.message
+      // 缓存就地更新：证据列表要立刻多一条，缩略图也不必再补拉
+      setAttachmentById(prev => ({ ...prev, [added.data.id]: added.data }))
+      setTaskById(prev => ({ ...prev, [taskId]: attached.data }))
+      return null
+    } catch (e: unknown) {
+      return e instanceof Error ? e.message : String(e)
+    }
   }, [])
 
-  const removeEvidence = useCallback((taskId: string, key: string) => {
-    // TODO(W5): 换成 api.task.addEvidence 的删除分支
-    setEvidence(prev => {
-      const list = prev[taskId]
-      if (!list) return prev
-      const views = toEvidenceViews(list)
-      const index = views.findIndex(v => v.key === key)
-      if (index < 0) return prev
-      return { ...prev, [taskId]: list.filter((_, i) => i !== index) }
-    })
-  }, [])
+  /** 补完证据后重审：分流（pass 计分 / 驳回回 doing 或判 missed）全在 reviewFlow 里 */
+  const reReview = useCallback(
+    async (taskId: string): Promise<string | null> => {
+      const result = await runReview(taskId)
+      // 刷新时机③：动作之后重取该任务，卡片按新状态重画
+      await fetchTask(taskId, true)
+      return result.kind === 'error' ? result.message : null
+    },
+    [fetchTask]
+  )
 
-  const reReview = useCallback((_taskId: string) => {
-    // TODO(W5): 换成 api.ai.review({ taskId })
-  }, [])
-
-  const completeTask = useCallback((_taskId: string) => {
-    // TODO(W5): 换成 api.task.complete({ id, quality, evidence })
-  }, [])
-
-  const continueTask = useCallback((_taskId: string) => {
-    // TODO(W5): 收起卡片，任务回到 doing
-  }, [])
-
-  const markDoneWithoutPoints = useCallback((_taskId: string) => {
-    // TODO(W5): 走到「不计分完成」分支，不入账
-  }, [])
+  /**
+   * 防死锁出口（04 §3.3）：连续 3 次 need_evidence 后的「直接标记完成（不计分）」。
+   * 不加分、不调 `ai.review`；任务必须还在 `reviewing` 才发完成请求。
+   */
+  const markDoneWithoutPoints = useCallback(
+    async (taskId: string): Promise<string | null> => {
+      const current = await window.api.task.get({ id: taskId })
+      if (!current.ok) return current.error.message
+      if (current.data.status !== 'reviewing') {
+        // 已经不在待确认（别人先动过）：只对齐展示，不发完成请求
+        const task: Task = current.data
+        setTaskById(prev => ({ ...prev, [taskId]: task }))
+        return null
+      }
+      const done = await window.api.task.complete({ id: taskId, noPoints: true })
+      if (!done.ok) return done.error.message
+      setTaskById(prev => ({ ...prev, [taskId]: done.data.task }))
+      return null
+    },
+    []
+  )
 
   const actions = useMemo<ChatActions>(
     () => ({
@@ -416,11 +534,7 @@ export function useChatData(): ChatData {
       openTask,
       snoozeReminder,
       addEvidence,
-      removeEvidence,
       reReview,
-      setEventResult,
-      completeTask,
-      continueTask,
       markDoneWithoutPoints
     }),
     [
@@ -431,11 +545,7 @@ export function useChatData(): ChatData {
       openTask,
       snoozeReminder,
       addEvidence,
-      removeEvidence,
       reReview,
-      setEventResult,
-      completeTask,
-      continueTask,
       markDoneWithoutPoints
     ]
   )

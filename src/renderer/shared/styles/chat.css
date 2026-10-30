@@ -565,6 +565,18 @@
   cursor: pointer;
 }
 
+/* 真正的文件选择入口（v0.36）：按钮/`[补证据]` 都点它，界面上不出现原生控件 */
+.ev-file-input {
+  display: none;
+}
+
+/* 卡片动作失败：AppError.message 原文，2.6s 后由组件清掉（04 §3.3） */
+.review-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 .review-actions {
   display: flex;
   align-items: center;

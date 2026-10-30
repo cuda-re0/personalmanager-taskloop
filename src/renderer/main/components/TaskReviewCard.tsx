@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { fmtPoints } from '@shared/format'
-import type { EventResult, ReviewVerdict } from '@shared/types/domain'
-import type { ChatActions, EvidenceView, ReviewView } from '../features/chat/chatTypes'
-import { TYPE_LABEL, mimeExt } from '../features/chat/chatViewModel'
+import type { ReviewVerdict } from '@shared/types/domain'
+import type { ChatActions, ReviewView } from '../features/chat/chatTypes'
+import { TYPE_LABEL } from '../features/chat/chatViewModel'
+import { EvidencePanel } from './EvidencePanel'
 
 interface Props {
   view: ReviewView
@@ -11,52 +12,47 @@ interface Props {
   actions: ChatActions
 }
 
-/**
- * 一条证据。v0.8 起 Evidence 只有 text / attachment，
- * 截图渲染缩略图、其余附件（PDF 等）渲染成带类型角标的文件块。
- */
-function EvidenceChip({
-  item,
-  onOpen,
-  onRemove
-}: {
-  item: EvidenceView
-  onOpen(url: string): void
-  onRemove(): void
-}): ReactElement {
-  if (item.kind === 'attachment' && item.attachmentKind === 'image' && item.url) {
-    return (
-      <span className="ev-thumb">
-        <img alt="" className="ev-thumb-img" onClick={() => onOpen(item.url as string)} src={item.url} />
-        <button className="ev-remove" onClick={onRemove} type="button">
-          ×
-        </button>
-      </span>
-    )
-  }
-  return (
-    <span className={`ev-text ${item.kind === 'attachment' ? 'ev-file' : ''}`}>
-      <span className="ev-text-body">
-        {item.kind === 'attachment' ? mimeExt(item.mime) : item.text}
-      </span>
-      <button className="ev-remove" onClick={onRemove} type="button">
-        ×
-      </button>
-    </span>
-  )
-}
+/** 卡片内错误行的停留时长（与 ① 的行内红字同一个值，04 §3.3） */
+const ERROR_MS = 2600
 
 /**
- * 04 §3.3 审核卡片。左侧 3px 色条由 verdict 决定（CSS 类），
- * 四个状态的差别只在动作区：need_evidence / pass 不给直接完成的口子。
+ * 04 §3.3 审核卡片（v0.35 / v0.36 重排）。
+ *
+ * v0.34 起审核是「提交即送审 + 按 verdict 自动流转」，所以卡片出现时任务早已不在原状态：
+ * `pass` 已计分落库、`partial` / `fail` 已回 `doing` 或判 `missed`。因此**只有
+ * `need_evidence`（且是该任务最新一张卡）带按钮**：`[补证据]`（无证据时）/
+ * `[重新审核]` + `[补证据]`（已有证据）；连续 3 次 need_evidence 后再加一颗弱化的
+ * `[直接标记完成（不计分）]` 作防死锁出口。
+ *
+ * 已删：「完成 +N」（自动完成后会撞 CONFLICT）、「继续做」（在 done 上点等于把任务拉回
+ * doing 却留着分）、活动结果档下拉（自动完成后没有修改窗口）。
  */
 export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement {
   const [opened, setOpened] = useState<string | null>(null)
-  const { task, planned, awarded, evidence, needEvidenceCount, result, leadLabel } = view
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [openSignal, setOpenSignal] = useState(0)
+  const { task, planned, evidence, needEvidenceCount, leadLabel, isLatest } = view
   const isNeed = verdict.verdict === 'need_evidence'
-  // 只有 pass / partial 有 [完成 +N]，也才有分值可算
-  const canComplete = verdict.verdict === 'pass' || verdict.verdict === 'partial'
-  const pointsText = fmtPoints(awarded ?? planned)
+  // 旧卡只读：同一任务补证据后重审会产生新的一条消息，旧卡若还能点会连发多份请求
+  const actionable = isNeed && isLatest && task.status === 'reviewing'
+
+  // 错误原文停留 2.6s；连点只重置计时，不叠加多行
+  useEffect(() => {
+    if (error === null) return
+    const timer = window.setTimeout(() => setError(null), ERROR_MS)
+    return () => window.clearTimeout(timer)
+  }, [error])
+
+  const runAction = (fn: () => Promise<string | null>): void => {
+    if (busy) return
+    setBusy(true)
+    void fn()
+      .then(message => {
+        if (message) setError(message)
+      })
+      .finally(() => setBusy(false))
+  }
 
   return (
     <div className={`review-card review-card--${verdict.verdict}`}>
@@ -68,6 +64,7 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
         </span>
       </div>
 
+      {/* need_evidence 的追问优先用 followup（AI 要求补什么），其余 verdict 原样显示 reason */}
       <p className="review-reason">{isNeed ? (verdict.followup ?? verdict.reason) : verdict.reason}</p>
 
       {/* 04 §3.3：partial 时按 verdict.gaps 逐条列出未完成项，不加引导语 */}
@@ -79,96 +76,49 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
         </ul>
       ) : null}
 
-      <div className="review-evidence">
-        <span className="review-evidence-label">证据</span>
-        {evidence.map(item => (
-          <EvidenceChip
-            item={item}
-            key={item.key}
-            onOpen={setOpened}
-            onRemove={() => actions.removeEvidence(task.id, item.key)}
-          />
-        ))}
-        <button className="ev-add" onClick={() => actions.addEvidence(task.id)} type="button">
-          +
-        </button>
-      </div>
+      <EvidencePanel
+        busy={busy}
+        evidence={evidence}
+        onOpen={setOpened}
+        onPick={file => runAction(() => actions.addEvidence(task.id, file))}
+        openSignal={openSignal}
+      />
 
-      {/* 04 §3.3：结果档只在有 [完成 +N] 的卡上出现（pass / partial），
-          fail 与 need_evidence 没有完成动作，摆个下拉改了没反应 */}
-      {task.type === 'event' && result && canComplete ? (
-        <div className="review-result-row">
-          <select
-            aria-label="结果"
-            className="review-result"
-            onChange={event => actions.setEventResult(task.id, event.target.value as EventResult)}
-            value={result}
+      {actionable ? (
+        <div className="review-actions">
+          {evidence.length > 0 ? (
+            <button
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => runAction(() => actions.reReview(task.id))}
+              type="button"
+            >
+              重新审核
+            </button>
+          ) : null}
+          <button
+            className="btn btn--primary"
+            disabled={busy}
+            onClick={() => setOpenSignal(n => n + 1)}
+            type="button"
           >
-            <option value="exceeded">超预期</option>
-            <option value="met">达标</option>
-            <option value="below">不佳</option>
-          </select>
+            补证据
+          </button>
+          {/* 连续 3 次 need_evidence 后的防死锁出口，最右、弱化（04 §3.3） */}
+          {needEvidenceCount >= 3 ? (
+            <button
+              className="btn btn--faint"
+              disabled={busy}
+              onClick={() => runAction(() => actions.markDoneWithoutPoints(task.id))}
+              type="button"
+            >
+              直接标记完成（不计分）
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="review-actions">
-        {isNeed ? (
-          <>
-            {evidence.length > 0 ? (
-              <button
-                className="btn btn--ghost"
-                onClick={() => actions.reReview(task.id)}
-                type="button"
-              >
-                重新审核
-              </button>
-            ) : null}
-            <button
-              className="btn btn--primary"
-              onClick={() => actions.addEvidence(task.id)}
-              type="button"
-            >
-              补证据
-            </button>
-          </>
-        ) : null}
-
-        {canComplete ? (
-          <>
-            {task.requiresEvidence ? (
-              <button
-                className="btn btn--ghost"
-                onClick={() => actions.addEvidence(task.id)}
-                type="button"
-              >
-                补证据
-              </button>
-            ) : null}
-            <button
-              className="btn btn--primary"
-              onClick={() => actions.completeTask(task.id)}
-              type="button"
-            >
-              完成 +{pointsText}
-            </button>
-          </>
-        ) : null}
-
-        <button className="btn btn--ghost" onClick={() => actions.continueTask(task.id)} type="button">
-          继续做
-        </button>
-
-        {/* 连续 3 次 need_evidence 后的防死锁出口，最右、弱化（04 §3.3） */}
-        {needEvidenceCount >= 3 ? (
-          <button
-            className="btn btn--faint"
-            onClick={() => actions.markDoneWithoutPoints(task.id)}
-            type="button"
-          >
-            直接标记完成（不计分）
-          </button>
-        ) : null}
-      </div>
+      {error !== null ? <p className="review-error">{error}</p> : null}
 
       {opened ? (
         <div className="lightbox" onClick={() => setOpened(null)} role="presentation">

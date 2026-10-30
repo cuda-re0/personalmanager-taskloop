@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DomainEvent } from '@shared/types/events'
 import type { Occurrence, Task, TaskPatch, TaskStatus, TaskType } from '@shared/types/domain'
 import { toLocalDay as localDayOf } from '@shared/localDay'
-import { isDoneToday, isStepChecked } from './tasksModel'
+import { isDoneToday, isMissedToday, isStepChecked } from './tasksModel'
 import { onFocusTask } from './focusTask'
+import { runReview } from './reviewFlow'
 
 /**
  * 右栏①「当前任务」的数据入口。
@@ -29,6 +30,9 @@ const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'reviewing']
 
 /** 今日已完成行的拉取状态（v0.27：done 且今天完成的保留、变淡、沉底，第二天自然消失） */
 const DONE_STATUS: TaskStatus[] = ['done']
+
+/** 今日被判失败的行（v0.34）：没有 completedAt，按 updatedAt 落在今天过滤 */
+const MISSED_STATUS: TaskStatus[] = ['missed']
 
 /**
  * 只收今天的 occurrence（v0.21）。
@@ -72,6 +76,10 @@ export interface TasksData {
   tasks: Task[]
   /** 今日已完成的顶层任务（v0.27）：done 且 completedAt 是今天，行保留、变淡、沉底 */
   doneTasks: Task[]
+  /** 今日被判失败的顶层任务（v0.34）：missed 且 updatedAt 是今天，与 done 同档渲染 */
+  missedTasks: Task[]
+  /** 正在送审/审核的任务 id（期间 [完成] 与确认条按钮禁用，防止重复发请求） */
+  reviewingIds: ReadonlySet<string>
   occurrences: Occurrence[]
   /** 父任务 id → 子步骤（展开详情用） */
   subtasksByParent: Map<string, Task[]>
@@ -91,6 +99,8 @@ const NOTICE_MS = 2600
 export function useTasksData(): TasksData {
   const [tasks, setTasks] = useState<Task[]>([])
   const [doneTasks, setDoneTasks] = useState<Task[]>([])
+  const [missedTasks, setMissedTasks] = useState<Task[]>([])
+  const [reviewingIds, setReviewingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [occurrences, setOccurrences] = useState<Occurrence[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -145,10 +155,30 @@ export function useTasksData(): TasksData {
       .catch((e: unknown) => console.error('[tasks] task.list(done) 调用失败', e))
   }, [])
 
+  /**
+   * 今日被判失败的任务（v0.34）。`missed` 没有 `completedAt`（不是用户完成的，
+   * 是审核驳回时判的），所以按 `updatedAt` 落在今天过滤——明天这条过滤自然为空，
+   * 与 done 同一条「靠过滤消失」的口径，禁止任何清理或定时逻辑。
+   */
+  const reloadMissedTasks = useCallback(() => {
+    void window.api.task
+      .list({ status: MISSED_STATUS })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] task.list(missed) 失败', res.error)
+          return
+        }
+        const today = localDayOf(new Date())
+        setMissedTasks(res.data.filter(t => isMissedToday(t, today)))
+      })
+      .catch((e: unknown) => console.error('[tasks] task.list(missed) 调用失败', e))
+  }, [])
+
   useEffect(() => {
     reloadTasks()
     reloadOccurrences()
     reloadDoneTasks()
+    reloadMissedTasks()
     const off = window.api.onEvent((e: DomainEvent) => {
       switch (e.type) {
         case 'task.created':
@@ -159,9 +189,10 @@ export function useTasksData(): TasksData {
           break
         case 'task.updated':
         case 'task.removed':
-          // 完成会把任务挪进 done 集合，done 路也要跟着重拉（v0.27）
+          // 完成会把任务挪进 done 集合，驳回超期会挪进 missed 集合，两路都要跟着重拉
           reloadTasks()
           reloadDoneTasks()
+          reloadMissedTasks()
           break
         case 'occurrence.created':
           setOccurrences(prev => mergeTodayOccurrences(prev, e.occurrences))
@@ -174,7 +205,7 @@ export function useTasksData(): TasksData {
       }
     })
     return off
-  }, [reloadTasks, reloadOccurrences])
+  }, [reloadTasks, reloadOccurrences, reloadDoneTasks, reloadMissedTasks])
 
   /** focus-task（W6B 日历浮层 / ④ 明细点行）：展开该任务并高亮 */
   useEffect(
@@ -244,13 +275,15 @@ export function useTasksData(): TasksData {
   }, [])
 
   /**
-   * 提交 + 完成（02 §3.2 / 01 §3）。
+   * 提交 + 完成（02 §3.2 / 01 §3 / v0.34 审核闸门）。
    *
-   * 先 `transition('reviewing')`（同状态时是幂等 no-op，不会 409），再走唯一完成入口
-   * `task.complete`。两步分开调是刻意的：完成需要 `reviewing` 这个前置状态，
-   * 而 `task.complete` 内部要保证「状态 + 入账 + 统计」同事务，不该由渲染层拼事务。
-   * 证据不足时第二步返回 EVIDENCE_REQUIRED（02 §1/§3.2），任务就停在「待确认」——
-   * 这正是 01 §3 要的语义；出口是确认条上的「直接标记完成（不计分）」。
+   * 计分路径：先 `transition('reviewing')`（同态是幂等 no-op，不会 409），再**送审**——
+   * 从 v0.34 起点完成不再直接计分，「必须过审才拿到积分」。分流（pass 计分 / partial、fail
+   * 回 doing 或判 missed / need_evidence 停在 reviewing / 任何失败回 doing）全在
+   * `reviewFlow.runReview` 里，这里只负责把错误原文塞进行内红字。
+   *
+   * 不计分直通（确认条上的「直接标记完成（不计分）」）**不送审**：免分数逃生口，
+   * 直接 `task.complete({ noPoints: true })`，不加分、不调 ai.review。
    */
   const submitAndComplete = useCallback((task: Task, noPoints: boolean): void => {
     void window.api.task
@@ -262,19 +295,40 @@ export function useTasksData(): TasksData {
           setNotice({ taskId: task.id, message: res.error.message })
           return
         }
-        const complete = noPoints
-          ? window.api.task.complete({ id: task.id, noPoints: true })
-          : window.api.task.complete({ id: task.id, quality: 'met' })
-        void complete
-          .then(done => {
-            if (!done.ok) {
-              console.error('[tasks] task.complete 失败', done.error)
-              // 典型：requires_evidence=1 且没附证据 → EVIDENCE_REQUIRED「证据不能为空」
-              setNotice({ taskId: task.id, message: done.error.message })
-            }
-            // 成功后的刷新走 task.updated / points.changed 事件
+        if (noPoints) {
+          void window.api.task
+            .complete({ id: task.id, noPoints: true })
+            .then(done => {
+              if (!done.ok) {
+                console.error('[tasks] task.complete(noPoints) 失败', done.error)
+                setNotice({ taskId: task.id, message: done.error.message })
+              }
+              // 成功后的刷新走 task.updated / points.changed 事件
+            })
+            .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
+          return
+        }
+        // 送审期间禁用 [完成]，一次只允许一份请求（同任务的重复提交也会被并发闸挡掉）
+        setReviewingIds(prev => {
+          const next = new Set(prev)
+          next.add(task.id)
+          return next
+        })
+        void runReview(task.id)
+          .then(result => {
+            // skipped = 上一次还在飞，什么都不做（不该重复弹错）
+            if (result.kind === 'error') setNotice({ taskId: task.id, message: result.message })
+            // 成功后的刷新走 task.updated / points.changed / 消息事件
           })
-          .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
+          .catch((e: unknown) => console.error('[tasks] runReview 调用失败', e))
+          .finally(() => {
+            setReviewingIds(prev => {
+              if (!prev.has(task.id)) return prev
+              const next = new Set(prev)
+              next.delete(task.id)
+              return next
+            })
+          })
       })
       .catch((e: unknown) => console.error('[tasks] task.transition 调用失败', e))
   }, [])
@@ -390,6 +444,8 @@ export function useTasksData(): TasksData {
   return {
     tasks,
     doneTasks,
+    missedTasks,
+    reviewingIds,
     occurrences,
     subtasksByParent,
     expandedId,

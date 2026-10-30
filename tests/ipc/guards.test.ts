@@ -63,8 +63,13 @@ describe('guards（zod 形状校验）', () => {
   })
 
   it('未接的通道没有守卫（不放假 handler 的一部分）', () => {
-    expect(guards[CH.attachment.add]).toBeUndefined()
+    // v0.36 起 attachment.add / attachment.get 已随 W7 接通，不再是「未接」
     expect(guards[CH.reminder.snooze]).toBeUndefined()
+  })
+
+  it('attachment 两条都有守卫（v0.36）', () => {
+    expect(guards[CH.attachment.add]).toBeDefined()
+    expect(guards[CH.attachment.get]).toBeDefined()
   })
 
   it('W4 的六条都有守卫，且形状按 03/02 收口', () => {

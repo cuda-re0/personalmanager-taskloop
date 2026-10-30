@@ -222,6 +222,8 @@ export interface Api {
       base64?: string
       sourcePath?: string
     }): Promise<IpcResult<Attachment>>
+    /** 按 id 取元数据（v0.36）：审核卡画证据缩略图/角标用，无行 → NOT_FOUND */
+    get(input: { id: string }): Promise<IpcResult<Attachment>>
   }
 
   ai: {

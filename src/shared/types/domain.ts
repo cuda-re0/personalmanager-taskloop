@@ -1,7 +1,15 @@
 import type { AppErrorCode } from './ipc'
 
 export type TaskType = 'daily' | 'deadline' | 'event'
-export type TaskStatus = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived'
+export type TaskStatus =
+  | 'todo'
+  | 'doing'
+  | 'reviewing'
+  | 'done'
+  /** 审核驳回且已过 due_at（v0.34）：终点状态，不计分、不写流水 */
+  | 'missed'
+  | 'discarded'
+  | 'archived'
 export type Difficulty = 'trivial' | 'easy' | 'medium' | 'hard' | 'epic'
 export type Quality = 'partial' | 'met' | 'exceeded'
 /** 活动任务的结果档（v0.7 起参与积分）；与 Quality 分开：Quality 是"做没做完"，这是"做出什么结果" */

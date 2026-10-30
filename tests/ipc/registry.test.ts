@@ -11,9 +11,9 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 43 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(43)
-    expect(new Set(WIRED_CHANNELS).size).toBe(43)
+  it('WIRED 有 45 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条）', () => {
+    expect(WIRED_CHANNELS.length).toBe(45)
+    expect(new Set(WIRED_CHANNELS).size).toBe(45)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
@@ -55,10 +55,10 @@ describe('registry 通道覆盖', () => {
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
-    expect(Object.keys(NOT_WIRED).length).toBe(10)
+    expect(Object.keys(NOT_WIRED).length).toBe(9)
   })
 
-  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、msg.*/ai.*→W4 已接通、channel.*→W9、attachment.add→W11', () => {
+  it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、msg.*/ai.*→W4 已接通、channel.*→W9、attachment 两条已随 v0.36 接通', () => {
     expect(NOT_WIRED[CH.task.promoteDraft]).toBeUndefined()
     expect(NOT_WIRED[CH.task.complete]).toBeUndefined()
     // task.undo 不在 NOT_WIRED 里：它不是"待接的既有通道"，而是 v0.19 新增的一条
@@ -75,6 +75,8 @@ describe('registry 通道覆盖', () => {
     expect(NOT_WIRED[CH.ai.rejectDrafts]).toBeUndefined()
     expect(NOT_WIRED[CH.ai.health]).toBeUndefined()
     expect(NOT_WIRED[CH.channel.list]).toEqual({ owner: 'W9' })
-    expect(NOT_WIRED[CH.attachment.add]).toEqual({ owner: 'W11' })
+    // v0.36：attachment.add / attachment.get 已随 W7 接通，不在 NOT_WIRED 里
+    expect(NOT_WIRED[CH.attachment.add]).toBeUndefined()
+    expect(NOT_WIRED[CH.attachment.get]).toBeUndefined()
   })
 })

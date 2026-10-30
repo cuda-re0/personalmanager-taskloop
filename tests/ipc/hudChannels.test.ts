@@ -99,7 +99,7 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     ]) {
       expect(wired.has(ch)).toBe(true)
     }
-    expect(wired.size).toBe(43)
+    expect(wired.size).toBe(45)
   })
 
   it('hud.getState 返回 { mode, displayId, visible }，不含 expanded', () => {

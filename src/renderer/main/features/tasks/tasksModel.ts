@@ -31,8 +31,15 @@ export function isDoneToday(task: Task, today: string): boolean {
   )
 }
 
-/** 每日组的一行：今日 occurrence + 联带的任务（streak 显示用） */
-export interface DailyRow {
+/**
+ * 今日被判失败（v0.34）：`missed` 没有 `completedAt`（不是用户完成的，是审核驳回时判的），
+ * 所以看 `updatedAt` 的本地日是不是今天。与 done 同一条「靠过滤跨天消失」的口径。
+ */
+export function isMissedToday(task: Task, today: string): boolean {
+  return task.status === 'missed' && localDayOf(new Date(task.updatedAt)) === today
+}
+
+/** 每日组的一行：今日 occurrence + 联带的任务（streak 显示用） */export interface DailyRow {
   occurrence: Occurrence
   task: Task | null
 }
@@ -68,10 +75,15 @@ export function groupTasks(
       return (a.task?.sortKey ?? 0) - (b.task?.sortKey ?? 0)
     })
   const topLevel = tasks.filter(t => t.parentId === null)
-  // 活跃在前（原排序不动），今日 done 沉底（内部保持原排序）；done 但不是今天的直接不出现
+  // 活跃在前（原排序不动），今日 done / missed 沉底（内部保持原排序）；
+  // done / missed 但不是今天的直接不出现（v0.27 done、v0.34 missed）
   const byType = (type: TaskType): Task[] => [
-    ...topLevel.filter(t => t.type === type && t.status !== 'done').sort(compareTasks),
-    ...topLevel.filter(t => t.type === type && isDoneToday(t, today)).sort(compareTasks)
+    ...topLevel
+      .filter(t => t.type === type && t.status !== 'done' && t.status !== 'missed')
+      .sort(compareTasks),
+    ...topLevel
+      .filter(t => t.type === type && (isDoneToday(t, today) || isMissedToday(t, today)))
+      .sort(compareTasks)
   ]
   return {
     daily,
