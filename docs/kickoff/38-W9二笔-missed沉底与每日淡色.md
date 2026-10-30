@@ -40,6 +40,21 @@ occurrence 行不受影响：`done` 仍按 `status === 'done'`。
 
 不许动：`onClick` 三元、勾的渲染条件、`disabled` / `aria-*`、错误行。
 
+## 3b. 计数口径（`useHudData.ts`）——用户报的「数字对不上」
+
+现象：截图里列表 **7 行**（每日 4 + 限时 3，其中已完成 4 条），头部却写 `● 3/4`。
+
+根因：`done` / `total` 是从 **occurrences** 算的（`total = 今日 occurrence 数`），而列表从 v0.38 起已经混进了限时/活动任务行。两套数各算各的，必然对不上。
+
+改法：两个数都从 `rows` 派生，**不再单独 filter occurrences**（留两个真值源迟早再漂一次）：
+
+- `total` = `rows.length`
+- `done` = `rows` 里 `done === true` 的条数（`done` 已含 `missed`，见 §2）
+
+`completionRatio` / `ratioLabel` 两个函数**不改**，长约的环与数字自动跟着变。
+
+后果（要认）：头部 `N/M` 与长条的 `● N/M` 语义从「今日打卡率」变成「今日列表完成率」——分母含限时/活动。这是用户明确要的口径（「右边是总任务数量」）。
+
 ## 4. 样式（`hud.css`）
 
 改准两条，**不新增选择器**：
@@ -58,6 +73,7 @@ occurrence 行不受影响：`done` 仍按 `status === 'done'`。
 |---|---|
 | `src/renderer/hud/hudModel.ts` | §2 |
 | `src/renderer/hud/HudPanel.tsx` | §3 |
+| `src/renderer/hud/useHudData.ts` | §3b |
 | `src/renderer/hud/hud.css` | §4 |
 | `tests/renderer/hudModel.test.ts` | §6 |
 | `tests/renderer/hudWiring.test.ts` | §6 联动（选择器串变了，不改必红） |
@@ -74,11 +90,13 @@ occurrence 行不受影响：`done` 仍按 `status === 'done'`。
 `hudWiring.test.ts`：
 - 第 172 行的选择器串改成 `.hud-row-item:has(.hud-row-title.is-done) .hud-row:not(.hud-row--daily) {`，`opacity: 0.5` 的断言不变。
 - 加一条：`hud-row--daily` 只出现在 `completable` 为真的分支里（照现有 `row.completable ? (` 的写法对齐，别引入新写法）。
+- 加一条：`useHudData` 里 `done` / `total` 不再对 `occurrences` 做 filter/length（钉住 §3b 的单真值源）。
 
-## 7. 验收（两条）
+## 7. 验收（三条）
 
 1. **每日完成行**：悬浮窗勾一条每日 → 标题变淡、整行**不变淡**、落最底、勾实心。
-2. **missed 行**：需要「reviewing 被驳回 + 已过 due」才能造，手点成本高。**先保证 §6 第 1 条单测绿**；真机造不出来就如实写「未真机造出 missed，模型层已钉」，**不要改库伪造**。
+2. **数字对得上**：数一眼列表有几行、几个勾，头部 `N/M` 必须与肉眼所见一致（例：7 行、4 条已完成 → `● 4/7`）；长条的 `● N/M` 同步跟着变。
+3. **missed 行**：需要「reviewing 被驳回 + 已过 due」才能造，手点成本高。**先保证 §6 第 1 条单测绿**；真机造不出来就如实写「未真机造出 missed，模型层已钉」，**不要改库伪造**。
 
 ## 8. 自检
 
