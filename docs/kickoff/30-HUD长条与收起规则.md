@@ -93,6 +93,16 @@ export function offscreenOf(workArea: Rect, rect: Rect): { left: number; right: 
 
 - **长条态不变**：`gap > EDGE_EXPAND(48)` → `expand`。`edgeGap` 函数保留（长条在用）。
 - 面板态**不再看 `edgeGap`**——「距边 ≤24px 收球」整条作废，`EDGE_COLLAPSE` 常量如果没人用了就删（grep 确认）。
+
+**v0.31 补充裁决（施工方提问后定，原规格漏写）**：`EDGE_COLLAPSE(24)` 与 `PEEK_GAP(=EDGE_COLLAPSE+1)`
+**连同 `peekPanelBounds` 里那两行防自锁特判一起删掉**，不是保留。
+
+理由：那条特判存在的唯一目的是「展开后别贴边，否则距边 ≤24 会立刻把面板收回去（自锁）」。
+新规则下收起看的是**出屏 > 宽 1/3**，而 `peekPanelBounds` 末尾有 `clampInto` 保证面板完全在屏内
+（出屏 = 0 ≤ 1/3）→ 永远不会自激。保留特判反而有害：贴右展开时面板会被推离边缘 `PEEK_GAP=25px`，
+用户看到窗口横跳一下。
+
+删掉后：`edgeGap` 仅剩长条态在用，`EDGE_EXPAND` 保留，`EDGE_COLLAPSE` / `PEEK_GAP` 全仓 0 引用（§7 自检会 grep）。
 - 收球贴边沿用现有 `ballFromPanel(workArea, rect, side)`：`side` 由上面返回的 `collapse-left/right` 决定。
 
 ### 2.2 允许面板出屏（≤1/3），不要推回屏内
@@ -171,7 +181,7 @@ useEffect(() => {
 |---|---|
 | src/shared/types/events.ts | 加 1 行 `hud.visible.changed` |
 | src/main/services/hudService.ts | 常量拆 BALL_W/BALL_H、`offscreenOf`、`resolveDragStep` 面板分支重写、`panelBounds`、`settle` 先判形态、`setVisible` 加 broadcast |
-| src/main/windowManager.ts | HUD 建窗用新尺寸；`minWidth/minHeight` 仍只在 panel 态设（长条 40 高不能被 320 夹） |
+| src/main/windowManager.ts | **可不动**（施工方核实：建窗尺寸来自 `resolveInitialBounds`、本来就没写 min/max）。只有当注释里写着「56×56 圆球」这类过时描述时才顺带更正——**仅注释，零逻辑改动** |
 | src/renderer/main/components/AppHeader.tsx | 新增订阅 effect |
 | src/renderer/hud/HudBall.tsx | 改为长条（环 + 比例 + 星期 + 热区） |
 | src/renderer/hud/hud.css | `.hud-ball` 胶囊化、环/文字/热区样式 |
@@ -203,6 +213,23 @@ useEffect(() => {
 **hudWiring.test.ts**：`HudBall.tsx` 里有 `hud-bar-ring` / `hud-bar-ratio` / `hud-bar-week` / `hud-hit`；
 源码里搜不到 `BALL_SIZE`；`AppHeader.tsx` 有 `hud.visible.changed` 分支与 `return off`。
 
+### 5.1 旧断言怎么改（授权改 `tests/main/hudService.test.ts` 全部相关断言）
+
+测试基线工作区是 `1920 × 1040`（`availTop = 0`）。改后应写成：
+
+| 旧断言 | 新值 |
+|---|---|
+| `initialBallPoint` → `{x:1864, y:104}` | `{x:1788, y:104}`（`1920 − 132`） |
+| `ballBounds` → `{x:1864,y:104,w:56,h:56}` | `{x:1788,y:104,w:132,h:40}` |
+| `clampBallPoint(wa,{x:9999,y:9999})` → `{x:1864,y:984}` | `{x:1788,y:1000}`（`1040 − 40`） |
+| `clampBallPoint(wa,{x:-100,y:-100})` → `{0,0}` | 不变 |
+| `peekPanelBounds`（球在右边缘 `x:1864`）→ `1920−360−25` | 球的 x 改 `1788`，结果 `x:1560`（`1788+132−360`，**不再减 PEEK_GAP**） |
+| `peekPanelBounds`（球在 `x:100`）→ `{x:100,...}` | 不变（左半屏向右长） |
+| 「展开落点必留 > 24 边距」整条（`edgeGap > EDGE_COLLAPSE` 循环） | **删掉，换成**：`peekPanelBounds` 结果经 `offscreenOf(wa, rect)` 断言 `left === 0 && right === 0`（展开后面板完全在屏内 → 不会触发 >1/3 收起） |
+| `ballFromPanel(..., 'left'/'right')` 的期望 x | 左 `0` 不变；右 `1920 − 132 = 1788` |
+
+其余与 56 无关的用例保持原样。**不要为了让旧断言过而保留旧常量**——数改了就是在改契约。
+
 ## 6. 验收（三条主路径）
 
 1. **长条**：清掉 `hud.position`/`hud.size` 重启 → 长条 132×40、贴右边缘、距顶约 10%；
@@ -215,5 +242,5 @@ useEffect(() => {
 ## 7. 自检（三行）
 
 - [ ] 四命令绿（起点 48 文件 / 591 条）
-- [ ] `git show --stat` 对照 §4，越界 0；全仓 `grep -rn "BALL_SIZE" src tests` 0 命中
+- [ ] `git show --stat` 对照 §4，越界 0；全仓 `grep -rn "BALL_SIZE\|PEEK_GAP\|EDGE_COLLAPSE" src tests` 0 命中
 - [ ] §6 三条实测（写清"出屏几 px 收起""几秒内同步"，别写"正常"）
