@@ -207,7 +207,7 @@ describe('长条态（v0.31：132×40 胶囊 / 拖 vs 点）', () => {
   })
 })
 
-describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
+describe('长条手势（v0.33：按下即预备拖动 / 4px 位移分流）', () => {
   it('整条不再用原生 drag：.hud-ball / .hud-hit 里都没有 app-region', () => {
     expect(ruleBody(CSS, '.hud-ball {')).not.toMatch(/-webkit-app-region/)
     expect(ruleBody(CSS, '.hud-hit {')).not.toMatch(/-webkit-app-region/)
@@ -247,11 +247,16 @@ describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
     expect(BALL).not.toMatch(/is-dragging/)
   })
 
-  it('阈值常量在 hudModel 里，不写死在组件里', () => {
-    expect(MODEL).toMatch(/export const LONG_PRESS_MS = 100/)
+  it('阈值只有位移一个：TAP_TOLERANCE 在 hudModel，且不再有任何时间阈值', () => {
     expect(MODEL).toMatch(/export const TAP_TOLERANCE = 4/)
-    expect(BALL).toMatch(/LONG_PRESS_MS/)
     expect(BALL).toMatch(/TAP_TOLERANCE/)
+    // 时间阈值残留 0 命中（拆开拼：全仓 grep 要 0 命中，本用例自己不该成为命中点）
+    const word = 'LONG' + '_PRESS'
+    expect(MODEL).not.toContain(word)
+    expect(BALL).not.toContain(word)
+    // 组件里不许再起定时器：按下就是预备态，位移越过阈值才跟手
+    expect(BALL).not.toMatch(/setTimeout/)
+    expect(BALL).not.toMatch(/setInterval/)
   })
 
   it('面板最窄也有可抓的空白：.hud-grow 留 24px 底宽', () => {

@@ -1,29 +1,24 @@
 import { useEffect, useRef } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
-import {
-  LONG_PRESS_MS,
-  TAP_TOLERANCE,
-  completionRatio,
-  ratioLabel,
-  weekdayLabel
-} from './hudModel'
+import { TAP_TOLERANCE, completionRatio, ratioLabel, weekdayLabel } from './hudModel'
 import type { HudData } from './useHudData'
 
 /**
- * 长条态（04 §5.2 v0.31：132×40 胶囊；手势见 §5.2.2 v0.32）。窗口尺寸由主进程定，这里只画。
+ * 长条态（04 §5.2 v0.31：132×40 胶囊；手势见 §5.2.2）。窗口尺寸由主进程定，这里只画。
  *
  * 形态值仍叫 `ball`（`hud.mode` 存的是形态标识，改值域要动旧库归一与契约）——
  * 视觉上从 56×56 圆球换成长条：左侧 20×20 进度环 → 完成数/总数 → 星期。
  *
- * 手势（v0.32 用户裁决「点按点击，长按拖动」）：整条**不用** `-webkit-app-region: drag`——
- * drag 区收不到任何鼠标事件，做不到「既点又拖」。改由这里自己判：
- * - 点按（< 100ms 松开、位移 ≤ 4px）→ 展开面板；
- * - 长按（≥ 100ms）→ 进入拖动，指针怎么移窗口就跟到哪；
- * - 手抖（未到 100ms 但位移 > 4px）→ 什么都不做。
+ * 手势（用户裁决「点按点击，长按拖动」，v0.33 改按下即预备）：
+ * 整条**不用** `-webkit-app-region: drag`——drag 区收不到任何鼠标事件，做不到「既点又拖」。
+ * 这里自己判，且**没有时间阈值**（按住多久才算拖动会让手一停就发涩）：
+ * - 按下 → 立刻 `dragBegin()` 拿长条左上角，算出抓取偏移 `grab = 按下点 − 左上角`；
+ *   此时只是**预备**，窗口一动不动；
+ * - 位移超过 `TAP_TOLERANCE`(4px) → 进入拖动，指针怎么移窗口就跟到哪（不用等任何时长）；
+ * - 松开时位移仍 ≤ 4px → 视为点按，展开面板。
  *
- * 拖动是**绝对定位**：`dragBegin()` 取长条左上角，算出抓取偏移 `grab = 按下点 − 左上角`，
- * 之后每帧发 `dragTo(指针 − grab)`。不做增量累加——`setBounds` 异步，读回的是上一帧位置，
- * 增量会一帧帧漏，窗口不跟光标、越拖越偏。
+ * 拖动是**绝对定位**：每帧发 `dragTo(指针 − grab)`。不做增量累加——`setBounds` 异步，
+ * 读回的是上一帧位置，增量会一帧帧漏，窗口不跟光标、越拖越偏。
  *
  * 位移一律取 `screenX/screenY` 差值：窗口自己也在动，`clientX` 会漂。
  * 拖动中**不判形态**（形态只由主进程在松手时判一次），窗口也就不会在拖动中途变大。
@@ -48,10 +43,8 @@ interface Gesture {
   /** 最近一次屏幕坐标 */
   lastX: number
   lastY: number
-  /** 已过长按阈值，进入拖动 */
+  /** 位移已越过 `TAP_TOLERANCE`，进入拖动 */
   dragging: boolean
-  /** 未到 100ms 就动超过 4px：本次按压作废（不展开也不拖） */
-  cancelled: boolean
   /** 抓取偏移 = 按下点 − 长条左上角；`null` = dragBegin 还没回来 */
   grab: Point | null
   /** 最近一次的绝对目标点；`null` = 还没移动过 */
@@ -61,15 +54,7 @@ interface Gesture {
 export function HudBall({ data }: { data: HudData }): ReactElement {
   const ratio = completionRatio(data.done, data.total)
   const gesture = useRef<Gesture | null>(null)
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const frame = useRef<number | null>(null)
-
-  const clearHold = (): void => {
-    if (holdTimer.current !== null) {
-      clearTimeout(holdTimer.current)
-      holdTimer.current = null
-    }
-  }
 
   const clearFrame = (): void => {
     if (frame.current !== null) {
@@ -108,82 +93,70 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
     // 先摘掉：pointerup 之后浏览器还会补一个 lostpointercapture，
     // 不先置 null 会把 end:true 发两遍
     gesture.current = null
-    clearHold()
     clearFrame()
 
     if (g.dragging) {
-      // 没移动过就不发：既不需要落库，也没什么可判
+      // 没移动过（grab 没回来就松手）就不发：既不需要落库，也没什么可判
       if (g.target !== null) send(g.target, true)
       return
     }
-    if (!allowTap || g.cancelled) return
+    if (!allowTap) return
     if (Math.abs(g.lastX - g.startX) + Math.abs(g.lastY - g.startY) > TAP_TOLERANCE) return
     data.actions.setMode('panel')
   }
 
-  // 组件卸载时别留定时器/帧回调（长按到一半切形态、窗口被隐藏都会走到这里）
-  useEffect(
-    () => () => {
-      if (holdTimer.current !== null) clearTimeout(holdTimer.current)
-      if (frame.current !== null) cancelAnimationFrame(frame.current)
-    },
-    []
-  )
+  // 组件卸载时别留帧回调（拖到一半切形态、窗口被隐藏都会走到这里）
+  useEffect(() => () => clearFrame(), [])
 
   const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>): void => {
     if (e.button !== 0) return
     // 捕获指针：移出窗口也要收得到 move/up，否则拖到边上就断了
     e.currentTarget.setPointerCapture(e.pointerId)
-    gesture.current = {
+    const g: Gesture = {
       startX: e.screenX,
       startY: e.screenY,
       lastX: e.screenX,
       lastY: e.screenY,
       dragging: false,
-      cancelled: false,
       grab: null,
       target: null
     }
-    clearHold()
-    holdTimer.current = setTimeout(() => {
-      holdTimer.current = null
-      const g = gesture.current
-      if (!g || g.cancelled) return
-      g.dragging = true
-      // 绝对定位的锚：拿到长条左上角，才能算出「按下点相对长条」的偏移
-      void window.api.hud
-        .dragBegin()
-        .then(res => {
-          if (!res.ok) {
-            console.error('[hud] hud.dragBegin 失败', res.error)
-            return
-          }
-          // 期间可能已经松手、或换了新的一次按压：不能把 grab 塞到别人身上
-          if (gesture.current !== g) return
-          g.grab = { x: g.startX - res.data.x, y: g.startY - res.data.y }
-        })
-        .catch((e: unknown) => console.error('[hud] hud.dragBegin 调用失败', e))
-    }, LONG_PRESS_MS)
+    gesture.current = g
+
+    // 按下就取锚点：绝对定位要的是「按下点相对长条左上角的偏移」，
+    // 早一步拿到，第一帧位移就能跟手（不用等任何时长）
+    void window.api.hud
+      .dragBegin()
+      .then(res => {
+        if (!res.ok) {
+          console.error('[hud] hud.dragBegin 失败', res.error)
+          return
+        }
+        // 期间可能已经松手、或换了新的一次按压：不能把 grab 塞到别人身上
+        if (gesture.current !== g) return
+        g.grab = { x: g.startX - res.data.x, y: g.startY - res.data.y }
+        // IPC 往返期间可能已经拖起来了：立刻按最新指针补一帧，
+        // 否则要等下一次 move 才动，手感会先顿一下
+        if (g.dragging) {
+          g.target = { x: g.lastX - g.grab.x, y: g.lastY - g.grab.y }
+          schedule()
+        }
+      })
+      .catch((e: unknown) => console.error('[hud] hud.dragBegin 调用失败', e))
   }
 
   const onPointerMove = (e: ReactPointerEvent<HTMLButtonElement>): void => {
     const g = gesture.current
     if (!g) return
-
-    if (!g.dragging) {
-      // 手抖：没到 100ms 就动了超过 4px → 作废本次按压
-      if (Math.abs(e.screenX - g.startX) + Math.abs(e.screenY - g.startY) > TAP_TOLERANCE) {
-        g.cancelled = true
-        clearHold()
-      }
-      g.lastX = e.screenX
-      g.lastY = e.screenY
-      return
-    }
-
     g.lastX = e.screenX
     g.lastY = e.screenY
-    // grab 未就绪就发，会把窗口甩到指针位置上（等于忽略按下的偏移）
+
+    if (!g.dragging) {
+      // 预备态：还没过阈值就一个包都不发，窗口一动不动（点按时不许抖）
+      if (Math.abs(e.screenX - g.startX) + Math.abs(e.screenY - g.startY) <= TAP_TOLERANCE) return
+      g.dragging = true
+    }
+    // grab 未就绪就发，会把窗口甩到指针位置上（等于忽略按下的偏移）；回来时会补发
     if (g.grab === null) return
     g.target = { x: e.screenX - g.grab.x, y: e.screenY - g.grab.y }
     schedule()

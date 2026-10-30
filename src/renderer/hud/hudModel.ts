@@ -39,10 +39,10 @@ export function ratioLabel(done: number, total: number): string {
 }
 
 /**
- * 长条手势判定阈值（04 §5.2.2 v0.32）：按住 ≥100ms 进入拖动，
- * 未到 100ms 但位移已 >4px 视为手抖（既不展开也不拖）。
+ * 长条手势判定阈值（04 §5.2.2）：按下即进入**预备拖动**（窗口不动），
+ * 位移一旦超过 `TAP_TOLERANCE` 就开始跟手；松开时仍未超过 → 视为点按，展开面板。
+ * 不再有时间阈值——「按住多久才算拖动」会让手一停就感觉卡住。
  */
-export const LONG_PRESS_MS = 100
 export const TAP_TOLERANCE = 4
 
 /**
