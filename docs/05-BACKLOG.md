@@ -455,29 +455,60 @@ v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai
 
 ---
 
-## W12 · 生活助手：能聊、能读数据、能挂人物卡（v0.36 立项，**契约未定稿，不许开工**）
+## W12 · 生活助手：能聊、能读数据、能挂人物卡（v0.37 定稿中，**不许开工**）
 
 用户 2026-10-30 原话：「放在 w7 后面做吧，要像豆包那样可以进行日常对话（其实是想要一个生活小助手，能接入人物卡就更好了）」。
 
 **排期**：W7 之后、W10 打包之前。硬依赖 W7——W7 会重写 `useChatData` 的数据链与 `task_review` 实时订阅，本单在同一个文件上继续，并行必然冲突。
 
-**现在为什么聊不起来（实测，四条断点）**
+### 已裁决（用户 2026-10-30 四问答）
 
-1. **渲染层根本没调 `msg.send`**：`useChatData.ts:462` 还是 `// TODO(W2)`，`send()` 只往本地数组插气泡 + 600ms 假转圈。全仓库 `src/renderer` 下 `msg.send` **0 命中**。主进程链路（W4）是完整的，断在最后一米。
-2. **AI 读不到任何任务数据**：`buildParseRequest` 只喂 system + fewshot + 最近 6 条聊天 + 本轮文字/图片。没有任务列表、没有完成记录、没有积分、没有日历。`intent` 里的 `query` 只有 schema 定义，**主进程从不读它**（03 §257 设计的「SQL 取数 + 模板拼装」没实现）。
-3. **聊天附件是假的**：`ChatInput.toAttachment()` 只造 `local-att-N` 预览对象，从未上传；`msg.send` 收到的 `attachmentIds` 是假 id。
-4. **输出被 JSON 锁死**：每轮必须回 `{reply, tasks}`，`reply` 上限 120 字（prompt 要求 60 字），且只带最近 6 条上下文——做不了连续对话，也记不住前面说过什么。
+| # | 问题 | 裁决 | 落点 |
+|---|---|---|---|
+| 1 | 「人物卡」 | **c + a**：用户画像（长期记忆「我是谁」）+ 内置人设（名字/称呼/人设正文/语气） | `memories` + `personas` 两张表 |
+| 2 | 对话形态 | **b 双模式**：闲聊不抽任务卡；用户明说建任务才进 parse | `msg.send` 加 `mode`，本地判定入口 |
+| 3 | 流式 | **呈现层流式，不与模型 token 同步**：主进程仍一次拿完整回复，渲染层逐字显现 | 不改请求协议；`ai.status` 与 `message.patch` 已存在，够用 |
+| 4 | 记忆范围 | **主流聊天模型做法**：最近一段原文 + 更早的摘要压缩 + 画像条目 | 20 条原文窗口 + `chat_state.summary_md` + `memories` |
 
-**要裁决的四件事（定了才写契约）**
+### 现在为什么聊不起来（实测，四条断点）
 
-| # | 问题 | 候选 |
+1. **渲染层根本没调 `msg.send`**：`useChatData.ts:462` 还是 `// TODO(W2)`，`send()` 只往本地数组插气泡 + 600ms 假转圈。全仓库 `src/renderer` 下 `msg.send` **0 命中**。主进程链路（W4）完整，断在最后一米。
+2. **AI 读不到任何任务数据**：`buildParseRequest` 只喂 system + fewshot + 最近 6 条（`CONTEXT_MESSAGES = 6`）+ 本轮文字/图片。没有任务列表、完成记录、积分、日历。`intent` 里的 `query` 只有 schema 定义，主进程从不读它。
+3. **聊天附件是假的**：`ChatInput.toAttachment()` 只造 `local-att-N` 预览对象，`msg.send` 收到的 `attachmentIds` 是假 id。
+4. **输出被 JSON 锁死**：`ParseResultSchema` 是 `{reply ≤120 字, tasks ≤3}`。闲聊和抽任务共用一条管线，回复必然短、必然带卡。
+
+### 设计骨架（四条新链）
+
+**A. 纯文本闲聊管线**（新增 `src/main/ai/pipelines/chat.ts`）
+
+- 输出**纯文本**，不套 JSON。长度放开到 2000 字，允许 markdown。
+- system = 人格（`personas`）+ 画像条目（`memories`）+ 摘要（`chat_state`）+ **当日任务摘要** + 当前时间。
+- **任务摘要由主进程取数、模板拼装**（03 §257 那条一直没实现的「不让模型算数字」）：今日待办 N 条（标题 + 截止）、已完成 M 条、逾期 K 条、今日积分 / 余额。模板拼接，不让模型自己查、自己算。
+- 上下文：最近 20 条原文（复用 `messageService.recentMessages(20)`），摘要作为 system 前置段。
+
+**B. 双模式入口**
+
+- `msg.send` 加 `mode: 'chat' | 'task'`，默认 `chat`。
+- 判定：文本**以**「建任务 / 新建任务 / 加个任务 / 记一下任务 / 新增任务 / 提醒我」开头 → `task`（走现有 parse 管线，出草稿卡）；否则 `chat`。**本地字符串判定，不调模型。**
+- `task` 模式回复仍受 120 字限制（草稿卡旁的一句话），`chat` 模式不受。
+
+**C. 流式呈现（渲染层）**
+
+- 主进程拿到完整回复后 patch `content_md` 并广播 `message.patch`（已实现，`aiService.ts:107`）。
+- 渲染层对**本轮刚完成的那一条**做 typewriter：约 40 字/秒，超过 400 字提到 80 字/秒。
+- 历史消息不重放；切换面板再回来不重放。等待期间沿用现有细环（`ai.status: thinking`），不新增文案。
+
+**D. 数据层（迁移 `003_chat.sql`）**
+
+| 表 | 字段 | 说明 |
 |---|---|---|
-| 1 | 「人物卡」指什么 | (a) 内置人设：UI 里填名字/称呼/性格/语气，存一张 `personas` 表；(b) 导入外部角色卡（SillyTavern 系 PNG/JSON，含 `name`/`personality`/`first_mes`/`mes_example`）；(c) 用户画像：助手记住「我是谁」（作息、目标、偏好），本质是长期记忆而非扮演 |
-| 2 | 对话形态怎么变 | (a) 保留「边聊边抽任务」，但只在识别到任务意图时出卡，`reply` 放开长度；(b) 双模式：闲聊不抽卡、说「建个任务」才进 parse；(c) 完全拆开，对话与建任务互不干扰 |
-| 3 | 是否要流式 | 现在是整段 patch 一次落库。豆包式体验需要 SSE/分块 + 打字机渲染，改动主进程 `aiService` + 渲染层消息态两层 |
-| 4 | 记忆范围 | 只带最近 N 条（现状 6）/ 带今日摘要 / 带回滚窗口（最近 30 条 + 摘要压缩）/ 落到 `memories` 表做长期 |
+| `personas` | `id` `name` `user_call` `persona_md` `tone` `is_active` `created_at` `updated_at` | 建表即支持多张，v1 UI 只管一条 `is_active` |
+| `memories` | `id` `content_md` `source`(`auto`/`manual`) `created_at` `updated_at` | 上限 50 条 |
+| `chat_state` | `id`(=1) `summary_md` `summary_upto_message_id` `updated_at` | 单行，摘要压缩后写这里 |
 
-**已知代价**：本单必然动 `src/main/ai/**`（提示词与请求格式）、`aiService.ts`（多轮与流式）、`useChatData.ts`（发送与消息态），是全项目耦合最重的一处。要么一次做对，要么不做。
+### 待定（定稿前必须拍）
+
+- **记忆从哪来**：(甲) 模型自动提取——每轮结束后异步跑一次小调用（多一次 API 成本，最像豆包）；(乙) 只用设置页手动添加（零成本，但得用户自己写）；(丙) 两者都要。
 
 ---
 
