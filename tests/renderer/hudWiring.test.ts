@@ -48,6 +48,7 @@ const BALL = stripComments(read('src/renderer/hud/HudBall.tsx'))
 const INDEX = stripComments(read('src/renderer/hud/index.tsx'))
 const DATA = stripComments(read('src/renderer/hud/useHudData.ts'))
 const MODEL = stripComments(read('src/renderer/hud/hudModel.ts'))
+const HEADER = stripComments(read('src/renderer/main/components/AppHeader.tsx'))
 const CSS = read('src/renderer/hud/hud.css')
 
 /** JSX 里可见的文字节点（`>…<` 之间的内容） */
@@ -154,9 +155,10 @@ describe('背景与透明度（04 §5.4）', () => {
     expect(BALL).toMatch(/style=\{\{ '--hud-bg': data\.hudBg \}/)
   })
 
-  it('球与面板的 background / fill 都用 var(--hud-bg)', () => {
+  it('长条与面板的 background 都用 var(--hud-bg)，进度环轨道走 --border', () => {
     expect(ruleBody(CSS, '.hud-panel {')).toMatch(/background:\s*var\(--hud-bg\)/)
-    expect(ruleBody(CSS, '.hud-ball-track {')).toMatch(/fill:\s*var\(--hud-bg\)/)
+    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/background:\s*var\(--hud-bg\)/)
+    expect(ruleBody(CSS, '.hud-bar-track {')).toMatch(/stroke:\s*var\(--border\)/)
   })
 
   it('容器上没有任何 opacity（文字不会跟着变淡）', () => {
@@ -165,21 +167,64 @@ describe('背景与透明度（04 §5.4）', () => {
   })
 })
 
-describe('球态交互（56px / 拖 vs 点）', () => {
-  it('球 56×56：整球 drag、圆心 no-drag 热区，点它 setMode(panel)', () => {
-    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/width:\s*56px/)
-    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/height:\s*56px/)
+describe('长条态（v0.31：132×40 胶囊 / 拖 vs 点）', () => {
+  it('长条铺满窗口：胶囊圆角 999px、整条 drag', () => {
+    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/width:\s*100%/)
+    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/height:\s*100%/)
+    expect(ruleBody(CSS, '.hud-ball {')).toMatch(/border-radius:\s*999px/)
     expect(ruleBody(CSS, '.hud-ball {')).toMatch(/-webkit-app-region:\s*drag/)
-    expect(ruleBody(CSS, '.hud-ball-hot {')).toMatch(/-webkit-app-region:\s*no-drag/)
+  })
+
+  it('内容三段：环 / 完成数比 / 星期，另铺一层整条 no-drag 热区', () => {
+    for (const cls of ['hud-bar-ring', 'hud-bar-ratio', 'hud-bar-week', 'hud-hit']) {
+      expect(BALL).toContain(cls)
+    }
+    expect(ruleBody(CSS, '.hud-hit {')).toMatch(/-webkit-app-region:\s*no-drag/)
+    expect(ruleBody(CSS, '.hud-hit {')).toMatch(/inset:\s*0/)
+    expect(BALL).toMatch(/weekdayLabel\(new Date\(\)\)/)
+    expect(BALL).toMatch(/ratioLabel\(data\.done, data\.total\)/)
     expect(BALL).toMatch(/data\.actions\.setMode\('panel'\)/)
   })
 
-  it('面板 ESC 收回球；头部是拖动把手，tab 是 no-drag', () => {
+  it('v0.30 的 56px 圆球痕迹删净：旧常量全树 0 命中', () => {
+    // 拆开拼：自检的 grep 要能 0 命中，本用例自己不该成为命中点
+    const offenders = ['BALL' + '_SIZE', 'PEEK' + '_GAP', 'EDGE' + '_COLLAPSE']
+    const hits: string[] = []
+    for (const file of walk(resolve(ROOT, 'src')).concat(walk(resolve(ROOT, 'tests')))) {
+      if (file.endsWith('hudWiring.test.ts')) continue // 本用例自己写着这三个词
+      const body = stripComments(readFileSync(file, 'utf8'))
+      for (const word of offenders) {
+        if (body.includes(word)) hits.push(`${file.slice(ROOT.length + 1)} → ${word}`)
+      }
+    }
+    expect(hits).toEqual([])
+  })
+
+  it('面板 ESC 收回长条；头部是拖动把手，tab 是 no-drag', () => {
     expect(PANEL).toMatch(/event\.key === 'Escape'/)
     expect(PANEL).toMatch(/setMode\('ball'\)/)
     expect(ruleBody(CSS, '.hud-head {')).toMatch(/-webkit-app-region:\s*drag/)
     expect(ruleBody(CSS, '.hud-tabs {')).toMatch(/-webkit-app-region:\s*no-drag/)
     expect(ruleBody(CSS, '.hud-panel {')).toMatch(/height:\s*100%/)
+  })
+})
+
+describe('可见性同步（v0.31 / 原 kickoff 29）', () => {
+  it('顶栏订阅 hud.visible.changed 并取消订阅（只看不写回，避免自激）', () => {
+    expect(HEADER).toMatch(/event\.type === 'hud\.visible\.changed'/)
+    expect(HEADER).toMatch(/setVisible\(event\.visible\)/)
+    expect(HEADER).toMatch(/return off/)
+    // 订阅回调里不许再调 hud.setVisible 写回主进程（会「广播 → 再 setVisible → 再广播」自激）
+    const from = HEADER.indexOf('window.api.onEvent(event =>')
+    expect(from).toBeGreaterThan(-1)
+    const callback = HEADER.slice(from, HEADER.indexOf('}, [])', from))
+    expect(callback).not.toMatch(/setVisible\(\{/)
+  })
+
+  it('事件表里登记了 hud.visible.changed', () => {
+    expect(read('src/shared/types/events.ts')).toContain(
+      "{ type: 'hud.visible.changed'; visible: boolean }"
+    )
   })
 })
 

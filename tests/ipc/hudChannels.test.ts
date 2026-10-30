@@ -116,7 +116,7 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     expect(win.getBounds()).toEqual({
       width: 360,
       height: 480,
-      x: 1920 - 360 - hudService.PEEK_GAP,
+      x: 1560,
       y: 104
     })
     expect(events.filter(e => e.type === 'hud.mode.changed')).toEqual([
@@ -127,8 +127,8 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
 
   it('hud.moveTo → clamp 进 workArea 并落库', () => {
     callOk(CH.hud.moveTo, { x: 9999, y: 9999 })
-    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
-    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
+    expect(win.getBounds()).toEqual({ x: 1788, y: 1000, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
   })
 
   it('非法入参统一 INVALID_INPUT（04 §1.1「请求参数格式不正确」），且不改窗口', () => {

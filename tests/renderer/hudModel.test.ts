@@ -7,7 +7,8 @@ import {
   localDayOf,
   pendingCount,
   ratioLabel,
-  todayPointsLabel
+  todayPointsLabel,
+  weekdayLabel
 } from '../../src/renderer/hud/hudModel'
 
 /** HUD 的纯模型（W9 · 04 §5）：只测计数、格式化与列表拼装，DOM 不测 */
@@ -134,6 +135,24 @@ describe('列表拼装（每日打卡在前，限时/活动在后，最多 6 条
     const rows = buildRows(occurrences, tasks)
     expect(rows.map(r => r.id)).toEqual(['o1', 'o2', 'a', 'b', 'c', 'd'])
     expect(rows[1]).toEqual({ kind: 'occurrence', id: 'o2', title: '客户回访', done: true })
+  })
+})
+
+describe('长条上的星期（v0.31）', () => {
+  it('7 个已知日期给出 周日…周六（硬编码，不依赖 ICU）', () => {
+    // 2026-10-25 是周日，连排 7 天
+    const days = [
+      ['2026-10-25', '周日'],
+      ['2026-10-26', '周一'],
+      ['2026-10-27', '周二'],
+      ['2026-10-28', '周三'],
+      ['2026-10-29', '周四'],
+      ['2026-10-30', '周五'],
+      ['2026-10-31', '周六']
+    ] as const
+    for (const [day, label] of days) {
+      expect(weekdayLabel(new Date(`${day}T12:00:00`))).toBe(label)
+    }
   })
 })
 

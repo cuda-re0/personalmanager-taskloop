@@ -8,7 +8,8 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 界面文案纪律见 04 §1：`aria-label` 允许，可见文字只许已登记的串。
  *
  * 初态取 `hud.getState().visible`（v0.17 新增字段），此后以本地状态为准做切换；
- * HUD 的显隐没有对应事件，另一个窗口也不会去改它。
+ * v0.31 起主进程 `hud.setVisible()` 会广播 `hud.visible.changed`（HUD 设置页「关闭悬浮窗」
+ * 也走这条），所以再订阅一次把本地状态拉回真值——否则开关会停在"开"，点第一次没反应。
  */
 
 const HEADER_HEIGHT = 56
@@ -51,6 +52,15 @@ export function AppHeader(): ReactElement {
   }, [])
 
   const on = visible !== false
+
+  // HUD 侧（设置页「关闭悬浮窗」）改了显隐：跟主进程的广播走，不让开关与真值脱钩。
+  // 回调里只读——写回 `hud.setVisible` 会自激（广播 → 再 setVisible → 再广播）。
+  useEffect(() => {
+    const off = window.api.onEvent(event => {
+      if (event.type === 'hud.visible.changed') setVisible(event.visible)
+    })
+    return off
+  }, [])
 
   const toggle = (): void => {
     const next = !on

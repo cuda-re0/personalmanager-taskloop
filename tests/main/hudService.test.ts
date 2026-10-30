@@ -133,43 +133,43 @@ function makeWindow(initial: Rect): FakeWindow {
   }
 }
 
-describe('HUD 纯几何（球 / 面板 / 展开落点）', () => {
+describe('HUD 纯几何（长条 / 面板 / 展开落点）', () => {
   const wa = PRIMARY.workArea
 
-  it('首次启动的球位：贴右边缘（x = right − 56）、距顶 = 工作区高度 × 0.1', () => {
-    expect(hudService.initialBallPoint(wa)).toEqual({ x: 1864, y: 104 })
-    expect(hudService.ballBounds(wa, { x: 1864, y: 104 })).toEqual({
-      x: 1864,
+  it('首次启动的长条位：贴右边缘（x = right − 132）、距顶 = 工作区高度 × 0.1', () => {
+    expect(hudService.initialBallPoint(wa)).toEqual({ x: 1788, y: 104 })
+    expect(hudService.ballBounds(wa, { x: 1788, y: 104 })).toEqual({
+      x: 1788,
       y: 104,
-      width: 56,
-      height: 56
+      width: 132,
+      height: 40
     })
   })
 
-  it('球的 x/y 都 clamp 进工作区（自由拖动，不锁边）', () => {
+  it('长条的 x/y 都 clamp 进工作区（自由拖动，不锁边）', () => {
     expect(hudService.clampBallPoint(wa, { x: -100, y: -100 })).toEqual({ x: 0, y: 0 })
-    expect(hudService.clampBallPoint(wa, { x: 9999, y: 9999 })).toEqual({ x: 1864, y: 984 })
+    expect(hudService.clampBallPoint(wa, { x: 9999, y: 9999 })).toEqual({ x: 1788, y: 1000 })
     expect(hudService.clampBallPoint(wa, { x: 800, y: 500 })).toEqual({ x: 800, y: 500 })
   })
 
-  it('展开落点：右半屏以球右边缘为基准向左长，左半屏向右长', () => {
-    // 右边缘的球：1864 + 56 − 360 = 1560，但右边距 0 → 按防自锁内缩到 PEEK_GAP
+  it('展开落点：右半屏以长条右边缘为基准向左长，左半屏向右长', () => {
+    // 贴右边缘的长条：1788 + 132 − 360 = 1560（正好贴住右边缘，不再内缩）
     expect(
-      hudService.peekPanelBounds(wa, { x: 1864, y: 104 }, hudService.DEFAULT_PANEL_SIZE)
-    ).toEqual({ x: 1920 - 360 - hudService.PEEK_GAP, y: 104, width: 360, height: 480 })
+      hudService.peekPanelBounds(wa, { x: 1788, y: 104 }, hudService.DEFAULT_PANEL_SIZE)
+    ).toEqual({ x: 1560, y: 104, width: 360, height: 480 })
     expect(
       hudService.peekPanelBounds(wa, { x: 100, y: 104 }, hudService.DEFAULT_PANEL_SIZE)
     ).toEqual({ x: 100, y: 104, width: 360, height: 480 })
   })
 
-  it('展开落点必留 > 24 的边距（否则面板态的「≤24 收球」会立刻把它收回去 → 自锁）', () => {
-    for (const x of [0, 56, 200, 900, 1864]) {
+  it('展开落点完全在屏内（出屏 = 0，所以不会触发「出屏 >1/3 收长条」）', () => {
+    for (const x of [0, 132, 200, 900, 1788]) {
       const rect = hudService.peekPanelBounds(wa, { x, y: 300 }, hudService.DEFAULT_PANEL_SIZE)
-      expect(hudService.edgeGap(wa, rect)).toBeGreaterThan(hudService.EDGE_COLLAPSE)
+      expect(hudService.offscreenOf(wa, rect)).toEqual({ left: 0, right: 0 })
     }
   })
 
-  it('收球贴边：左/右两条边，纵向沿用面板顶并 clamp', () => {
+  it('收长条贴边：左/右两条边，纵向沿用面板顶并 clamp', () => {
     expect(
       hudService.ballFromPanel(wa, { x: 10, y: 300, width: 360, height: 480 }, 'left')
     ).toEqual({
@@ -178,13 +178,13 @@ describe('HUD 纯几何（球 / 面板 / 展开落点）', () => {
     })
     expect(
       hudService.ballFromPanel(wa, { x: 1500, y: 300, width: 360, height: 480 }, 'right')
-    ).toEqual({ x: 1864, y: 300 })
-    // 面板顶靠近底部（1000 + 56 > 1040）→ 收球时纵向 clamp 回来
+    ).toEqual({ x: 1788, y: 300 })
+    // 面板顶靠近底部（1020 + 40 > 1040）→ 收长条时纵向 clamp 回来
     expect(
-      hudService.ballFromPanel(wa, { x: 10, y: 1000, width: 360, height: 40 }, 'left')
+      hudService.ballFromPanel(wa, { x: 10, y: 1020, width: 360, height: 40 }, 'left')
     ).toEqual({
       x: 0,
-      y: 984
+      y: 1000
     })
   })
 
@@ -205,34 +205,55 @@ describe('HUD 纯几何（球 / 面板 / 展开落点）', () => {
   })
 })
 
-describe('形态判定 resolveDragStep（三条滞回区间）', () => {
+describe('形态判定 resolveDragStep（长条看边距 / 面板看出屏）', () => {
   const wa = PRIMARY.workArea
 
-  it('球态：gap > 48 才展开；24 < gap ≤ 48 保持球', () => {
-    expect(hudService.resolveDragStep('ball', wa, { x: 800, y: 300, width: 56, height: 56 })).toBe(
+  it('长条态：gap > 48 才展开，正好 48 或更近都保持长条', () => {
+    expect(hudService.resolveDragStep('ball', wa, { x: 800, y: 300, width: 132, height: 40 })).toBe(
       'expand'
     )
-    // 左边距 30、右边距更远 → 滞回区，不展开
-    expect(hudService.resolveDragStep('ball', wa, { x: 30, y: 300, width: 56, height: 56 })).toBe(
+    // 左边距 30、右边距更远 → 不展开
+    expect(hudService.resolveDragStep('ball', wa, { x: 30, y: 300, width: 132, height: 40 })).toBe(
       'none'
     )
     // 正好 48：不算「> 48」
-    expect(hudService.resolveDragStep('ball', wa, { x: 48, y: 300, width: 56, height: 56 })).toBe(
+    expect(hudService.resolveDragStep('ball', wa, { x: 48, y: 300, width: 132, height: 40 })).toBe(
       'none'
     )
   })
 
-  it('面板态：gap ≤ 24 才收球，且收向更近的那条边', () => {
-    expect(hudService.resolveDragStep('panel', wa, { x: 0, y: 300, width: 360, height: 480 })).toBe(
-      'collapse-left'
-    )
+  it('面板态：出屏 0 → none', () => {
     expect(
-      hudService.resolveDragStep('panel', wa, { x: 1560, y: 300, width: 360, height: 480 })
-    ).toBe('collapse-right')
-    // 24 < gap：保持面板（与球态的 48 之间就是滞回带）
-    expect(
-      hudService.resolveDragStep('panel', wa, { x: 30, y: 300, width: 360, height: 480 })
+      hudService.resolveDragStep('panel', wa, { x: 100, y: 300, width: 360, height: 480 })
     ).toBe('none')
+  })
+
+  it('面板态：右侧出屏恰为宽度 1/3 → none（边界取「超过才收」）', () => {
+    // 360 × 1/3 = 120：1680 + 360 − 1920 = 120
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: 1680, y: 300, width: 360, height: 480 })
+    ).toBe('none')
+  })
+
+  it('面板态：右侧出屏 1/3 + 1 → collapse-right', () => {
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: 1681, y: 300, width: 360, height: 480 })
+    ).toBe('collapse-right')
+  })
+
+  it('面板态：左侧出屏 1/3 + 1 → collapse-left', () => {
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: -121, y: 300, width: 360, height: 480 })
+    ).toBe('collapse-left')
+  })
+
+  it('面板态：出屏再深也一样收（不会因为「离边更远」就放过）', () => {
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: 1900, y: 300, width: 360, height: 480 })
+    ).toBe('collapse-right')
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: -340, y: 300, width: 360, height: 480 })
+    ).toBe('collapse-left')
   })
 })
 
@@ -262,9 +283,9 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
 
   const modeEvents = (): DomainEvent[] => events.filter(e => e.type === 'hud.mode.changed')
 
-  it('默认形态是球：56×56 贴右、y = 10%，不可拉伸，且把回落的显示器写回', () => {
+  it('默认形态是长条：132×40 贴右、y = 10%，不可拉伸，且把回落的显示器写回', () => {
     const { win } = attachDefault()
-    expect(win.getBounds()).toEqual({ x: 1864, y: 104, width: 56, height: 56 })
+    expect(win.getBounds()).toEqual({ x: 1788, y: 104, width: 132, height: 40 })
     expect(win.resizable()).toBe(false)
     expect(win.minSize()).toEqual([0, 0])
     expect(settingRepo.get('hud.displayId')).toBe(1)
@@ -278,7 +299,7 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
       const win = makeWindow(hudService.resolveInitialBounds(displays))
       hudService.attach(win, displays)
       expect(hudService.getState().mode).toBe('ball')
-      expect(win.getBounds()).toEqual({ x: 1864, y: 104, width: 56, height: 56 })
+      expect(win.getBounds()).toEqual({ x: 1788, y: 104, width: 132, height: 40 })
       hudService.detach()
     }
   })
@@ -290,12 +311,8 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     hudService.setMode('panel')
 
     expect(win.boundsCalls.length).toBe(callsBefore + 1)
-    expect(win.getBounds()).toEqual({
-      x: 1920 - 360 - hudService.PEEK_GAP,
-      y: 104,
-      width: 360,
-      height: 480
-    })
+    // 贴右边缘展开：1788 + 132 − 360 = 1560（正好贴住右边缘，不再内缩 25px）
+    expect(win.getBounds()).toEqual({ x: 1560, y: 104, width: 360, height: 480 })
     expect(win.resizable()).toBe(true)
     expect(win.minSize()).toEqual([280, 320])
     expect(win.maxSize()).toEqual([720, 900])
@@ -311,15 +328,15 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     expect(win.getBounds()).toEqual({ x: 1420, y: 104, width: 500, height: 600 })
 
     hudService.setMode('ball')
-    expect(win.getBounds()).toEqual({ x: 1420, y: 104, width: 56, height: 56 })
-    // 球态不覆盖面板尺寸：再展开还是 500×600
+    expect(win.getBounds()).toEqual({ x: 1420, y: 104, width: 132, height: 40 })
+    // 长条态不覆盖面板尺寸：再展开还是 500×600
     hudService.setMode('panel')
     expect(win.getBounds().width).toBe(500)
     expect(win.getBounds().height).toBe(600)
     expect(settingRepo.get('hud.size')).toEqual({ width: 500, height: 600 })
   })
 
-  it('球拖动中实时变形：move 去抖 120ms 后 gap > 48 → 当场展开成面板', () => {
+  it('长条拖动中实时变形：move 去抖 120ms 后 gap > 48 → 当场展开成面板', () => {
     vi.useFakeTimers()
     const { win } = attachDefault()
     win.boundsCalls.length = 0
@@ -336,18 +353,18 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     expect(modeEvents()).toEqual([{ type: 'hud.mode.changed', mode: 'panel' }])
   })
 
-  it('面板拖动中实时变形：move 去抖后 gap ≤ 24 → 收球并贴该边', () => {
+  it('面板拖到右侧出屏 1/3 + 1：move 去抖后当场收长条并贴右边', () => {
     vi.useFakeTimers()
     const { win } = attachDefault()
     hudService.setMode('panel')
     win.boundsCalls.length = 0
 
-    win.dragTo(10, 300)
+    win.dragTo(1681, 300)
     win.fireMove()
     vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
 
     expect(hudService.getState().mode).toBe('ball')
-    expect(win.getBounds()).toEqual({ x: 0, y: 300, width: 56, height: 56 })
+    expect(win.getBounds()).toEqual({ x: 1788, y: 300, width: 132, height: 40 })
     expect(win.resizable()).toBe(false)
     expect(modeEvents().map(e => e.type === 'hud.mode.changed' && e.mode)).toEqual([
       'panel',
@@ -355,7 +372,58 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     ])
   })
 
-  it('滞回带（24 < gap ≤ 48）不来回切：球拖到 gap 30、面板拖到 gap 30 都保持原形态', () => {
+  it('面板拖出右边缘 1/4（出屏 90 ≤ 1/3）松手：保持面板、位置不动（不推回屏内）', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    win.boundsCalls.length = 0
+
+    win.dragTo(1650, 300)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.boundsCalls).toHaveLength(0)
+
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    expect(win.getBounds()).toEqual({ x: 1650, y: 300, width: 360, height: 480 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1650, y: 300 })
+  })
+
+  it('面板 bounds 横向按原值（允许负 x）、纵向仍被夹', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    win.boundsCalls.length = 0
+
+    // 左下角：x 出屏 50（≤ 1/3，不收）、y 超出底部 40 → 只夹 y
+    win.dragTo(-50, 600)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+
+    expect(win.getBounds()).toEqual({ x: -50, y: 560, width: 360, height: 480 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: -50, y: 560 })
+  })
+
+  it('只发 resize（不经 move 去抖）：收尾时 settle 自己判一次形态，照样收长条', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    win.boundsCalls.length = 0
+
+    // 位置已经在屏外 1/3 以上，但没有任何 move 事件 → judgeShape 不会跑。
+    // 尺寸也要变，否则这次 resize 会被当成 setBounds 回声吞掉（不会排 settle）。
+    win.dragTo(1700, 300)
+    win.resizeTo(420, 480)
+    win.fireResize()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+
+    expect(hudService.getState().mode).toBe('ball')
+    expect(win.getBounds()).toEqual({ x: 1788, y: 300, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 300 })
+    expect(settingRepo.get('hud.mode')).toBe('ball')
+  })
+
+  it('不来回切：长条拖到 gap 30 保持长条；面板贴左边缘（出屏 0）也保持面板', () => {
     vi.useFakeTimers()
     const { win } = attachDefault()
     win.boundsCalls.length = 0
@@ -368,7 +436,7 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
 
     hudService.setMode('panel')
     const panelCalls = win.boundsCalls.length
-    // y 错开 20px：与 setBounds 目标不同，才不会被当成回声吞掉（这里要测的是滞回，不是回声）
+    // y 错开 20px：与 setBounds 目标不同，才不会被当成回声吞掉（这里要测的是形态判定，不是回声）
     win.dragTo(30, 320)
     win.fireMove()
     vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
@@ -380,7 +448,7 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     vi.useFakeTimers()
     const displays = makeDisplays([PRIMARY])
     const win = makeWindow(hudService.resolveInitialBounds(displays))
-    // 本机就是 150%：setBounds(56×56) 回读会差 1px
+    // 本机就是 150%：setBounds(132×40) 回读会差 1px
     win.setDpiOffset(1, 1)
     hudService.attach(win, displays)
     const afterAttach = win.boundsCalls.length
@@ -395,9 +463,9 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
   it('回声抑制：程序化 setBounds 引发的 move 被丢弃，不会触发第二次切换（防死循环）', () => {
     vi.useFakeTimers()
     const { win } = attachDefault()
-    hudService.setMode('panel') // 面板落点距边 > 24，本身不该被收回去
+    hudService.setMode('panel') // 展开落点完全在屏内（出屏 0），本身不该被收回去
     const afterExpand = win.boundsCalls.length
-    expect(hudService.edgeGap(PRIMARY.workArea, win.getBounds())).toBeGreaterThan(24)
+    expect(hudService.offscreenOf(PRIMARY.workArea, win.getBounds())).toEqual({ left: 0, right: 0 })
 
     // 窗口回抛的 move（位置与目标一致）—— 丢
     win.fireMove()
@@ -419,7 +487,7 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     hudService.setMode('panel')
     win.boundsCalls.length = 0
 
-    // 拖到中间（gap > 24，不会收球），收尾后位置落库
+    // 拖到中间（出屏 0，不会收长条），收尾后位置落库
     win.dragTo(1400, 300)
     win.fireMove()
     vi.advanceTimersByTime(hudService.SETTLE_MS)
@@ -432,14 +500,14 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     // 拉伸后不能被旧尺寸弹回
     expect(win.getBounds()).toEqual({ x: 1400, y: 300, width: 520, height: 640 })
 
-    // 越界：球被拖出屏幕，收尾时 clamp 回来
+    // 越界：长条被拖出屏幕，收尾时 clamp 回来
     hudService.setMode('ball')
     win.dragTo(5000, 5000)
     win.fireMove()
     vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
     vi.advanceTimersByTime(hudService.SETTLE_MS)
-    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
-    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
+    expect(win.getBounds()).toEqual({ x: 1788, y: 1000, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
   })
 
   it('展开/收球往返不涨尺寸：OS 回读 +1px 不算用户拉伸（否则每往返一次胖 1px）', () => {
@@ -463,7 +531,7 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     }
 
     // 每次都按 360×480 请求，不跟着回读的 361×481 长
-    for (const call of win.boundsCalls.filter(r => r.width > 56)) {
+    for (const call of win.boundsCalls.filter(r => r.width > 132)) {
       expect([call.width, call.height]).toEqual([360, 480])
     }
     expect(settingRepo.get('hud.size')).toBeNull()
@@ -498,6 +566,22 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     hudService.setVisible(true)
     expect(win.isVisible()).toBe(true)
     expect(hudService.getState().visible).toBe(true)
+  })
+
+  it('setVisible 各广播一次 hud.visible.changed，载荷等于目标值', () => {
+    const { win } = attachDefault()
+    const visibleEvents = (): DomainEvent[] => events.filter(e => e.type === 'hud.visible.changed')
+
+    hudService.setVisible(false)
+    expect(visibleEvents()).toEqual([{ type: 'hud.visible.changed', visible: false }])
+    expect(win.isVisible()).toBe(false)
+
+    hudService.setVisible(true)
+    expect(visibleEvents()).toEqual([
+      { type: 'hud.visible.changed', visible: false },
+      { type: 'hud.visible.changed', visible: true }
+    ])
+    expect(win.isVisible()).toBe(true)
   })
 
   it('拔屏：记忆的显示器不在了 → 回落主屏并 clamp，不留在屏幕外', () => {
@@ -538,8 +622,8 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
   it('moveTo：clamp 进工作区再落库（程序化移动不触发变形判定）', () => {
     const { win } = attachDefault()
     hudService.moveTo(5000, 5000)
-    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
-    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
+    expect(win.getBounds()).toEqual({ x: 1788, y: 1000, width: 132, height: 40 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
     expect(hudService.getState().mode).toBe('ball')
   })
 })

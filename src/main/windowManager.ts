@@ -103,8 +103,8 @@ function hudWindowPort(win: BrowserWindow): HudWindowPort {
     setMovable: movable => {
       if (!win.isDestroyed()) win.setMovable(movable)
     },
-    // 形态能力（04 §5.1）：面板可拉伸 + 上下限，球固定 56×56。
-    // 上下限必须动态设：建窗时就写 minWidth=280 的话，球态 setBounds 到 56 会被系统夹住。
+    // 形态能力（04 §5.1）：面板可拉伸 + 上下限，长条固定 132×40。
+    // 上下限必须动态设：建窗时就写 minWidth=280 的话，长条 setBounds 到 132 会被系统夹住。
     setResizable: resizable => {
       if (!win.isDestroyed()) win.setResizable(resizable)
     },
@@ -143,7 +143,7 @@ export function getHudWindow(): BrowserWindow | null {
  * 建窗前先取一次 `resolveInitialBounds`，避免"先按旧尺寸建出来再挪"的闪烁。
  *
  * v0.30：建窗时**不写** minWidth/minHeight——那张上下限只对面板有效，建窗即生效会把
- * 球态（56）夹在 280 上。`resizable` / 上下限都由 `hudService.applyWindowMode()` 按形态动态设。
+ * 长条（132×40）夹在 280×320 上。`resizable` / 上下限都由 `hudService.applyWindowMode()` 按形态动态设。
  */
 export function createHudWindow(): BrowserWindow {
   const displays = hudDisplaysPort()
@@ -155,7 +155,7 @@ export function createHudWindow(): BrowserWindow {
     transparent: true,
     backgroundColor: '#00000000',
     resizable: false,
-    // 球与面板都可拖（面板只有头部是 drag 区），attach 里仍按形态调一次
+    // 长条与面板都可拖（面板只有头部是 drag 区），attach 里仍按形态调一次
     movable: true,
     minimizable: false,
     maximizable: false,

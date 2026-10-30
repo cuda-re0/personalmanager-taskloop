@@ -7,7 +7,7 @@ import { fmtPoints } from '@shared/format'
  * 纪律：
  * - **不算分**：分值只来自 `bootstrap.today.points` 与 `points.changed` 的载荷，
  *   这里只做字符串格式化（`fmtPoints`）与计数（完成数 / 待办数），不出现任何积分运算；
- * - 界面串只用 04 已登记的：`● 3/5`、`今日 +42`、任务标题——本文件不产出别的文案。
+ * - 界面串只用 04 已登记的：`● 3/5`、`今日 +42`、任务标题、v0.31 长条上的 `周X`——本文件不产出别的文案。
  */
 
 /** 一行 = 一个每日任务今日打卡，或一个限时/活动任务 */
@@ -36,6 +36,17 @@ export function completionRatio(done: number, total: number): number {
 /** `3/5`（04 §5.3 的 `● 3/5`，圆点在组件里画，不在这里拼） */
 export function ratioLabel(done: number, total: number): string {
   return `${done}/${total}`
+}
+
+/**
+ * 星期几（v0.31 长条最右一格）：`周日`…`周六`。
+ * 硬编码而不用 `toLocaleDateString('zh-CN', { weekday })`——那个依赖 ICU 数据，
+ * 打包/精简运行时的输出可能与开发时不一致。
+ */
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
+
+export function weekdayLabel(date: Date): string {
+  return WEEKDAYS[date.getDay()]
 }
 
 /** `今日 +42`：正数带 `+`，负数沿用 fmtPoints 的负号，小数最多 2 位（与 04 §4③ 同口径） */

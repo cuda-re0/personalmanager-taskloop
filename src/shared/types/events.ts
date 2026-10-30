@@ -31,5 +31,6 @@ export type DomainEvent =
   | { type: 'app.setting.changed'; key: string; value: unknown }
   | { type: 'channel.status'; channels: { id: NotifyChannel; available: boolean }[] }
   | { type: 'hud.mode.changed'; mode: HudMode }
+  | { type: 'hud.visible.changed'; visible: boolean }
 
 export type DomainEventType = DomainEvent['type']

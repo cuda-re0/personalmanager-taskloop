@@ -3,7 +3,7 @@ import { broadcast } from '../bus'
 import * as settingRepo from '../db/repositories/settingRepo'
 
 /**
- * HUD 状态机（W9 · 04 §5 v0.30：球 + 可拉伸面板）。
+ * HUD 状态机（W9 · 04 §5 v0.31：长条 + 可拉伸面板）。
  *
  * 职责边界：
  * - **唯一**持有 `{ mode, visible, displayId, bounds }`，所有变更都从这里走；
@@ -15,12 +15,13 @@ import * as settingRepo from '../db/repositories/settingRepo'
  *
  * 坐标口径：统一用 `display.workArea`（`bounds` 含任务栏区域，会压到任务栏下面，04 §8）。
  *
- * 实时变形（04 §5.2 第 2 条，v0.30 裁决「先做出来看手感」）：
- * - 球态：距左/右边缘 > `EDGE_EXPAND`(48) → 当场展开成面板（落点由 `peekPanelBounds` 定）；
- * - 面板态：距边 ≤ `EDGE_COLLAPSE`(24) → 当场收球并贴该边；
- * - 24 < gap ≤ 48：保持原形态（滞回）；
- * - 判定在 `move` 里去抖 `MOVE_JUDGE_MS`(120ms)；程序化 `setBounds` 的回声按目标 x/y 丢弃，
- *   否则"展开 → 面板贴边 → 收球 → 球被拖开 → 展开"会无限自我切换。
+ * 实时变形（04 §5.2，v0.31 裁决）：
+ * - 长条态：距左/右边缘 > `EDGE_EXPAND`(48) → 当场展开成面板（落点由 `peekPanelBounds` 定）；
+ * - 面板态：左/右**出屏**超过自身宽度 `PANEL_COLLAPSE_RATIO`(1/3) → 当场收成长条并贴该边；
+ *   出屏 ≤ 1/3 时保持原样（面板允许半挂在屏幕外，不推回屏内）；
+ * - 判定在 `move` 里去抖 `MOVE_JUDGE_MS`(120ms)，并在 `settle()` 里补判一次（快拖快放不到 120ms）；
+ *   程序化 `setBounds` 的回声按目标 x/y 丢弃，否则"展开 → 面板贴边 → 收球 → 长条被拖开 → 展开"
+ *   会无限自我切换。
  */
 
 export interface Rect {
@@ -74,28 +75,30 @@ export interface HudState {
 }
 
 /* ------------------------------------------------------------------ *
- * 尺寸常量（04 §5.2 v0.30，照抄，不自己发明）
+ * 尺寸常量（04 §5.2 v0.31，照抄，不自己发明）
  * ------------------------------------------------------------------ */
 
-export const BALL_SIZE = 56
+/**
+ * 长条尺寸。**形态值仍为 `ball`**，v0.31 起视觉是长条（改值域要动旧库归一与契约，不值当）。
+ */
+export const BALL_W = 132
+export const BALL_H = 40
 export const PANEL_W = 360
 export const PANEL_H = 480
 export const PANEL_MIN_W = 280
 export const PANEL_MIN_H = 320
 export const PANEL_MAX_W = 720
 export const PANEL_MAX_H = 900
-/** 首次启动：球顶距工作区顶 = 高度 × 0.1 */
+/** 首次启动：长条顶距工作区顶 = 高度 × 0.1 */
 export const TOP_RATIO = 0.1
 
-/** 球态距边 > 48 展开；面板态距边 ≤ 24 收球（中间滞回） */
+/** 长条态距边 > 48 展开（面板态不看这个，收起看「出屏 > 宽 1/3」） */
 export const EDGE_EXPAND = 48
-export const EDGE_COLLAPSE = 24
 /**
- * 展开落点距边的最小间距（= 24 + 1）。
- * **防自锁**：贴着边缘的球点开后面板若也贴边，面板态的 `≤24 收球` 会立刻把它收回去，
- * 于是"点开 → 立刻收"反复抖动。展开落点强制留 >24 的边距，滞回区间就不会被自己踩中。
+ * 面板态收起门槛：左/右出屏超过自身宽度的 1/3 才收成长条。
+ * 边界取「超过才收」——正好 1/3 时保持不动。
  */
-export const PEEK_GAP = EDGE_COLLAPSE + 1
+export const PANEL_COLLAPSE_RATIO = 1 / 3
 
 /** `move` 去抖：120ms 判一次形态 */
 export const MOVE_JUDGE_MS = 120
@@ -159,48 +162,43 @@ export function fitSize(workArea: Rect, size: HudSize): HudSize {
   }
 }
 
-/** 球可落点：任意位置，clamp 进工作区（不锁边、不吸附） */
+/** 长条可落点：任意位置，clamp 进工作区（不锁边、不吸附） */
 export function clampBallPoint(workArea: Rect, point: Point): Point {
-  const rect = clampInto(workArea, { ...point, width: BALL_SIZE, height: BALL_SIZE })
+  const rect = clampInto(workArea, { ...point, width: BALL_W, height: BALL_H })
   return { x: rect.x, y: rect.y }
 }
 
-/** 首次启动的球位：贴右边缘、距顶 = 工作区高度 × 0.1（TOP_RATIO） */
+/** 首次启动的长条位：贴右边缘、距顶 = 工作区高度 × 0.1（TOP_RATIO） */
 export function initialBallPoint(workArea: Rect): Point {
   return clampBallPoint(workArea, {
-    x: workArea.x + workArea.width - BALL_SIZE,
+    x: workArea.x + workArea.width - BALL_W,
     y: workArea.y + Math.round(workArea.height * TOP_RATIO)
   })
 }
 
-/** 球体 bounds（56×56，clamp 进工作区） */
+/** 长条 bounds（132×40，clamp 进工作区） */
 export function ballBounds(workArea: Rect, point: Point): Rect {
   const { x, y } = clampBallPoint(workArea, point)
-  return { x, y, width: BALL_SIZE, height: BALL_SIZE }
+  return { x, y, width: BALL_W, height: BALL_H }
 }
 
 /**
- * 球 → 面板的落点（点球展开 / 拖动中展开都用它）：
- * - 水平：球心在右半屏 → 以球右边缘为基准向左长；在左半屏 → 向右长；
- * - 垂直：球顶对齐面板顶；
- * - 最后整体 clamp，并保证距左/右边缘 > `PEEK_GAP`（防自锁，见常量注释）。
+ * 长条 → 面板的落点（点长条展开 / 拖动中展开都用它）：
+ * - 水平：长条中心在右半屏 → 以长条右边缘为基准向左长；在左半屏 → 向右长；
+ * - 垂直：长条顶对齐面板顶；
+ * - 最后整体 clamp 进工作区：展开后面板必然完全在屏内（出屏 = 0），不会触发「出屏 >1/3 收起」。
  */
 export function peekPanelBounds(workArea: Rect, ball: Point, size: HudSize): Rect {
   const { width, height } = fitSize(workArea, size)
-  const rightHalf = ball.x + BALL_SIZE / 2 >= workArea.x + workArea.width / 2
-  const x = rightHalf ? ball.x + BALL_SIZE - width : ball.x
+  const rightHalf = ball.x + BALL_W / 2 >= workArea.x + workArea.width / 2
+  const x = rightHalf ? ball.x + BALL_W - width : ball.x
 
-  const rect = clampInto(workArea, { x, y: ball.y, width, height })
-  if (rect.x - workArea.x <= EDGE_COLLAPSE) rect.x = workArea.x + PEEK_GAP
-  const rightGap = workArea.x + workArea.width - (rect.x + rect.width)
-  if (rightGap <= EDGE_COLLAPSE) rect.x = workArea.x + workArea.width - rect.width - PEEK_GAP
-
-  return clampInto(workArea, rect)
+  return clampInto(workArea, { x, y: ball.y, width, height })
 }
 
-/** 面板 → 球：贴指定边，纵向沿用面板顶（再 clamp 回来） */
+/** 面板 → 长条：贴指定边，纵向沿用面板顶（再 clamp 回来） */
 export function ballFromPanel(workArea: Rect, rect: Rect, side: 'left' | 'right'): Point {
-  const x = side === 'left' ? workArea.x : workArea.x + workArea.width - BALL_SIZE
+  const x = side === 'left' ? workArea.x : workArea.x + workArea.width - BALL_W
   return clampBallPoint(workArea, { x, y: rect.y })
 }
 
@@ -211,19 +209,27 @@ export function edgeGap(workArea: Rect, rect: Rect): number {
   return Math.min(left, right)
 }
 
+/** 左/右各出屏多少（正值 = 露在屏幕外的宽度） */
+export function offscreenOf(workArea: Rect, rect: Rect): { left: number; right: number } {
+  return {
+    left: Math.max(0, workArea.x - rect.x),
+    right: Math.max(0, rect.x + rect.width - (workArea.x + workArea.width))
+  }
+}
+
 /**
- * 形态判定（纯函数，04 §5.2 第 2 条）：
- * - 球态：`gap > 48` → `expand`；否则 `none`（含 24 < gap ≤ 48 的滞回区）
- * - 面板态：`gap ≤ 24` → 收球到更近的那条边；否则 `none`
+ * 形态判定（纯函数，04 §5.2 v0.31）：
+ * - 长条态：`gap > 48` → `expand`；否则 `none`
+ * - 面板态：左/右出屏 > 宽度 1/3 → 收长条并贴该边；否则 `none`（允许半挂在屏外）
  */
 export function resolveDragStep(mode: HudMode, workArea: Rect, rect: Rect): DragStep {
-  const leftGap = rect.x - workArea.x
-  const rightGap = workArea.x + workArea.width - (rect.x + rect.width)
-  const gap = Math.min(leftGap, rightGap)
+  if (mode === 'ball') return edgeGap(workArea, rect) > EDGE_EXPAND ? 'expand' : 'none'
 
-  if (mode === 'ball') return gap > EDGE_EXPAND ? 'expand' : 'none'
-  if (gap > EDGE_COLLAPSE) return 'none'
-  return leftGap <= rightGap ? 'collapse-left' : 'collapse-right'
+  const { left, right } = offscreenOf(workArea, rect)
+  const limit = rect.width * PANEL_COLLAPSE_RATIO
+  if (left > limit && left >= right) return 'collapse-left'
+  if (right > limit) return 'collapse-right'
+  return 'none'
 }
 
 /* ------------------------------------------------------------------ *
@@ -298,15 +304,25 @@ function pointFor(mode: HudMode, workArea: Rect, size: HudSize, point: Point): P
   return { x: rect.x, y: rect.y }
 }
 
+/**
+ * 面板 bounds：纵向 clamp 进工作区，**横向按原值**。
+ *
+ * v0.31 放宽横向：面板允许半挂在屏幕外（出屏 ≤ 宽 1/3 时保持不动），这里若整体 clamp
+ * 就会把用户拖出去的面板弹回屏内，「1/3 以内不动」的行为根本看不到。
+ * 出屏 > 1/3 的情况在判形态时已经收成长条，走不到这里。
+ */
+function panelBounds(workArea: Rect, size: HudSize, point: Point): Rect {
+  const full = clampInto(workArea, { ...point, width: size.width, height: size.height })
+  return { x: Math.round(point.x), y: full.y, width: full.width, height: full.height }
+}
+
 function boundsFor(
   mode: HudMode,
   workArea: Rect,
   size: HudSize,
   point: Point
 ): Rect {
-  return mode === 'ball'
-    ? ballBounds(workArea, point)
-    : clampInto(workArea, { ...point, width: size.width, height: size.height })
+  return mode === 'ball' ? ballBounds(workArea, point) : panelBounds(workArea, size, point)
 }
 
 /** 从 settings 还原一次完整布局（启动时用，`hud.displayId` 找不到屏即回落主屏） */
@@ -330,7 +346,7 @@ export function resolveInitialBounds(displayPort: HudDisplaysPort): Rect {
   return boundsFor(layout.mode, layout.workArea, layout.size, layout.anchor)
 }
 
-/** 按形态设窗口能力：面板可拉伸 + 尺寸上下限；球固定 56×56（04 §5.1） */
+/** 按形态设窗口能力：面板可拉伸 + 尺寸上下限；长条固定 132×40（04 §5.1） */
 function applyWindowMode(mode: HudMode): void {
   const target = requirePort()
   target.setMovable(true)
@@ -340,7 +356,7 @@ function applyWindowMode(mode: HudMode): void {
     target.setMaxSize(PANEL_MAX_W, PANEL_MAX_H)
     return
   }
-  // 先放开下限再缩到 56：带 minWidth=280 的窗口 setBounds 到 56 会被系统夹住
+  // 先放开下限再缩到长条：带 minWidth=280 的窗口 setBounds 到 132 会被系统夹住（40 高更会被 320 夹）
   target.setMinSize(0, 0)
   target.setMaxSize(0, 0)
   target.setResizable(false)
@@ -501,8 +517,8 @@ function judgeShape(): void {
 }
 
 /**
- * 拖动 / 拉伸收尾：读真值、clamp 回工作区、落库（位置 + 尺寸 + 屏）。
- * 尺寸只在面板态落 `hud.size`（球态 56×56 是常量，不该覆盖用户拉过的面板尺寸）。
+ * 拖动 / 拉伸收尾：先补判一次形态（快拖快放不到 `MOVE_JUDGE_MS`），再读真值、落库（位置 + 尺寸 + 屏）。
+ * 尺寸只在面板态落 `hud.size`（长条 132×40 是常量，不该覆盖用户拉过的面板尺寸）。
  */
 function settle(): void {
   settleTimer = null
@@ -510,6 +526,21 @@ function settle(): void {
 
   const rect = port.getBounds()
   const area = requireDisplays().nearestWorkArea(rect)
+
+  // move 的形态判定是 120ms 去抖：拖出去立刻松手可能还没跑到，这里补一次。
+  // enterMode 内部已经 persistPosition / persistDisplayId / broadcast，不要重复落库。
+  const step = resolveDragStep(state.mode, area.workArea, rect)
+  if (step === 'expand') {
+    const next = peekPanelBounds(area.workArea, { x: rect.x, y: rect.y }, panelSize)
+    enterMode('panel', area, { x: next.x, y: next.y })
+    return
+  }
+  if (step === 'collapse-left' || step === 'collapse-right') {
+    const side = step === 'collapse-left' ? 'left' : 'right'
+    enterMode('ball', area, ballFromPanel(area.workArea, rect, side))
+    return
+  }
+
   // 面板态：只有用户真的拉了窗口（resize 事件）才更新 panelSize。
   // 顺序也重要——先把尺寸收进来再算 bounds，否则会把刚拉大的窗口按旧尺寸 setBounds 回去。
   const resized = state.mode === 'panel' && sizeDirty
@@ -535,7 +566,7 @@ function settle(): void {
   else state.bounds = clamped
 }
 
-/** 手动切换形态（点球展开 / ESC 收回）：换 bounds + 广播，窗口不重建 */
+/** 手动切换形态（点长条展开 / ESC 收回）：换 bounds + 广播，窗口不重建 */
 export function setMode(mode: HudMode): void {
   const current = requireState()
   if (current.mode === mode) return
@@ -555,8 +586,8 @@ export function moveTo(x: number, y: number): void {
   const area = requireDisplays().nearestWorkArea({
     x,
     y,
-    width: current.mode === 'ball' ? BALL_SIZE : panelSize.width,
-    height: current.mode === 'ball' ? BALL_SIZE : panelSize.height
+    width: current.mode === 'ball' ? BALL_W : panelSize.width,
+    height: current.mode === 'ball' ? BALL_H : panelSize.height
   })
 
   anchor = pointFor(current.mode, area.workArea, panelSize, { x, y })
@@ -570,6 +601,9 @@ export function setVisible(visible: boolean): void {
   const current = requireState()
   const target = requirePort()
   current.visible = visible
+  // 载荷是**目标值**，不是 `win.isVisible()` 回读——回读在 show/hide 完成前还是旧值，开关会闪一下。
+  // 没有这条广播，主窗顶栏就与主进程脱钩（设置页关掉 HUD 后开关仍显示"开"，点第一次没反应）。
+  broadcast({ type: 'hud.visible.changed', visible })
   if (visible) target.showInactive()
   else target.hide()
 }
