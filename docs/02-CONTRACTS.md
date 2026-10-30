@@ -599,12 +599,17 @@ export type DomainEvent =
   | { type: 'daystats.changed'; day: DayStat }   // day 是**整个 DayStat 对象**，不是日期字符串——字段名易误读，渲染层直接整体覆盖对应日
   | { type: 'app.setting.changed'; key: string; value: unknown }
   | { type: 'channel.status'; channels: { id: NotifyChannel; available: boolean }[] }
-  | { type: 'hud.mode.changed'; mode: HudMode };
+  | { type: 'hud.mode.changed'; mode: HudMode }
+  | { type: 'hud.visible.changed'; visible: boolean };
 
 export type DomainEventType = DomainEvent['type'];
 ```
 
 规则：
+
+- **`hud.visible.changed`（v0.31 新增）**：`hud.setVisible` 生效后广播，载荷是**目标值**（不是
+  `win.isVisible()` 的回读）。用途：HUD 自己从设置页关掉自己时，主窗顶栏开关必须同步——它不能只靠
+  挂载时那次 `hud.getState()`，否则开关会停在旧视觉、要连点两次才生效。
 
 - 任何写操作**必须**至少广播一条事件；没广播 = 另一个窗口不会更新，等于 bug。
 - `message.patch` 只允许 patch `contentMd / status / meta`。
