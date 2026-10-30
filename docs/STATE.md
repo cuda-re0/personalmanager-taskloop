@@ -108,7 +108,8 @@ npm run build
 
 | 30 | HUD v0.31 三条：长条替代圆球（环+N/M+星期）、出屏超 1/3 才收起、关掉后能重开 | W9 收尾 | ✅ **`aed30d1` 审核 PASS**（用户手点「还行」） | 132×40 胶囊、出屏 >宽 1/3 才收（≤1/3 保持原位）、`hud.visible.changed` 事件；48 文件 604 条绿 |
 | 31 | 长条拖不动（`.hud-hit` 铺满全条且 `no-drag`，drag 区收不到事件） | W9 收尾 | ✅ 已交付 `2563bf4`（48 文件 615 条绿） | 点按/长按/手抖三判定（260ms / 4px），`hud.dragBy` 通道，无 `onClick` |
-| 32 | 拖动不跟光标（增量累加 + 异步 setBounds 累积误差）；展开阈值要 1/8 屏宽；鼠标样式别变 | W9 收尾 | 🔴 **当前唯一待发 `kickoff/32`** | 用户三条：①拖动改**绝对定位**（`dragBegin` 给起点 + `dragTo` 发绝对坐标，替代 `dragBy` 增量）②展开阈值 `EDGE_EXPAND 48px` → `workArea.width / 8` ③删全部 `cursor` 声明 |
+| 32 | 拖动不跟光标（增量累加 + 异步 setBounds 累积误差）；展开阈值要 1/8 屏宽；鼠标样式别变 | W9 收尾 | ✅ **审核 PASS `e180050`** | 绝对定位 `dragBegin`+`dragTo`（通道 42→43）、`expandGap = 宽/8`（240/241 两头锁）、长条侧 cursor 全删；48 文件 619 条绿 |
+| 33 | 拖动要「按下即跟手」，不要停留等待 | W9 收尾 | ✅ **审核 PASS `da61539`**（含 `16d1c38` 阈值 260→100ms） | 删 `LONG_PRESS_MS`，改用「按下即取锚点、位移 >4px 即拖」；单阈值 4px；`grab` 就绪补发一帧；契约 04 §5.2.2 已同步 v0.33 |
 | 29 | 主窗顶栏 HUD 开关与主进程不同步 | — | ⤵️ **已并入 `kickoff/30`**，勿单独派发 | 单独派发会与 30 同时改 `hudService.ts` |
 | 27 | 生产构建产物 `connection` 双副本 → IPC 全瘫 | 构建链 | ✅ `c586411` 审核 PASS，**根因未定位** | 本机 5 次构建 + dev + 并发写全单副本，不可复现。改为构建期守卫 `assertSingleModuleInstance`（`generateBundle` 里按 `realpathSync.native` 归一，同文件两个 id 直接 `this.error` 并打印）；入口 input 改相对路径；产物 `getDb`=1、`$1`=0；四命令 47/562 绿 |
 
