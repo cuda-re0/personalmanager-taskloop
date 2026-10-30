@@ -456,7 +456,7 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 - **首次启动**（`hud.position` 为空）：`ball`，`y = workArea.y + workArea.height × 0.1`。
 - **记忆**：位置落 `hud.position`、面板尺寸落 `hud.size`，重启恢复。
 - 形态切换三条路径：
-  1. 点长条 → 面板；面板内 ESC → 长条。
+  1. **点按**长条 → 面板；**长按**长条 → 拖动（见 §5.2.2）；面板内 ESC → 长条。
   2. **拖动中实时变形**：
      - 长条态：距左/右边 `gap > 48` → 当场展开成面板。
      - 面板态：**左右出屏宽度 > 面板宽度 × 1/3** → 当场收成长条，**贴在出屏的那一侧**；
@@ -481,9 +481,37 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 
 - 字号 `12px`，数字用等宽（`font-variant-numeric: tabular-nums`），免得分母变化时抖动。
 - 段间距 `6px`，左右内边距 `10px`；环与文字不同色：环用 `--accent`，文字用 `--text`。
-- 点击热区：整条除左端环以外的区域 `no-drag` 承接点击（`-webkit-app-region: drag` 区收不到 click）。
+- **手势（v0.32 用户裁决「点按点击，长按拖动」）**：整条 `no-drag`，由渲染层自己判手势，见 §5.2.2。
+  **不再用 `-webkit-app-region: drag`**——drag 区收不到任何鼠标事件，做不到「既点又拖」。
 
-### ### 5.3 页结构（v0.30）
+#### 5.2.2 长条手势（v0.32）
+
+用户原话：「点按点击，长按拖动」。长条整条都可点、都可拖，靠按压时长区分：
+
+| 手势 | 判定 | 结果 |
+|---|---|---|
+| 点按 | 按下后 `< 260ms` 松开，且位移 `≤ 4px` | 展开成面板 |
+| 长按 | 按住 `≥ 260ms` | 进入拖动；此后指针怎么移，窗口就跟到哪 |
+| 抖动 | 未到 260ms 但位移已 `> 4px` | 什么都不做（既不展开也不拖），避免手抖误开 |
+
+常量：`LONG_PRESS_MS = 260`、`TAP_TOLERANCE = 4`，放 `hudModel.ts` 导出，别写在组件里。
+
+实现约束（照着写，不要换方案）：
+
+- 整条 `.hud-ball` **去掉** `-webkit-app-region: drag`；覆盖全条的 `.hud-hit` 保留（它承接 pointer 事件，
+  也是 `aria-label` 的载体），但其 `onClick` 要**删掉**——点击只由 pointerup 判定，否则长按松手会误触发一次 click。
+- 手势用 Pointer Events：`onPointerDown` 里 `setPointerCapture(e.pointerId)`，保证指针移出窗口后仍收得到事件；
+  `onPointerUp` / `onPointerCancel` / `onLostPointerCapture` 三处都要收尾（清定时器、复位状态）。
+- 拖动位移取 `e.screenX/screenY` 差值（屏幕坐标，窗口自己在动，用 clientX 会漂）。
+- 每帧最多一次 IPC：`pointermove` 只累加 delta，`requestAnimationFrame` 里发一次 `hud.dragBy({dx,dy,end:false})`；
+  松手时把剩余 delta 发一次 `end:true`。
+- **拖动中不判形态**（长条拖到屏幕中间也不当场变面板），松手时由主进程判一次——否则窗口在拖动中途变大，
+  指针相对位置突变，手感会跳。
+- 拖动中 `.is-dragging { cursor: grabbing }`，常态 `cursor: grab`。这是多出来的唯一视觉反馈，没有文字。
+- 面板态**不改**：仍靠 `.hud-head` 的 `-webkit-app-region: drag` 原生拖动。头部 `.hud-grow` 补 `min-width: 24px`，
+  保证面板拉到最窄（280）时头部仍有可抓的空白，不会全被 tab 占满。
+
+### 5.3 页结构（v0.30）
 
 面板内两页，头部两个 tab，**文字只有** `今天` / `设置`（本节的标签即白名单，别的一个字都不许加）。
 长条态另有 `3/8`（`ratioLabel`）与 `周一`…`周日`（星期表），除此之外长条上不许出现别的字。

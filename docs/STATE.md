@@ -106,7 +106,8 @@ npm run build
 | 25 | 任务详情展开压缩积分区 | W6/W6B 交界（右栏容器） | ✅ 交付 `b239517` 审核 PASS，**待用户手点验收** | `.points-panel` 定高 348px（`box-sizing: border-box`，量自默认窗详情收起态，241+240+348 自洽）+ `.tasks-panel` 补 `min-height: 0` 内滚。真机实测展开/收起三段高度零变动 |
 | 26 | 日历浮层修错了：要的是积分区变成日历层 | 同上 | ✅ 交付 `b239517` 审核 PASS，**待用户手点验收** | `dayDetail` 提升到 index，③④ 槽位二选一渲染 `PointsPanel`/`CalendarDayView`；再点同天=关闭、点他天=切换；浮层机制（floorTopOf/CellAnchor/`.calendar-floor`）删净（grep 0 命中）。层内只显示每日任务打卡行（occurrence 联表口径，限时/活动不出现——kickoff/25 既定） |
 
-| 30 | HUD v0.31 三条：长条替代圆球（环+N/M+星期）、出屏超 1/3 才收起、关掉后能重开 | W9 收尾 | 🔴 **当前唯一待发 `kickoff/30`** | 已并入 29。球改 132×40 胶囊；收起判定从「距边≤24」改为「左右出屏 > 面板宽 1/3」，出屏≤1/3 保持原位不推回；新增 `hud.visible.changed` 事件让顶栏开关同步 |
+| 30 | HUD v0.31 三条：长条替代圆球（环+N/M+星期）、出屏超 1/3 才收起、关掉后能重开 | W9 收尾 | ✅ **`aed30d1` 审核 PASS**（用户手点「还行」） | 132×40 胶囊、出屏 >宽 1/3 才收（≤1/3 保持原位）、`hud.visible.changed` 事件；48 文件 604 条绿 |
+| 31 | 长条拖不动（`.hud-hit` 铺满全条且 `no-drag`，drag 区收不到事件） | W9 收尾 | 🔴 **当前唯一待发 `kickoff/31`** | 用户裁决「点按点击，长按拖动」：整条改 no-drag + Pointer Events 判手势（260ms / 4px），新增 `hud.dragBy` 通道，拖动中不判形态、松手才判 |
 | 29 | 主窗顶栏 HUD 开关与主进程不同步 | — | ⤵️ **已并入 `kickoff/30`**，勿单独派发 | 单独派发会与 30 同时改 `hudService.ts` |
 | 27 | 生产构建产物 `connection` 双副本 → IPC 全瘫 | 构建链 | ✅ `c586411` 审核 PASS，**根因未定位** | 本机 5 次构建 + dev + 并发写全单副本，不可复现。改为构建期守卫 `assertSingleModuleInstance`（`generateBundle` 里按 `realpathSync.native` 归一，同文件两个 id 直接 `this.error` 并打印）；入口 input 改相对路径；产物 `getDb`=1、`$1`=0；四命令 47/562 绿 |
 

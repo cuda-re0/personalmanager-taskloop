@@ -574,6 +574,7 @@ export type CompleteTaskInput =
 |---|---|---|---|
 | `hud.setMode` | `{ mode: 'ball' \| 'panel' }` | `void` | 切换形态：同一窗口换 bounds（不重建），球态 `resizable:false`、面板态 `resizable:true` |
 | `hud.moveTo` | `{ x: number; y: number }` | `void` | 主进程 clamp 到该显示器 `workArea` 后落库；ball 态 `x` 由主进程强制回右边缘。拖动本身由主进程 `move` 事件去抖收尾，不依赖本通道 |
+| `hud.dragBy` | `{ dx: number; dy: number; end: boolean }` | `void` | v0.32 新增：长条「长按拖动」用。把当前窗口按 `dx/dy` 平移后 clamp 进工作区（长条不出屏；面板纵向夹、横向允许出屏），`end: true` 时落库并在**松手后**判一次形态（离边 >48 展开成面板）。拖动中 `end: false` 不落库、不判形态。仅 `ball` 态有效，`panel` 态直接返回（面板走原生头部拖动） |
 | `hud.setVisible` | `{ visible: boolean }` | `void` | |
 | `hud.getState` | — | `{ mode: HudMode; displayId: number; visible: boolean }` | v0.30 去掉 `expanded`。`visible` 取**「应显示」状态**而不是 `win.isVisible()` 的瞬时值（v0.20）：HUD 窗口的 `attach` 早于 `ready-to-show`，主窗顶栏可能在它出现前就取初态，取瞬时值会让开关显示关闭、HUD 随后自己浮现。窗口已销毁时返回 `false` |
 
