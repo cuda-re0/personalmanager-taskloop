@@ -265,6 +265,8 @@
 - 请求进行中按钮 `disabled`，不出现第二份请求。
 - 卡片动作失败（文件被拒、AI 未配置、网络错）时，在卡片动作区下方显示 `AppError.message` **原文**，2.6s 后消失；不另写句子。
 - **`pass` 之后落库失败不能让任务卡在 `reviewing`**（v0.36）：`task.complete` 抛错时任务一律回 `doing`，同一张卡片显示错误原文。`pass` 卡永远没有按钮，所以这条兜底是唯一出口——不给 `pass` 卡加「重试」。
+- **证据行的 `[+]` 只在任务还开着时出现**（v0.37）：`status ∈ {todo, doing, reviewing}` 才渲染 `[+]` 与它的隐藏 file input；`done` / `missed`（以及 `archived` / `discarded`）一律不渲染。理由：`pass` 卡的任务已经完成、`missed` 已判失败，往这两个状态上追加证据没有任何出口（没有重审入口），只会让人以为还能补救；而 `partial` / `fail` 把任务送回 `doing` 时 `[+]` 必须留着——那是「补材料再提交」的唯一入口（右栏 ① 没有证据 UI）。
+  这条让「除 `need_evidence` 外卡片只读」真正成立：`pass` / `missed` 卡上一个可点的东西都没有。
 
 证据交互：
 
