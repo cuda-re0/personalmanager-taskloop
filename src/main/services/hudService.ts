@@ -15,16 +15,18 @@ import * as settingRepo from '../db/repositories/settingRepo'
  *
  * 坐标口径：统一用 `display.workArea`（`bounds` 含任务栏区域，会压到任务栏下面，04 §8）。
  *
- * 实时变形（04 §5.2，v0.31 裁决）：
- * - 长条态：距左/右边缘 > `EDGE_EXPAND`(48) → 当场展开成面板（落点由 `peekPanelBounds` 定）；
+ * 实时变形（04 §5.2，v0.31 / v0.32）：
+ * - 长条态：距左/右边缘 > `expandGap`（工作区宽度的 1/8）→ 当场展开成面板（落点由 `peekPanelBounds` 定）；
  * - 面板态：左/右**出屏**超过自身宽度 `PANEL_COLLAPSE_RATIO`(1/3) → 当场收成长条并贴该边；
  *   出屏 ≤ 1/3 时保持原样（面板允许半挂在屏幕外，不推回屏内）；
  * - 判定在 `move` 里去抖 `MOVE_JUDGE_MS`(120ms)，并在 `settle()` 里补判一次（快拖快放不到 120ms）；
  *   程序化 `setBounds` 的回声按目标 x/y 丢弃，否则"展开 → 面板贴边 → 收球 → 长条被拖开 → 展开"
  *   会无限自我切换。
  *
- * 长条拖动（v0.32，04 §5.2.2）：长条整条 no-drag，手势由渲染层判（点按 / 长按 / 手抖），
- * 拖动只发相对位移到 `dragBy()`；**拖动中不判形态**，`end:true` 时才落库并判一次。
+ * 长条拖动（v0.32，04 §5.2.2）：长条整条 no-drag，手势由渲染层判（点按 / 长按 / 手抖）。
+ * 拖动用**绝对定位**：`dragBegin()` 给出长条左上角，渲染层算出抓取偏移后每帧发 `dragTo(指针 − grab)`——
+ * `setBounds` 是异步的，按"读窗口位置 + 增量"会一帧帧漏，越拖越偏。
+ * **拖动中不判形态**（用户裁决：移动时不改状态），`end:true` 时才落库并判一次。
  */
 
 export interface Rect {
@@ -95,8 +97,17 @@ export const PANEL_MAX_H = 900
 /** 首次启动：长条顶距工作区顶 = 高度 × 0.1 */
 export const TOP_RATIO = 0.1
 
-/** 长条态距边 > 48 展开（面板态不看这个，收起看「出屏 > 宽 1/3」） */
-export const EDGE_EXPAND = 48
+/**
+ * 长条态展开门槛：离左/右边缘超过**工作区宽度的 1/8** 才展开（1920 屏 = 240）。
+ * 边界取「超过才展开」——正好等于时保持长条。面板态不看这个，收起看「出屏 > 宽 1/3」。
+ */
+export const EXPAND_GAP_RATIO = 1 / 8
+
+/** 展开门槛（DIP）：工作区宽度的 1/8，四舍五入 */
+export function expandGap(workArea: Rect): number {
+  return Math.round(workArea.width * EXPAND_GAP_RATIO)
+}
+
 /**
  * 面板态收起门槛：左/右出屏超过自身宽度的 1/3 才收成长条。
  * 边界取「超过才收」——正好 1/3 时保持不动。
@@ -221,12 +232,12 @@ export function offscreenOf(workArea: Rect, rect: Rect): { left: number; right: 
 }
 
 /**
- * 形态判定（纯函数，04 §5.2 v0.31）：
- * - 长条态：`gap > 48` → `expand`；否则 `none`
+ * 形态判定（纯函数，04 §5.2 v0.31 / v0.32）：
+ * - 长条态：`edgeGap > expandGap`（工作区宽度 1/8）→ `expand`；否则 `none`
  * - 面板态：左/右出屏 > 宽度 1/3 → 收长条并贴该边；否则 `none`（允许半挂在屏外）
  */
 export function resolveDragStep(mode: HudMode, workArea: Rect, rect: Rect): DragStep {
-  if (mode === 'ball') return edgeGap(workArea, rect) > EDGE_EXPAND ? 'expand' : 'none'
+  if (mode === 'ball') return edgeGap(workArea, rect) > expandGap(workArea) ? 'expand' : 'none'
 
   const { left, right } = offscreenOf(workArea, rect)
   const limit = rect.width * PANEL_COLLAPSE_RATIO
@@ -601,25 +612,34 @@ export function moveTo(x: number, y: number): void {
 }
 
 /**
- * 长条态拖动（04 §5.2.2 v0.32：点按展开 / 长按拖动）。
+ * 长条拖动的起点（04 §5.2.2 v0.32）：返回长条当前左上角（屏幕绝对坐标 DIP）。
  *
- * 渲染层只发**相对上一帧的位移**（`screenX/Y` 差值），坐标与形态判定全在这里：
- * - 整条不出屏：位移后的落点仍过 `clampBallPoint`（v0.31 既定口径）；
- * - `end:false` 只移窗、**不落库**——拖到一半就写 `hud.position` 会让下次启动停在半路；
- * - `end:true` 才落库并判一次形态：离左右边 > 48 → 展开成面板（走 `enterMode`，不自己 setBounds）。
+ * 渲染层拿它算抓取偏移 `grab = 按下点 − 左上角`，此后每帧发 `dragTo(指针 − grab)`。
+ * **不校验 mode**：它只读一次坐标，面板态不会调到它。
+ */
+export function dragBegin(): Point {
+  const rect = requirePort().getBounds()
+  return { x: rect.x, y: rect.y }
+}
+
+/**
+ * 长条态拖动（04 §5.2.2 v0.32）：把长条左上角移到**绝对坐标** `x/y`。
+ *
+ * 绝对定位而不是增量累加——`setBounds` 是异步的，`getBounds()` 读回来的常是上一帧位置，
+ * 增量模型会一帧帧漏掉位移，窗口不跟光标、越拖越偏。这里每帧按绝对目标重算，丢帧也不累积误差。
+ *
+ * - 位置一律过 `clampBallPoint`：长条整条不出工作区（v0.31 既定口径）；
+ * - `end:false` 只移窗、**不落库、不判形态**（用户裁决：移动时不改状态）；
+ * - `end:true` 先落 `hud.position` / `hud.displayId`，再判一次形态：离边 > 工作区宽 1/8 → `enterMode('panel')`；
  * - 面板态直接忽略：面板走 `.hud-head` 的原生拖动，这条路只服务长条。
  */
-export function dragBy(dx: number, dy: number, end: boolean): void {
+export function dragTo(x: number, y: number, end: boolean): void {
   const current = requireState()
   if (current.mode !== 'ball') return
-  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
 
-  const rect = requirePort().getBounds()
-  const area = requireDisplays().nearestWorkArea(rect)
-  anchor = clampBallPoint(area.workArea, {
-    x: rect.x + Math.round(dx),
-    y: rect.y + Math.round(dy)
-  })
+  const area = requireDisplays().nearestWorkArea({ x, y, width: BALL_W, height: BALL_H })
+  anchor = clampBallPoint(area.workArea, { x, y })
   current.displayId = area.displayId
 
   if (!end) {

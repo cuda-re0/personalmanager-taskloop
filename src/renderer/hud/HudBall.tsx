@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import {
   LONG_PRESS_MS,
@@ -15,14 +15,18 @@ import type { HudData } from './useHudData'
  * 形态值仍叫 `ball`（`hud.mode` 存的是形态标识，改值域要动旧库归一与契约）——
  * 视觉上从 56×56 圆球换成长条：左侧 20×20 进度环 → 完成数/总数 → 星期。
  *
- * 手势（v0.32 用户裁决「点按点击，长按拖动」）：整条**不再用** `-webkit-app-region: drag`——
+ * 手势（v0.32 用户裁决「点按点击，长按拖动」）：整条**不用** `-webkit-app-region: drag`——
  * drag 区收不到任何鼠标事件，做不到「既点又拖」。改由这里自己判：
  * - 点按（< 260ms 松开、位移 ≤ 4px）→ 展开面板；
  * - 长按（≥ 260ms）→ 进入拖动，指针怎么移窗口就跟到哪；
  * - 手抖（未到 260ms 但位移 > 4px）→ 什么都不做。
  *
+ * 拖动是**绝对定位**：`dragBegin()` 取长条左上角，算出抓取偏移 `grab = 按下点 − 左上角`，
+ * 之后每帧发 `dragTo(指针 − grab)`。不做增量累加——`setBounds` 异步，读回的是上一帧位置，
+ * 增量会一帧帧漏，窗口不跟光标、越拖越偏。
+ *
  * 位移一律取 `screenX/screenY` 差值：窗口自己也在动，`clientX` 会漂。
- * 拖动中**不判形态**（窗口中途变大会让指针相对位置突变），松手时由主进程判一次。
+ * 拖动中**不判形态**（形态只由主进程在松手时判一次），窗口也就不会在拖动中途变大。
  *
  * 文案：环只表达比例，数字是 `ratioLabel()`、星期是 `weekdayLabel()`，
  * 组件里没有一个汉字字面量（04 §5.3 的文字白名单）。
@@ -31,26 +35,34 @@ import type { HudData } from './useHudData'
 const RING_RADIUS = 8
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 
+interface Point {
+  x: number
+  y: number
+}
+
 /** 一次按压的判定状态；`null` = 当前没有按着 */
 interface Gesture {
+  /** 按下时的屏幕坐标（点按判定 + 算 grab 都用它） */
   startX: number
   startY: number
+  /** 最近一次屏幕坐标 */
   lastX: number
   lastY: number
-  /** 已过 260ms，进入拖动 */
+  /** 已过长按阈值，进入拖动 */
   dragging: boolean
   /** 未到 260ms 就动超过 4px：本次按压作废（不展开也不拖） */
   cancelled: boolean
+  /** 抓取偏移 = 按下点 − 长条左上角；`null` = dragBegin 还没回来 */
+  grab: Point | null
+  /** 最近一次的绝对目标点；`null` = 还没移动过 */
+  target: Point | null
 }
 
 export function HudBall({ data }: { data: HudData }): ReactElement {
   const ratio = completionRatio(data.done, data.total)
-  const [dragging, setDragging] = useState(false)
   const gesture = useRef<Gesture | null>(null)
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const frame = useRef<number | null>(null)
-  /** 尚未发出的位移（每帧最多一次 IPC） */
-  const pending = useRef({ dx: 0, dy: 0 })
 
   const clearHold = (): void => {
     if (holdTimer.current !== null) {
@@ -66,22 +78,24 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
     }
   }
 
-  /** 把累加的位移发出去；`end` 只由收尾那一次带 true */
-  const flush = (end: boolean): void => {
-    frame.current = null
-    const { dx, dy } = pending.current
-    pending.current = { dx: 0, dy: 0 }
+  const send = (point: Point, end: boolean): void => {
     void window.api.hud
-      .dragBy({ dx, dy, end })
+      .dragTo({ x: point.x, y: point.y, end })
       .then(res => {
-        if (!res.ok) console.error('[hud] hud.dragBy 失败', res.error)
+        if (!res.ok) console.error('[hud] hud.dragTo 失败', res.error)
       })
-      .catch((e: unknown) => console.error('[hud] hud.dragBy 调用失败', e))
+      .catch((e: unknown) => console.error('[hud] hud.dragTo 调用失败', e))
   }
 
+  /** 每帧最多一次 IPC：move 只记目标点，帧回调才发 */
   const schedule = (): void => {
     if (frame.current !== null) return
-    frame.current = requestAnimationFrame(() => flush(false))
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null
+      const g = gesture.current
+      if (!g || !g.dragging || g.target === null) return
+      send(g.target, false)
+    })
   }
 
   /**
@@ -91,14 +105,15 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
   const finish = (allowTap: boolean): void => {
     const g = gesture.current
     if (!g) return
+    // 先摘掉：pointerup 之后浏览器还会补一个 lostpointercapture，
+    // 不先置 null 会把 end:true 发两遍
     gesture.current = null
     clearHold()
+    clearFrame()
 
     if (g.dragging) {
-      clearFrame()
-      setDragging(false)
-      // 剩余位移连 end 一起发：主进程据此落库 + 判形态
-      flush(true)
+      // 没移动过就不发：既不需要落库，也没什么可判
+      if (g.target !== null) send(g.target, true)
       return
     }
     if (!allowTap || g.cancelled) return
@@ -125,16 +140,29 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
       lastX: e.screenX,
       lastY: e.screenY,
       dragging: false,
-      cancelled: false
+      cancelled: false,
+      grab: null,
+      target: null
     }
-    pending.current = { dx: 0, dy: 0 }
     clearHold()
     holdTimer.current = setTimeout(() => {
       holdTimer.current = null
       const g = gesture.current
       if (!g || g.cancelled) return
       g.dragging = true
-      setDragging(true)
+      // 绝对定位的锚：拿到长条左上角，才能算出「按下点相对长条」的偏移
+      void window.api.hud
+        .dragBegin()
+        .then(res => {
+          if (!res.ok) {
+            console.error('[hud] hud.dragBegin 失败', res.error)
+            return
+          }
+          // 期间可能已经松手、或换了新的一次按压：不能把 grab 塞到别人身上
+          if (gesture.current !== g) return
+          g.grab = { x: g.startX - res.data.x, y: g.startY - res.data.y }
+        })
+        .catch((e: unknown) => console.error('[hud] hud.dragBegin 调用失败', e))
     }, LONG_PRESS_MS)
   }
 
@@ -153,12 +181,11 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
       return
     }
 
-    pending.current = {
-      dx: pending.current.dx + (e.screenX - g.lastX),
-      dy: pending.current.dy + (e.screenY - g.lastY)
-    }
     g.lastX = e.screenX
     g.lastY = e.screenY
+    // grab 未就绪就发，会把窗口甩到指针位置上（等于忽略按下的偏移）
+    if (g.grab === null) return
+    g.target = { x: e.screenX - g.grab.x, y: e.screenY - g.grab.y }
     schedule()
   }
 
@@ -190,7 +217,7 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
       {/* 整条热区：承接 pointer 事件（点击只由 pointerup 判定，这里不挂点击处理器） */}
       <button
         type="button"
-        className={dragging ? 'hud-hit is-dragging' : 'hud-hit'}
+        className="hud-hit"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

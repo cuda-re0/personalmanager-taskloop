@@ -88,17 +88,18 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     closeTestDb()
   })
 
-  it('五条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
+  it('六条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
     for (const ch of [
       CH.hud.setMode,
       CH.hud.moveTo,
-      CH.hud.dragBy,
+      CH.hud.dragBegin,
+      CH.hud.dragTo,
       CH.hud.setVisible,
       CH.hud.getState
     ]) {
       expect(wired.has(ch)).toBe(true)
     }
-    expect(wired.size).toBe(42)
+    expect(wired.size).toBe(43)
   })
 
   it('hud.getState 返回 { mode, displayId, visible }，不含 expanded', () => {
@@ -137,12 +138,14 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     expect(settingRepo.get('hud.position')).toEqual({ x: 1788, y: 1000 })
   })
 
-  it('hud.dragBy → 相对位移生效；end:true 才落库（v0.32）', () => {
-    callOk(CH.hud.dragBy, { dx: -45, dy: 20, end: false })
+  it('hud.dragBegin → 返回长条左上角；hud.dragTo 走绝对坐标，end:true 才落库（v0.32）', () => {
+    expect(callOk<{ x: number; y: number }>(CH.hud.dragBegin)).toEqual({ x: 1788, y: 104 })
+
+    callOk(CH.hud.dragTo, { x: 1743, y: 124, end: false })
     expect(win.getBounds()).toEqual({ x: 1743, y: 124, width: 132, height: 40 })
     expect(settingRepo.get('hud.position')).toEqual({ x: null, y: null })
 
-    callOk(CH.hud.dragBy, { dx: 0, dy: 0, end: true })
+    callOk(CH.hud.dragTo, { x: 1743, y: 124, end: true })
     expect(settingRepo.get('hud.position')).toEqual({ x: 1743, y: 124 })
     expect(callOk<{ mode: string }>(CH.hud.getState).mode).toBe('ball')
   })
@@ -152,8 +155,8 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     for (const [channel, input] of [
       [CH.hud.setMode, { mode: 'flying' }],
       [CH.hud.moveTo, { x: 1 }],
-      // dragBy 少 end 字段 → 形状不完整
-      [CH.hud.dragBy, { dx: 1, dy: 2 }],
+      // dragTo 少 end 字段 → 形状不完整
+      [CH.hud.dragTo, { x: 1, y: 2 }],
       [CH.hud.setVisible, {}]
     ] as const) {
       const result = call(channel, input)

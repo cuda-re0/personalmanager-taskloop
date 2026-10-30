@@ -268,11 +268,13 @@ export interface Api {
     setMode(input: { mode: HudMode }): Promise<IpcResult<void>>
     moveTo(input: { x: number; y: number }): Promise<IpcResult<void>>
     /**
-     * 长条长按拖动（04 §5.2.2 v0.32）：`dx/dy` 是相对上一帧的屏幕位移（DIP），
-     * `end:false` 只移窗不落库；`end:true` 落 `hud.position` 并在主进程判一次形态。
-     * 面板态直接忽略（面板走 `.hud-head` 的原生拖动）。
+     * 长条拖动（04 §5.2.2 v0.32）：`dragBegin` 返回长条当前左上角（屏幕绝对坐标 DIP），
+     * 渲染层据此算抓取偏移；`dragTo` 把它移到绝对坐标 `x/y`——
+     * `end:false` 只移窗，`end:true` 落 `hud.position` 并在主进程判一次形态。
+     * 面板态两者都不参与（面板走 `.hud-head` 的原生拖动）。
      */
-    dragBy(input: { dx: number; dy: number; end: boolean }): Promise<IpcResult<void>>
+    dragBegin(): Promise<IpcResult<{ x: number; y: number }>>
+    dragTo(input: { x: number; y: number; end: boolean }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
     getState(): Promise<IpcResult<{ mode: HudMode; displayId: number; visible: boolean }>>
   }

@@ -264,8 +264,9 @@ export const g = {
   // hud（W9 · v0.30）：坐标必须有限值——NaN/Infinity 会让 setBounds 抛出，且会写进 hud.position
   hudSetMode: z.object({ mode: hudModeSchema }),
   hudMoveTo: z.object({ x: z.number().finite(), y: z.number().finite() }),
-  // 长条拖动（v0.32）：dx/dy 同样必须是有限数——它会直接参与 setBounds
-  hudDragBy: z.object({ dx: z.number().finite(), dy: z.number().finite(), end: z.boolean() }),
+  // 长条拖动（v0.32）：绝对坐标同样必须是有限数——它会直接参与 setBounds
+  hudDragTo: z.object({ x: z.number().finite(), y: z.number().finite(), end: z.boolean() }),
+  hudDragBegin: z.undefined(),
   hudSetVisible: z.object({ visible: z.boolean() }),
   hudGetState: z.undefined()
 }
@@ -322,7 +323,8 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.points.streakPreview]: g.streakPreview,
   [CH.hud.setMode]: g.hudSetMode,
   [CH.hud.moveTo]: g.hudMoveTo,
-  [CH.hud.dragBy]: g.hudDragBy,
+  [CH.hud.dragBegin]: g.hudDragBegin,
+  [CH.hud.dragTo]: g.hudDragTo,
   [CH.hud.setVisible]: g.hudSetVisible,
   [CH.hud.getState]: g.hudGetState
 }

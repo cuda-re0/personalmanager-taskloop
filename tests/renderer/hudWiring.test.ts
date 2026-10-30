@@ -231,12 +231,20 @@ describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
     expect(BALL).toMatch(/e\.screenY/)
     // 一帧最多一次 IPC
     expect(BALL).toMatch(/requestAnimationFrame/)
-    expect(BALL).toMatch(/dragBy\(\{ dx, dy, end \}\)/)
+    // 绝对定位：先取左上角算抓取偏移，再发绝对坐标；增量模型已删
+    expect(BALL).toMatch(/dragBegin\(\)/)
+    expect(BALL).toMatch(/dragTo\(\{ x: point\.x, y: point\.y, end \}\)/)
+    expect(BALL).not.toContain('drag' + 'By')
   })
 
-  it('拖动中是唯一新增的视觉反馈：cursor grab / .is-dragging grabbing', () => {
-    expect(ruleBody(CSS, '.hud-hit {')).toMatch(/cursor:\s*grab/)
-    expect(ruleBody(CSS, '.hud-hit.is-dragging {')).toMatch(/cursor:\s*grabbing/)
+  it('长条侧没有自定义鼠标样式（系统默认），is-dragging 那套已删', () => {
+    expect(ruleBody(CSS, '.hud-ball {')).not.toMatch(/cursor/)
+    expect(ruleBody(CSS, '.hud-hit {')).not.toMatch(/cursor/)
+    // 全文件不许再出现 grab / grabbing（面板侧原有的 cursor: pointer 不动）
+    expect(CSS).not.toMatch(/grabbing/)
+    expect(CSS).not.toMatch(/cursor:\s*grab\b/)
+    expect(BALL).not.toMatch(/cursor/)
+    expect(BALL).not.toMatch(/is-dragging/)
   })
 
   it('阈值常量在 hudModel 里，不写死在组件里', () => {
@@ -248,6 +256,17 @@ describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
 
   it('面板最窄也有可抓的空白：.hud-grow 留 24px 底宽', () => {
     expect(ruleBody(CSS, '.hud-grow {')).toMatch(/min-width:\s*24px/)
+  })
+
+  it('固定阈值常量删净：全树 0 命中（改成工作区宽度 1/8 的换算）', () => {
+    // 拆开拼：自检的 grep 要 0 命中，本用例自己不该成为命中点
+    const word = 'EDGE' + '_EXPAND'
+    const hits: string[] = []
+    for (const file of walk(resolve(ROOT, 'src')).concat(walk(resolve(ROOT, 'tests')))) {
+      if (file.endsWith('hudWiring.test.ts')) continue
+      if (readFileSync(file, 'utf8').includes(word)) hits.push(file.slice(ROOT.length + 1))
+    }
+    expect(hits).toEqual([])
   })
 })
 

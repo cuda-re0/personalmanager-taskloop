@@ -113,7 +113,8 @@ const api: Api = {
   hud: {
     setMode: input => invoke<void>(CH.hud.setMode, input),
     moveTo: input => invoke<void>(CH.hud.moveTo, input),
-    dragBy: input => invoke<void>(CH.hud.dragBy, input),
+    dragBegin: () => invoke<{ x: number; y: number }>(CH.hud.dragBegin),
+    dragTo: input => invoke<void>(CH.hud.dragTo, input),
     setVisible: input => invoke<void>(CH.hud.setVisible, input),
     getState: () =>
       invoke<{

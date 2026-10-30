@@ -24,8 +24,8 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 42 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
- * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBy、v0.19 起 task.undo 接通、
+ * **只接 WIRED 里的 43 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
  * **W4 起 msg 两条 + ai 四条**，
  * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
@@ -98,7 +98,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 42 条
+ * WIRED：本轮接通的 43 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -419,14 +419,15 @@ const TABLE: Row[] = [
     pointsService.streakBonusAt(input.nextDayWillReach)
   ),
 
-  /* ---------------- hud（5：W9 四条 + v0.32 dragBy） ---------------- */
+  /* ---------------- hud（6：W9 四条 + v0.32 dragBegin / dragTo） ---------------- */
   // 状态与坐标全在 hudService：handler 只做入参校验 + 转发，不在这里算 bounds。
   // setMode 的 `hud.mode.changed` 广播也在 hudService 里（同一处改动同一个广播，避免漏发）。
   row(CH.hud.setMode, g.hudSetMode, input => hudService.setMode(input.mode)),
   row(CH.hud.moveTo, g.hudMoveTo, input => hudService.moveTo(input.x, input.y)),
-  // 长条长按拖动（v0.32）：渲染层只发相对位移，坐标与形态判定都在 hudService
-  row(CH.hud.dragBy, g.hudDragBy, input =>
-    hudService.dragBy(input.dx, input.dy, input.end)
+  // 长条长按拖动（v0.32）：渲染层先取左上角算抓取偏移，之后只发绝对坐标
+  row(CH.hud.dragBegin, g.hudDragBegin, () => hudService.dragBegin()),
+  row(CH.hud.dragTo, g.hudDragTo, input =>
+    hudService.dragTo(input.x, input.y, input.end)
   ),
   row(CH.hud.setVisible, g.hudSetVisible, input => hudService.setVisible(input.visible)),
   row(CH.hud.getState, g.hudGetState, () => hudService.getState())

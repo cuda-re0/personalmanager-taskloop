@@ -63,18 +63,13 @@
   color: var(--text-sub);
 }
 
-/* 覆盖整条的热区：承接 pointer 事件（点按展开 / 长按拖动，见 HudBall） */
+/* 覆盖整条的热区：承接 pointer 事件（点按展开 / 长按拖动，见 HudBall）；样式全交给系统默认 */
 .hud-hit {
   position: absolute;
   inset: 0;
   padding: 0;
   border: none;
   background: transparent;
-  cursor: grab;
-}
-
-.hud-hit.is-dragging {
-  cursor: grabbing;
 }
 
 /* ---------------- 面板 ---------------- */
