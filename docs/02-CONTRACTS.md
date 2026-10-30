@@ -430,7 +430,7 @@ export interface Bootstrap {
 | `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskCreatePatch }` | `Task` | 同一 draft 重复确认返回已生成的原 Task（幂等），不重复落库 |
 | `task.update` | `{ id: string; patch: TaskPatch }` | `Task` |
 | `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` |
-| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时抛 `EVIDENCE_REQUIRED`，任务停在 `reviewing`、不入账 |
+| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时抛 `EVIDENCE_REQUIRED`，任务停在 `reviewing`、不入账。**v0.34：`deadline`/`event` 的调用方必须先走 `ai.review` 再按结论调用本通道**（只有 `pass` 才调）；主进程不做这个约束——它只管「状态 + 闸门 + 入账」三件事 |
 | `task.undo` | `{ id: string }` | `{ task: Task; entry: PointEntry \| null }` | 24h 内撤销完成：`done → doing` + 原发分行标 `reversed_at` + 写等额负流水（01 §2.4） |
 | `task.addEvidence` | `{ id: string; evidence: Evidence }` | `Task` | 审核中补证据，用于"先追问再补"的来回 |
 | `task.setRequiresEvidence` | `{ id: string; value: boolean }` | `Task` | 用户手动改判 |

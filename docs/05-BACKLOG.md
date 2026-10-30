@@ -288,31 +288,33 @@
 
 ---
 
-## W7 · 完成审核（含证据闸门）
+## W7 · 完成审核（含证据闸门）（v0.34 重写）
 
-**只许改**：`src/main/services/taskService.ts` 的 `complete` 分支、`src/main/ai/pipelines/review.ts`、`src/renderer/main/features/chat/ReviewCard.tsx`
+规格唯一来源：`kickoff/33-W7-完成审核与证据.md`。用户 2026-10-30 裁决：
+**必须过审才计分**；证据是**文件/图片附件**；审核不通过回 `doing`，**限时/活动超期则判失败**；
+**「部分完成」不算通过、不发分**。
+
+**只许改**：`src/shared/types/domain.ts`（`TaskStatus` 加 `missed`）、`src/main/db/stateMachine.ts`、
+`src/main/ipc/guards.ts`（`taskStatusSchema`）、`src/renderer/main/features/tasks/**`、
+`src/renderer/main/features/chat/{useChatData,chatTypes}.ts`、`src/renderer/main/components/{EvidencePanel,TaskReviewCard}.tsx`、
+相关样式与 `tests/`。
 
 **交付**
 
-1. 用户说"做完了"或点完成 → 若 `requiresEvidence` 且无证据 → 直接返回 `CONFLICT` + 追问消息（**不调模型也行，省一次钱**）。
-2. 有证据（或不需要证据）→ 走 `ai.review` → 按 03 §4.2 映射表动作 → `task_review` 卡片。
-3. `taskService.complete` 里**硬校验**证据闸门，不能只靠 UI 拦。
-4. `task.addEvidence` + `[重新审核]` 的往返流程。
-5. `partial` 入账 60%，任务回 `doing`，卡片列出缺口。
-6. 连续 3 次 `need_evidence` 后出现 `[直接标记完成（不计分）]`，走 `task.complete({ noPoints: true })`：写 `completed_at`、不写 ledger、返回的 `entry` 为 `null`（02 §3.2）。**不能走 `transition('done')`**，那条路已被硬拦成 `CONFLICT`。
-7. 审核卡片四种状态（04 §3.3）。
+1. 点完成 → `reviewing` → `ai.review` → 按 verdict 分流（`pass` 计分；`partial`/`fail` 回 `doing` 或判 `missed`；
+   `need_evidence` 停在 `reviewing`；请求失败回 `doing` 并显示错误原文）。
+2. 证据首次真正接通附件存储：`attachment.add` → `task.addEvidence`（聊天框里那条 `local-att-N` 假链路不在本单范围）。
+3. `missed` 状态：`reviewing → missed` 唯一入口、终点状态、不计分，与 `done` 同档显示。
+4. 每日任务不接审核（`occurrence.complete` 一行不动）。
 
 **验收**
 
-- [ ] 需要证据的任务，点完成但不给证据 → 状态停在 `reviewing`，**余额不变**，卡片显示 `need_evidence`。
-- [ ] 补一张截图后点重新审核 → AI 判定 pass → 入账，余额增加。
-- [ ] 证据与任务无关（随便一张图）→ 仍判 `need_evidence`，不通过。
-- [ ] 不需要证据的每日任务，点完成直接入账 1 分，不要求证据。
-- [ ] 绕过 UI 直接调 `api.task.complete` 且不带 evidence → 返回 `CONFLICT`，数据库无新流水。
-- [ ] 模型超时/报错 → 停在 `reviewing` 并显示 `[重试]`，**绝不自动入账**。
-- [ ] 撤销一次带证据的完成 → 证据保留在任务上，余额回滚。
+- [ ] 需要证据的任务：点完成 → 卡片追问 → 加文件 → 再提交 → 判 `pass` → 加分。
+- [ ] 普通任务：点完成先审核，`pass` 才加分；审核中按钮不可重复点。
+- [ ] 驳回：`partial`/`fail` → 回 `doing`、分数不变；已过截止时间的驳回 → 落 `missed`（列表底部、变淡）。
+- [ ] 未配置 AI key 时点完成 → 回 `doing` + 行内错误原文，任务不卡在 `reviewing`。
+- [ ] ~~全屏自动隐藏~~（v0.17 顺延 W10，key 保留不实现）
 
-**禁止**：不要在模型失败时降级为"自动通过"。S4 一旦有例外，等于没有 S4。
 
 ---
 

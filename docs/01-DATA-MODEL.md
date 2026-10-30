@@ -337,6 +337,7 @@ CREATE TABLE settings (
                      │  └──── 放弃 ───┘  └──── 驳回 ─────────┘              │
                      └────── 提交完成 ─────────────────────→┘               │
                                                                            │
+  reviewing ──驳回且已过 due_at──→ missed（v0.34：判失败，不计分）          │
   done ──24h 内撤销──→ doing（同时写一条负流水冲销）                          │
   任意状态 ──归档──→ archived ←─────────────────────────────────────────────┘
 ```
@@ -351,6 +352,7 @@ CREATE TABLE settings (
 - `discarded` 不计入任何统计，列表默认过滤。
 - 有 `parent_id` 的子步骤，自身**不单独计分**，父任务完成时统一计分。
 - **证据闸门（S4 已定）**：`requires_evidence = 1` 的任务，`reviewing → done` 必须满足 `evidence_json` 非空。缺证据时状态**停在 `reviewing`**，只能被驳回回 `doing` 或继续补证据，不能直接入账。这条在 `taskService.complete` 里硬校验，不靠 UI 拦。
+- **`missed` 是终点状态（v0.34）**：`reviewing → missed` 是唯一入口，且只在「AI 审核驳回（`partial` 或 `fail`）**且** `due_at` 已过」时进入；只有 `archived` 一条出口。`missed` 不计分、不写流水、不计入完成率。`due_at` 为 null 的任务驳回后一律回 `doing`，不判 `missed`——不做定时扫描，超期判失败只发生在审核驳回这一刻。
 
 ---
 
