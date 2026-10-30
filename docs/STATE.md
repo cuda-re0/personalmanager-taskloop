@@ -59,6 +59,8 @@ npm run build
 | `DomainEvent` 没有 `reminder.updated` | W8 开工前必须补 | DELTA v0.12 |
 | 改类型的语义（归位 / 清字段 / 重排提醒 / 补 occurrence） | 结论是"不做"，要改就是新需求 | 05 W5 |
 | 聊天输入框的附件是假的：`toAttachment()` 只造 `local-att-N` 本地预览对象，从未上传主进程 | 聊天附件、W7 之外的证据入口 | W7 验收时发现（`ChatInput.tsx:17`）。`msg.send` 收的 `attachmentIds` 目前是假 id |
+| **主页面对话区发消息根本没接主进程**：`useChatData.ts:462` 仍是 `TODO(W2)`，`send()` 只插一条本地气泡 + 600ms 后停转圈 | **界面上打字 AI 收不到**（W4 的 `msg.send` 通道完整可用，只差渲染层接线）；`retry` / `loadMore` 同理 | 2026-10-30 用户问「能和 AI 对话吗」时核实；`grep msg.send src/renderer` 0 命中 |
+| **`intent` 无人消费**：schema 有 `query`，prompt 也教了识别「我今天做了多少」，但主进程从不读 `intent` | AI 看不到任务数据——`buildParseRequest` 只有 system + fewshot + 最近 6 条聊天 + 本轮图文。03 §257 设计的「主进程 SQL 取数 + 模板拼装」未实现，问数据只能猜 | 03 §4.1、2026-10-30 核实 |
 | 超期判失败只在「审核驳回」这一刻发生，没有定时扫描 | W8 调度器 | 01 §3 v0.34 |
 | `Attachment.width/height` 恒 `null` | UI 不能靠尺寸占位 | 02 §3.3b |
 | `app://attach` 真机时序未验 | W10 打包时手点一次 | 05 W11 验收 |
