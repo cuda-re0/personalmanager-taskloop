@@ -106,6 +106,8 @@ npm run build
 | 25 | 任务详情展开压缩积分区 | W6/W6B 交界（右栏容器） | ✅ 交付 `b239517` 审核 PASS，**待用户手点验收** | `.points-panel` 定高 348px（`box-sizing: border-box`，量自默认窗详情收起态，241+240+348 自洽）+ `.tasks-panel` 补 `min-height: 0` 内滚。真机实测展开/收起三段高度零变动 |
 | 26 | 日历浮层修错了：要的是积分区变成日历层 | 同上 | ✅ 交付 `b239517` 审核 PASS，**待用户手点验收** | `dayDetail` 提升到 index，③④ 槽位二选一渲染 `PointsPanel`/`CalendarDayView`；再点同天=关闭、点他天=切换；浮层机制（floorTopOf/CellAnchor/`.calendar-floor`）删净（grep 0 命中）。层内只显示每日任务打卡行（occurrence 联表口径，限时/活动不出现——kickoff/25 既定） |
 
+| 27 | 生产构建产物 `connection` 双副本 → IPC 全瘫 | 构建链 | ✅ `c586411` 审核 PASS，**根因未定位** | 本机 5 次构建 + dev + 并发写全单副本，不可复现。改为构建期守卫 `assertSingleModuleInstance`（`generateBundle` 里按 `realpathSync.native` 归一，同文件两个 id 直接 `this.error` 并打印）；入口 input 改相对路径；产物 `getDb`=1、`$1`=0；四命令 47/562 绿 |
+
 **派单顺序（v0.26）**：只剩 `kickoff/22` 一单在路上。W8/W8B 已按用户要求搁置；W7（审核+证据）是下一浪的关键路径，但它依赖 W5 的审核卡位置，开工词等 22 号回来再写。
 
 **派单顺序（v0.25 修正，已过时，留作历史）**：**先修 20 号（状态机 P0）**，它挡着「完成任务 → 有流水 → 能撤销」整条链，18 号明细页没有流水可看。20 号与 W6 的 18 号文件不相交（`db/**` vs `features/points/**`），可以同时跑；但**验收顺序**必须是 20 号在前。
