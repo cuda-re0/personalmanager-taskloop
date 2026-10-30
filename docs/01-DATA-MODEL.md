@@ -307,10 +307,12 @@ CREATE TABLE settings (
 |---|---|---|
 | `ai.provider` | `{"name":"zhipu","model":"glm-5.3-flash"}` | 接入前需真机验证该模型支持图片。**本版 `name` 只接受 `zhipu`**，`harness` 虽在契约里保留但未实现 |
 | `ai.apiKey` | `""` | 存 keytar / 安全存储，**不存明文 DB，也不在 `AppSettings` 里**（因此它永远不出现在 IPC 上） |
-| `hud.mode` | `"dock-bar"` | `dock-bar` / `float-pod` |
+| `hud.mode` | `"ball"` | `ball` / `panel`（v0.30；旧值 `dock-bar`/`float-pod` 一律按 `ball` 起） |
 | `hud.displayId` | `null` | 所在显示器 |
-| `hud.position` | `{"x":null,"y":null}` | float-pod 的坐标 |
-| `hud.expanded` | `{"dock-bar":false,"float-pod":false}` | 两模式各记一份展开态（v0.17 新增，05 W9 验收 2「重启保持」） |
+| `hud.position` | `{"x":null,"y":null}` | 位置：ball 只存 y（x 锁右边缘），panel 存 x/y |
+| `hud.size` | `null` | v0.30 新增：panel 拉伸后的尺寸，null = 默认 360×480 |
+| `hud.background` | `null` | v0.30 新增：背景色，null = 跟随主题 |
+| `hud.opacity` | `1` | v0.30 新增：背景透明度 0.3–1 |
 | `hud.autoHideFullscreen` | `true` | 全屏应用时隐藏。**v0.17：本轮不实现检测**（无原生依赖时不可靠，W10 真机评估），key 保留 |
 | `points.difficultyBase` | `{"trivial":5,"easy":10,"medium":20,"hard":35,"epic":50}` | ★ B 中档，已定 |
 | `points.dailyBase` | `1` | ★ 每日任务单日基础分，已定 |

@@ -417,20 +417,23 @@
 
 ---
 
-## 5. 悬浮窗规格（R8）
+## 5. 悬浮窗规格（v0.30 重做）
 
-独立 `BrowserWindow`，两个渲染入口共用一套 `HudPanel` 组件，只是外壳不同。
+独立 `BrowserWindow`，透明、置顶、无边框、不进任务栏。**尺寸与坐标全部由主进程 `hudService` 决定**，
+渲染层 CSS 只负责画（`width/height: 100%`），不许用 CSS 改窗口大小。
 
-### 5.1 基础窗体参数（两种模式相同）
+### 5.1 基础窗体参数
 
 ```ts
 new BrowserWindow({
-  width, height,                       // 按模式计算
+  width, height,                       // hudService 算，见 §5.2
   frame: false,
   transparent: true,
   backgroundColor: '#00000000',
-  resizable: false,
-  movable: mode === 'float-pod',       // dock-bar 不可拖
+  resizable: mode === 'panel',         // 球固定 56×56，面板可拉伸
+  movable: true,
+  minWidth: 280, minHeight: 320,       // 仅 panel 生效
+  maxWidth: 720, maxHeight: 900,
   skipTaskbar: true,
   alwaysOnTop: true,
   hasShadow: false,
@@ -443,58 +446,57 @@ win.setAlwaysOnTop(true, 'pop-up-menu')   // 不用 'screen-saver'，否则盖�
 win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作用
 ```
 
-### 5.2 模式 A：`dock-bar`（顶部贴边常驻）
+### 5.2 两种形态
 
-```
-收起态  h = 32
-┌──────────────────────────────────────────────────────────────┐
-│ ● 3/5   今日 +42                        ⋯        最近待办标题 → │
-└──────────────────────────────────────────────────────────────┘
-   x = 8, y = 0, w = screen.width - 16
+| 形态 | 尺寸 | 位置 |
+|---|---|---|
+| `ball` 球 | `56 × 56` | **永远贴屏幕右边缘**（`x = workArea.right − 56`），`y` 自由、clamp 进工作区 |
+| `panel` 面板 | 默认 `360 × 480`，**用户可拉伸** | 自由位置 + 拉伸后的尺寸，整体 clamp 进工作区 |
 
-展开态  h = 260（向下展开，不推挤屏幕内容）
-┌──────────────────────────────────────────────────────────────┐
-│ ● 3/5   今日 +42                        ⋯        最近待办标题 → │
-├──────────────────────────────────────────────────────────────┤
-│  ○ 报告初稿                                        30min     │
-│  ● 客户回访                                        10:00     │
-│  ○ 报销单                                          +20       │
-│  ⋯ 最多 6 条                                                │
-├──────────────────────────────────────────────────────────────┤
-│  [+] 一句话加任务…                                    [↵]    │
-└──────────────────────────────────────────────────────────────┘
-```
+- **首次启动**（`hud.position` 为空）：`ball`，`y = workArea.y + workArea.height × 0.1`（距顶 1/10 屏高）。
+- **记忆**：位置落 `hud.position`、面板尺寸落 `hud.size`，重启恢复（v0.30 用户裁决「记住位置和尺寸」）。
+- 形态只由**点击 / ESC** 切换（v0.30）：点球 → 面板；面板内 ESC → 球。
+  **v0.21 的「拖动中实时变形」作废**——球离边 >48px 展开、面板距边 ≤24px 收起，这套逻辑不实现；
+  拖球只改 `y`（`x` 由 `hudService` 在 `move` 里强制回右边缘），拖面板只移动位置。
+- 面板拖动把手 = 头部那一行（`-webkit-app-region: drag`）；列表、tab、输入、设置控件一律 `no-drag`。
+- 拉伸：原生窗口边缘（`resizable: true`），`resize` 收尾时落 `hud.size`；球态 `resizable: false`。
 
-- 顶部圆角只在下方两角（`border-radius: 0 0 14px 14px`），贴边感。
-- hover 300ms 后展开（`hud.setExpanded(true)`），鼠标离开 500ms 后收起。用主进程控制窗口高度而非 CSS，否则窗口裁切。
-- **必须处理**：展开时是否抢占焦点。默认 `focusable: true` 仅展开时；收起态 `win.setIgnoreMouseEvents(true, {forward:true})` 会让输入框不可用，所以改为收起态保留可点、只是高度小。
-- 全屏应用检测：用户在全屏（游戏/视频/演示）时隐藏，退出全屏后恢复。策略在 `hud.autoHideFullscreen`。
-  **v0.17：本轮不实现自动检测。** 纯 Electron 无原生依赖时拿不到"别的应用是否全屏"（`BrowserWindow.isFullScreen()` 只对自己窗口；`display.bounds` 与 `workArea` 比对只在任务栏自动隐藏的全屏场景有信号，borderless 全屏完全不触发）。先用 `pop-up-menu` 层级 + `[悬浮条开关]` 手动隐藏覆盖这个场景，`hud.autoHideFullscreen` 的 key 与默认值保留、标"未实现"，W10 真机评估是否引入原生模块。**不许写永远为 false 的假检测。**
-- **v0.20：展开列表的行尾暂不实现。** 上图里的 `30min` / `10:00` / `+20` 本轮不显示，行只有标题——时间得联表取、分值要区分 `points_awarded` 与 `points_planned`（§4② 已说明两者可能不等），W10 打磨再补。上图保留为目标形态，不是当前实现的减配说明。
+### 5.3 页结构（v0.30）
 
-### 5.3 模式 B：`float-pod`（自由浮窗）
+面板内两页，头部两个 tab，**文字只有** `今天` / `设置`（本节的标签即白名单，别的一个字都不许加）。
 
-- 收起态：`56 × 56` 圆形，显示积分环（圆环进度 = 今日完成率）+ 右下角待办数角标。
-- 拖动：整个圆可拖（`-webkit-app-region: drag`），松手 `hud.moveTo` 持久化坐标。
-- 吸附：拖到距屏边 < 24px 时贴边，距顶/底 < 24px 时贴角。
-- 点击（非拖动）→ 展开为 `360 × 480` 面板，从圆的位置向屏幕内侧弹出，面板内就是同一份 `HudPanel`（任务列表 + 输入框 + 今日积分）。
-- 展开时窗体从 56×56 变 360×480，需重算坐标防溢出屏幕。
-- 再次点击外部/ESC 收起为圆。
-  **v0.20 实现口径**：Electron 感知不到"点在窗口外"，所以用窗口 `blur` 近似——点到 HUD 外面会失焦、切走别的应用也会失焦，两种都收起。副作用符合"点外部收起"的字面语义，可接受。
+**今天页**
 
-### 5.4 模式切换
+- 头部：`● N/M` + `今日 +N`。
+- 今日行：每日 occurrence + 今天到期的限时/活动；每行 = 完成控件 + 标题。
+  - 每日 → `occurrence.complete`（打卡）；限时/活动 → `task.complete`。
+  - 完成失败（如 `EVIDENCE_REQUIRED`）在该行**行内**显示 `AppError.message` 原样，4s 消失（与主窗同口径）。
+  - 行尾时间 / 分值仍不显示（v0.20 口径不变）。
+- 底部保留「一句话加任务」输入（`task.createManual`，`deadline / medium / 无 due_at`，v0.17 口径）。
 
-`hud.setMode` → 主进程销毁旧 bounds 设置新 bounds（不重建窗口，避免闪烁）→ 广播 `hud.mode.changed` → 渲染层切换外壳组件。位置、展开态各自记忆。
+**设置页**（替代 v0.21 的右键菜单，**右键菜单不再实现**）
 
-### 5.5 悬浮窗内容来源
+- 三项，文字固定：`背景颜色`（`<input type="color">`）、`透明度`（range `0.3–1` step `0.05`）、
+  `关闭悬浮窗`（`hud.setVisible({ visible: false })`）。
+- 前两项即时生效并落 `hud.background` / `hud.opacity`；关闭后从主窗顶栏开关再打开。
+- 没有第四项：不加「重置」、不加说明文字、不加 tooltip。
 
-与主窗**同一份**数据，通过同一个 `DomainEvent` 流。悬浮窗启动时自己调 `app.getBootstrap` 拿全量，之后只靠事件增量。**不要**让悬浮窗去读主窗的 zustand。
+### 5.4 背景与文字
 
-### 5.6 悬浮窗的交互边界
+透明度**只作用于背景**：渲染层把 `hud.background`（`null` → 主题 `--bg`）与 `hud.opacity`
+合成 `rgba(r,g,b,a)` 写进 CSS 变量 `--hud-bg`；禁止把 `opacity` 加到容器上（文字会一起变淡）。
 
-允许：快速加任务（一句话，走 `msg.send`，AI 解析后草稿仍回主窗会话，悬浮窗只显示一条"已添加"的轻提示；**v0.17：`msg.send` 归 W4 未接，W4 之前改走已接的 `task.createManual` 直建 `deadline / medium / 无 due_at`，W4 接上后升级为 AI 解析**）、勾选完成、展开看列表、切换模式。
+### 5.5 数据来源
 
-不允许：任务详情编辑、日历、积分明细、设置。这些一律回主窗。悬浮窗保持"一眼看完、一步操作"。
+与主窗同一份数据：`app.getBootstrap` 拿全量，之后只靠 `DomainEvent` 增量。**不读主窗的 store**。
+
+### 5.6 交互边界
+
+允许：看今天、完成/打卡、一句话加任务、改背景颜色与透明度、关闭悬浮窗。
+不允许：任务详情、日历、积分明细、新建带完整字段的任务。保持「一眼看完、一步操作」。
+
+全屏自动隐藏仍不实现（v0.17 降级口径不变）：`hud.autoHideFullscreen` 的 key 与默认值保留、标注未实现，
+不许写永远为 false 的假检测。
 
 ---
 

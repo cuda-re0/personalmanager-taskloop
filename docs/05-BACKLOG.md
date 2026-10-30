@@ -374,28 +374,33 @@
 
 ---
 
-## W9 · 悬浮窗
+## W9 · 悬浮窗（v0.30 重做）
 
-**只许改**：`src/renderer/hud/**`、`src/main/windowManager.ts`（仅 HUD 部分，05 原写 `src/main/windows/hudWindow.ts` 不存在，见 v0.17）、`src/main/services/hudService.ts`、`src/main/ipc/registry.ts` + `guards.ts`（仅 5 条 hud）、`src/preload/index.ts`（仅 `hud.getState` 返回形状）、`src/renderer/main/components/AppHeader.tsx`（新建）、`src/renderer/main/index.tsx`（仅挂顶栏）
+**只许改**：`src/shared/types/{ipc,events,channels}.ts`（仅 hud 段）、`src/preload/index.ts`（仅 hud）、
+`src/main/services/hudService.ts`、`src/main/windowManager.ts`（仅 HUD 建窗）、`src/main/ipc/{guards,registry}.ts`（仅 hud）、
+`src/main/db/defaultSettings.ts`（仅 hud key）、`src/renderer/hud/**`、`tests/main/hudService.test.ts`、
+`tests/ipc/hudChannels.test.ts`、`tests/renderer/hudWiring.test.ts`（新增）。
 
-**交付**
+**交付**（规格见 04 §5，v0.30）
 
-1. 两种模式 + 切换（04 §5），共用 `HudPanel`。
-2. `dock-bar`：贴边、hover 展开/收起（主进程改窗口高度）、全屏检测自动隐藏。
-3. `float-pod`：拖动、边缘吸附、位置记忆、点击展开面板。
-4. 与 `DomainEvent` 同步、启动自取 bootstrap。
-5. 顶栏的悬浮条开关。
-6. 多屏 & DPI 变化后归位逻辑。
+1. 两态：`ball`（56×56，贴右边缘，y 自由）/ `panel`（默认 360×480，可拉伸）。
+2. 首次启动贴右、距顶 1/10 屏高；位置与面板尺寸记忆，重启恢复。
+3. 点球展开、面板内 ESC 收回；删掉 v0.21 的拖动实时变形与 `dock-bar`/`float-pod` 全链路。
+4. 面板两页：`今天`（今日行 + 完成/打卡 + 一句话加任务）/ `设置`（背景颜色、透明度、关闭悬浮窗）。
+5. `hud.background` / `hud.opacity` / `hud.size` 三个新 settings key；删 `hud.expanded` 与 `hud.setExpanded`。
+6. 与 `DomainEvent` 同步、启动自取 bootstrap；多屏 & 分辨率变化后 clamp 回工作区。
 
 **验收**
 
-- [ ] 主窗勾完一个任务，悬浮条上的完成数与积分在 100ms 内更新。
-- [ ] 切换模式后位置与展开态各自记忆，重启保持。
-- [ ] 拖动 float-pod 到屏幕边缘松开，吸附且不下沉到任务栏下面。
-- [ ] ~~打开全屏视频，悬浮条自动隐藏；退出后恢复。~~ **（v0.17 顺延 W10：无原生依赖检测不可靠，本轮改为手动隐藏可用 + 该条 W10 真机评估）**
-- [ ] 拔掉副屏重启，悬浮条回到主屏顶部而不是屏幕外。
-- [ ] 运行中插上一块新屏 / 拔掉一块屏，悬浮条重算坐标、不留在屏幕外（v0.20：`display-added` 也订阅了）。
-- [ ] 125% / 150% 缩放下不掉字、不重叠。
+- [ ] 清掉 `hud.position`/`hud.size` 后启动：球 56×56、贴右边缘、距顶约 10%（误差 ≤ 8px）。
+- [ ] 点球 → 面板；ESC → 球；两个 tab 能切换，页面只有 04 §5.3 允许的文字。
+- [ ] 拖球（只上下动）、拖面板（头部）、拉面板右下角改尺寸，重启后位置与尺寸都保持。
+- [ ] 设置页改颜色/透明度即时生效、重启保留；`关闭悬浮窗` 生效且主窗顶栏能再打开。
+- [ ] 今天页点每日行打卡、点限时行完成，界面靠事件回流更新；被证据闸门拦时行内显示错误原文。
+- [ ] 主窗勾完一个任务，HUD 的 `● N/M` 在 100ms 内更新。
+- [ ] 拔掉副屏重启 / 运行中插拔屏，HUD 不留在屏幕外。
+- [ ] ~~全屏自动隐藏~~（v0.17 顺延 W10，key 保留不实现）
+
 
 ---
 

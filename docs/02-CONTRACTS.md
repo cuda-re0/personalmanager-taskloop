@@ -342,8 +342,8 @@ export interface ReminderPayload {
 （02 早期版本引用了 `PublicSettings` 与 `HudMode` 却没给定义，代码侧曾以 `Record<string, unknown>` 补齐。审核指出这等于放弃 settings 的类型检查，v0.7 改为封闭接口，`ipc.ts` 需按本节同步一次。此后本节即唯一来源。）
 
 ```ts
-/** 悬浮形态：顶部贴边条 / 自由浮窗 */
-export type HudMode = 'dock-bar' | 'float-pod';
+/** 悬浮形态（v0.30）：贴右边缘的球 / 可拉伸的面板 */
+export type HudMode = 'ball' | 'panel';
 
 /** webhook 渠道配置（非敏感部分；token 存 safeStorage，不在此） */
 export interface WebhookConfig {
@@ -362,11 +362,13 @@ export interface WebhookConfig {
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string };
-  'hud.mode': HudMode;
+  'hud.mode': HudMode;                                            // v0.30：'ball' | 'panel'
   'hud.displayId': number | null;
-  'hud.position': { x: number | null; y: number | null };
-  'hud.expanded': { 'dock-bar': boolean; 'float-pod': boolean };  // v0.17：两模式各记一份展开态（05 W9 验收 2「重启保持」）
-  'hud.autoHideFullscreen': boolean;                              // 保留 key，本轮不实现检测（v0.17 降级，见 04 §5.2）
+  'hud.position': { x: number | null; y: number | null };          // ball 只存 y（x 锁右边缘），panel 存 x/y
+  'hud.size': { width: number; height: number } | null;            // v0.30 新增：panel 拉伸后的尺寸，null = 默认 360×480
+  'hud.background': string | null;                                 // v0.30 新增：null = 跟随主题 --bg
+  'hud.opacity': number;                                           // v0.30 新增：0.3–1，默认 1，只作用于背景
+  'hud.autoHideFullscreen': boolean;                              // 保留 key，本轮不实现检测（v0.17 降级，见 04 §5.6）
   'points.difficultyBase': Record<Difficulty, number>;
   'points.dailyBase': number;
   'points.streakBonus': { days: number; bonus: number }[];
@@ -570,11 +572,12 @@ export type CompleteTaskInput =
 
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
-| `hud.setMode` | `{ mode: 'dock-bar' \| 'float-pod' }` | `void` | 切换模式，同一窗口重建或缩放宽高 |
-| `hud.setExpanded` | `{ expanded: boolean }` | `void` | 展开/收起，**两种模式通用**（v0.17：dock-bar 由渲染层 hover 触发，float-pod 由点击/ESC 触发）；高度由主进程 `setBounds`，不走 CSS |
-| `hud.moveTo` | `{ x: number; y: number }` | `void` | 主进程 clamp 到该显示器 `workArea` 后落库。float-pod 拖动本身由主进程 `move` 事件去抖收尾，不依赖本通道（v0.17） |
+| `hud.setMode` | `{ mode: 'ball' \| 'panel' }` | `void` | 切换形态：同一窗口换 bounds（不重建），球态 `resizable:false`、面板态 `resizable:true` |
+| `hud.moveTo` | `{ x: number; y: number }` | `void` | 主进程 clamp 到该显示器 `workArea` 后落库；ball 态 `x` 由主进程强制回右边缘。拖动本身由主进程 `move` 事件去抖收尾，不依赖本通道 |
 | `hud.setVisible` | `{ visible: boolean }` | `void` | |
-| `hud.getState` | — | `{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }` | `visible` 取**「应显示」状态**而不是 `win.isVisible()` 的瞬时值（v0.20）：HUD 窗口的 `attach` 早于 `ready-to-show`，主窗顶栏可能在它出现前就取初态，取瞬时值会让开关显示关闭、HUD 随后自己浮现。窗口已销毁时返回 `false` |
+| `hud.getState` | — | `{ mode: HudMode; displayId: number; visible: boolean }` | v0.30 去掉 `expanded`。`visible` 取**「应显示」状态**而不是 `win.isVisible()` 的瞬时值（v0.20）：HUD 窗口的 `attach` 早于 `ready-to-show`，主窗顶栏可能在它出现前就取初态，取瞬时值会让开关显示关闭、HUD 随后自己浮现。窗口已销毁时返回 `false` |
+
+v0.30 删除 `hud.setExpanded`：形态只有球/面板两态，由 `hud.setMode` 表达；`hud.expanded` 这个 settings key 一并从 `AppSettings` 删除，**旧库残留行不迁移**，只是再也读不到。
 
 **已知缺口（v0.20 登记）**：`hud.setVisible` 没有回向事件（没有 `hud.visible.changed`），目前顶栏开关是唯一消费方、自己驱动自己。**W8B 设置页也要开关时必须先加这条事件**，否则两个入口会各存一份状态。`hud.visible` 也**不落 settings**：显隐是会话态，重启复位为显示——关掉以后忘了怎么找回，比"重启又出现"更糟。
 
@@ -596,7 +599,7 @@ export type DomainEvent =
   | { type: 'daystats.changed'; day: DayStat }   // day 是**整个 DayStat 对象**，不是日期字符串——字段名易误读，渲染层直接整体覆盖对应日
   | { type: 'app.setting.changed'; key: string; value: unknown }
   | { type: 'channel.status'; channels: { id: NotifyChannel; available: boolean }[] }
-  | { type: 'hud.mode.changed'; mode: 'dock-bar' | 'float-pod' };
+  | { type: 'hud.mode.changed'; mode: HudMode };
 
 export type DomainEventType = DomainEvent['type'];
 ```
@@ -625,7 +628,7 @@ contextBridge.exposeInMainWorld('api', {
   points:     { balance, ledger, monthStats, adjust, preview, streakPreview },
   reminder:   { listByTask, listUpcoming, cancel, snooze, syncForTask, testChannel },
   channel:    { list, setConfig, setGlobal },
-  hud:        { setMode, setExpanded, moveTo, setVisible, getState },
+  hud:        { setMode, moveTo, setVisible, getState },
   onEvent:    (cb: (e: DomainEvent) => void) => () => void,  // 返回取消订阅函数
 });
 ```
