@@ -101,6 +101,32 @@ export interface ChatMessage {
 
 `GlmClient` 实现上面的 `AiProvider`。`HarnessClient` 是**预留实现，本版不写**。`aiService` 只依赖 `AiProvider`，不 import 具体实现。
 
+**v0.37 给 `AiProvider` 加第二个方法——`chatText`**（闲聊是纯文本，不套 JSON，见 §4.3）：
+
+```ts
+export interface ChatTextOptions {
+  messages: ChatMessage[];
+  temperature?: number;
+  maxTokens?: number;
+  signal?: AbortSignal;
+}
+
+export interface ChatTextResult {
+  text: string;          // 已 trim，空字符串视为失败
+  usage: ChatUsage;
+  latencyMs: number;
+}
+
+export interface AiProvider {
+  chatJson<T>(opts: ChatJsonOptions<T>): Promise<ChatJsonResult<T>>;
+  chatText(opts: ChatTextOptions): Promise<ChatTextResult>;   // v0.37
+}
+```
+
+`chatText` **不做 zod 校验**（本来就没有结构可校），只做三件事：剥掉模型偶尔自带的 markdown 围栏、`trim`、空字符串报 `AI_PARSE_FAILED`。`chatJson` 的行为约定一条不改。
+
+**两个方法用两个不同的模型**：`chatText` 用 `settings['ai.chat.model']`（默认 `glm-4.7-flashx`，纯文本、非推理、便宜），`chatJson` 用 `settings['ai.provider'].model`（`glm-5.3-flash`，要推理、要识图）。`GlmClient` 构造时要能接收两个模型名，或提供 `withModel(model)` 派生实例——**不许在调用点直接 new 一个 client 塞模型名**，那是把配置读取散到各处。
+
 行为约定（实现必须满足）：
 
 1. `response_format: { type: 'json_object' }`；上游不支持时退化为在 system prompt 里强制"只输出 JSON，不要 markdown 围栏"，并在解析前剥围栏。
@@ -113,7 +139,7 @@ export interface ChatMessage {
 
 ---
 
-## 4. 三个能力契约
+## 4. 四个能力契约
 
 ### 4.1 `parse` — 识别 + 补全 + 分类（R1/R2）
 
@@ -252,9 +278,107 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 
 **防自欺的一道硬闸**：`need_evidence` 连续出现 3 次后，卡片上出现 `[直接标记完成（不计分）]`，让用户能结束这件事而不必撒谎，也不给分。这只是避免流程死锁，不是后门。
 
-### 4.3 `chat` — 闲聊与其他
+### 4.3 `chat` — 闲聊（v0.37 重写：独立管线，纯文本）
 
-不建任务、不改数据。`reply` 直接进会话。用户问"我今天做了多少"这类查询 → `intent='query'`，由主进程用 SQL 取数后**模板拼装**回复，不让模型算数字（同 §1 的道理：查库比问模型准）。
+**这是唯一不走 `chatJson` 的能力。** 以前它和 `parse` 挤在一条管线上（每轮都要回 `{reply ≤60 字, tasks}`），所以既聊不深也聊不长。v0.37 起它是独立管线 `src/main/ai/pipelines/chat.ts`，输出纯文本。
+
+**触发条件**：`msg.send` 的 `mode === 'chat'`（默认）。**不看文本内容**——模式由输入区按钮决定，主进程不做关键词猜测。
+
+**模型**：`settings['ai.chat.model']`，默认 `glm-4.7-flashx`。纯文本模型，**图片一律不送**（`attachmentIds` 照常挂到消息上，但不进 prompt）。
+
+#### 4.3.1 请求构成
+
+`messages` 数组固定四段，顺序不许变：
+
+| # | role | 内容 |
+|---|---|---|
+| 1 | `system` | 身份段 + 记忆段 + 时间与今日数据段 + 历史摘要段 + 铁律段（下面逐段规定） |
+| 2..n | `user` / `assistant` 交替 | 最近 **20 条**历史原文（`messageService.recentChatMessages(20)`，只取 `kind='text'` 的，`task_draft` / `task_review` 不进上下文） |
+| n+1 | `user` | 本轮文本 |
+
+**system 五段拼装顺序**（段间空一行，段内不换行）：
+
+1. **身份段**
+   ```
+   你是 {persona.name}。{persona.personaMd}
+   称呼对方为「{persona.user_call}」。（`user_call` 为空时整句省略，下文用「你」）
+   语气：{tone 对应一句}
+   ```
+   `tone` 三档的固定句（**不要自由发挥**）：`warm` =「说话温和、有耐心，不说教」；`plain` =「直接说结论，不铺垫、不客套」；`playful` =「轻松一点，可以开玩笑，但不油腻」。
+
+2. **记忆段**
+   ```
+   关于对方，你记得这些：
+   - {memory.contentMd}
+   - …
+   ```
+   取 `memories` 按 `updated_at DESC` 前 **12 条**，不再按 kind 分组排序（分组会让「最近记住的」沉底）。一条都没有时整段省略。这 12 条的 `hits + 1`，一条 SQL 批量更新。
+
+3. **时间与今日数据段**（`buildTodayBrief()` 拼装，**主进程查库模板拼接，不让模型算数字**）
+   ```
+   今天是 2026-10-30（周五）。
+   今天的任务：待办 3 条（写季度报告 · 今天 18:00 截止；背单词；准备答辩 · 11-02 09:00），已完成 2 条，逾期 0 条。
+   今天已得 30 分，总积分 1280 分。
+   ```
+   - 待办最多列 **5 条**，超出时末尾加「等 N 条」（N 是总数）；标题超过 12 字截断加 `…`。
+   - 每日任务在括号里写「每日」，限时/活动写截止时刻（今天 → `今天 HH:mm`，别的日子 → `MM-DD HH:mm`）。
+   - 空数据时对应子句整句省略：没有待办就只写「今天没有待办任务」，一条任务都没有就写「今天没有任何任务」。**不许出现「0 条待办，0 条已完成」这种机器腔。**
+   - 这段的数字必须与 `04 §4③` 积分区、① 任务区**同源同值**（都走 `01 §4` 的统计口径），出现差值算 bug。
+
+4. **历史摘要段**
+   `chat_state.summary_md` 非空时才有：
+   ```
+   更早的对话摘要：{summary_md}
+   ```
+
+5. **铁律段**（写死，逐字）
+   ```
+   规则：
+   - 用中文，口语，不要分点罗列，不要输出 JSON 或 markdown 代码块。
+   - 只说你确定的事。不知道就说不知道，不要编数字、编日期、编你做过的事。
+   - 你现在处在聊天模式，不能创建、修改、完成任何任务。用户让你记任务时，如实告诉他这个模式不能建任务，不要假装记下了。
+   - 不要复述上面「关于对方，你记得这些」和「今天」的原文，把它们当成你已经知道的事自然使用。
+   ```
+
+#### 4.3.2 参数与失败
+
+| 项 | 值 | 理由 |
+|---|---|---|
+| `temperature` | `0.8` | 闲聊要松，`parse` 用的低温在这里会像客服 |
+| `maxTokens` | `800` | 约 500~600 汉字，够一段长回复；放开到 2000 会明显变慢 |
+| 超时 | `30s` | 非推理模型，比 `chatJson` 的 60s 短。超时按失败处理 |
+| 空字符串 | 按失败处理 | `chatText` 内部就报 `AI_PARSE_FAILED`，**不许拿空串 patch 消息让气泡变空气泡** |
+
+失败路径（与 `msg.send` 现有失败一致，不新增分支）：落一条 `kind='error'` 消息 + `message.appended`，占位 assistant 消息 `status='failed'`，`retryable: true`。用户点重试重跑同一轮。
+
+#### 4.3.3 不做什么
+
+- **不抽任务。** 聊天模式永远不产出 `task_draft`。想建任务就切模式，这是用户 2026-10-30 的决定（「忘了切换我自己处理，损失也不大」）。
+- **不调工具、不查库。** 所有数据在 system 里摆好了，模型只负责说话。**不许给它「自己查」的错觉**——那会导致它编造查询结果。
+- **不做意图分类。** `intent` 字段在 chat 管线里不存在。它在 `parse` 管线里保留，但主进程仍然不消费（`query` 的模板拼装已经被本节的今日数据段替代）。
+
+### 4.4 `memory-extract` — 记忆自动提取（v0.37 新增）
+
+**在 `chat` 轮次成功之后异步跑**，不阻塞回复、失败静默（只写日志，不给用户看错误）。
+
+| 项 | 规则 |
+|---|---|
+| 模型 | `settings['ai.chat.model']`（同样的便宜模型），`chatJson` 调用 |
+| `temperature` | `0` |
+| 输入 | 本轮 user 文本 + 本轮 assistant 回复 + 现有记忆的 `contentMd` 列表（≤50 条，用于去重） |
+| 输出 schema | `{ "memories": [ { "contentMd": string, "kind": "profile" \| "preference" \| "fact" } ] }` |
+| 条数 | 最多 **2 条**；没有值得记的就返回空数组，**这是常态** |
+| 超时 | `15s`，超时直接放弃这一轮 |
+| 落库 | `INSERT OR IGNORE`（`content_md` 唯一），`source='auto'`。已满 50 条先淘汰（01 §2.9） |
+
+**prompt 里要写死的四条否定条件**（不写的话它会每轮都记一句废话）：
+
+- 「对方随口说的话」、「这次聊的具体内容」、「已经存在的记忆」都不记。
+- 只记**跨对话仍然成立**的事实：身份、长期偏好、稳定的人际/宠物/工作关系、明确说过的目标。
+- 不记情绪（「他今天心情不好」）、不记临时状态（「他现在在写代码」）、不记任务本身（任务是任务表的事）。
+- 一条不超过 30 字，写成陈述句，主语用「对方」。
+
+**不做的事**：不更新已有记忆（只增），不删，不做「这条记忆是不是过时了」的判断。过时由用户手动改——这是丙方案（自动 + 手动）里手动的意义。
 
 ---
 
@@ -309,6 +433,9 @@ src/main/ai/prompts/
   parse.system.md       # 4.1 的约束
   review.system.md      # 4.2 的判定标准
   parse.fewshot.json    # 3-5 组正例，覆盖：单任务、图转任务、多任务、纯闲聊
+  chat.system.md        # 4.3 的五段模板（v0.37，带 {{PERSONA}} {{MEMORY}} {{BRIEF}} {{SUMMARY}} 占位符）
+  memory.system.md      # 4.4 的提取规则与四条否定条件（v0.37）
+  summarize.system.md   # 01 §2.10 的历史压缩（v0.37，≤600 字、只留事实不留寒暄）
 ```
 
 - 每个 prompt 带版本号注释（`<!-- v1 2026-10-27 -->`），改 prompt 要写变更记录，因为 prompt 改动对效果的影响不比代码小。
@@ -368,6 +495,11 @@ src/main/ai/prompts/
 | `glm-4.5-flash` | ✅ | 推理（`content` 空是 token 不够） | 未测 | 备选 |
 | `glm-4.6` | ✅ | 推理 | 未测 | 备选 |
 | `glm-4.6-flash` | ❌ `1220 您无权访问` | — | — | 此 key 不可用 |
+| `glm-4.7-flashx` | 未实测 | 非推理，纯文本 | 未测（官方标 200 tok/s 档） | **v0.37 起的闲聊模型**，用户 2026-10-30 裁决「聊天不需要识图」。`ai.chat.model` 默认值 |
+
+> **换模型必须走裁决，不许自己换**——包括"某个模型报错了我顺手换成 flash"。换模型看 `ai.health` 与 `messages.latency_ms`，改完在报告里写明换的模型名与三次实测延迟。
+>
+> **`glm-4.7-flashx` 上线前必须实测三件事**（W12 施工第一步，别跳过）：① 它是不是非推理模型（响应里有没有 `reasoning_content`）；② 单次闲聊的首字延迟与总耗时（三次取中位）；③ 用日文/英文各问一句，确认中文输出规则不串。实测结果写进本节下表，供以后换模型时对照。
 
 ### 9.5 必须靠 prompt 与校验硬扛的三个已知错误
 

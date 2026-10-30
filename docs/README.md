@@ -18,7 +18,7 @@
 | [00-ARCHITECTURE.md](00-ARCHITECTURE.md) | 需求溯源、三条架构不变量、进程拓扑、目录所有权、风险、待确认建议 | 所有人先读 |
 | [01-DATA-MODEL.md](01-DATA-MODEL.md) | SQLite DDL、状态机、统计口径、迁移规范 | 数据层 |
 | [02-CONTRACTS.md](02-CONTRACTS.md) | 全部 TS 领域类型、IPC 方法表、事件类型、积分公式 | 所有人 |
-| [03-AI-CONTRACT.md](03-AI-CONTRACT.md) | 意图路由、三个能力契约、prompt 约束、图片管线、接入验证 | AI 接入 |
+| [03-AI-CONTRACT.md](03-AI-CONTRACT.md) | 意图路由、四个能力契约、prompt 约束、图片管线、接入验证 | AI 接入 |
 | [04-UI-SPEC.md](04-UI-SPEC.md) | 主窗布局、草稿卡片、审核卡片、悬浮窗两模式、设计 token、文案纪律 | 渲染层、悬浮窗 |
 | [05-BACKLOG.md](05-BACKLOG.md) | W0–W10 拆分、依赖图、逐项验收标准、协作纪律 | 调度方 |
 | [kickoff/](kickoff/README.md) | **可直接复制发给其他 AI 的开工词**：W0 + 第一波 6 个并行 | 你，派活时用 |

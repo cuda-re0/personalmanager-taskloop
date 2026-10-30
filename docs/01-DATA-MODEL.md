@@ -22,7 +22,13 @@ messages ──n:1── tasks(linked_task_id, 可空)   # 草稿卡片/审核�
 
 daily_stats  # 物化聚合，可由 ledger + occurrences 全量重算
 point_ledger # 积分唯一真相，余额 = SUM(delta)
+
+personas    # 人物卡（v0.37）：助手是谁，v1 只有一行
+memories    # 长期记忆（v0.37）：助手记住的「你是谁」，与 tasks 无关，也不挂在任何消息上
+chat_state  # 会话摘要（v0.37）：单行，早于滚动窗口的历史压缩
 ```
+
+三张新表与既有实体**没有外键关系**：记忆不是任务的子集，人物卡也不属于某条消息。`memories` 故意不挂 `task_id`——「我每天早上七点起」这种事实来自对话，不来自任何一个任务。
 
 **为什么需要 `task_occurrences` 而不是让 tasks 一行记一次完成：**
 每日任务是"长期坚持"，同一个任务要完成 30 次。如果沿用 `tasks.completed_at` 单字段，第 2 天完成后就把第 1 天的记录覆盖了，日历、连续天数、每日积分全部无从谈起。所以把"发生"抽成独立实体：一条 occurrence = 这个任务在这一天的这一次。
@@ -323,6 +329,76 @@ CREATE TABLE settings (
 | `channel.mail` | `{"to":""}` | ★ 收件邮箱。`to` 为空 = 未配置，渠道 `available()=false` 自动跳过，不报错 |
 | `channel.webhook` | `null` | ★ 结构见 02 §3.0 的 `WebhookConfig`。`null` = 未启用；密钥不在此，走 `safeStorage` |
 | `app.theme` | `"light"` | |
+| `ai.chat.model` | `"glm-4.7-flashx"` | **v0.37 新增**（第 18 个 key）：闲聊专用模型，纯文本、非推理、走 `/chat/completions` 但**不带图片**。任务侧仍用 `ai.provider.model`（`glm-5.3-flash`，要推理与识图）。两个模型名分开存，是因为 `ai.provider` 是对象、`settingRepo.getAll()` 做浅合并，往里塞字段会被整对象覆盖掉 |
+
+> **v0.37 为什么是两个 key 而不是一个对象**：`settings` 表只存用户真正改过的 key，读取时用 `DEFAULT_SETTINGS` 做底再**浅合并**。用户一旦改过 `ai.provider`（哪怕只改 model），库里那一行就是完整对象，任何新增子字段都会被覆盖成 `undefined`。所以聊天模型必须是顶层 key。
+
+---
+
+### 2.8 personas — 人物卡
+
+```sql
+CREATE TABLE personas (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,                 -- 助手名字，1~20 字
+  user_call  TEXT NOT NULL DEFAULT '',      -- 怎么称呼用户，空串 = 用「你」
+  persona_md TEXT NOT NULL DEFAULT '',      -- 人设正文，≤ 800 字
+  tone       TEXT NOT NULL DEFAULT 'warm',  -- warm|plain|playful
+  is_active  INTEGER NOT NULL DEFAULT 1,    -- 0/1
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX idx_personas_active ON personas(is_active) WHERE is_active = 1;
+```
+
+- **表支持多张，v1 只用一张。** 唯一部分索引保证「同时最多一张 active」，`persona.setActive` 在同一事务里先把别的置 0 再置 1。
+- **行不预置。** 迁移里不插数据（§5 的规矩），`persona.get` 发现表空时就地建一行 `id='default'`、`name='小助手'`、其余为空，然后返回它。首次打开聊天不会因为「没配人设」而报错。
+- `tone` 只影响 prompt 里的一句语气指令（03 §4.3），不参与任何业务判断，非法值按 `warm` 处理。
+- `persona_md` 是**用户自己写的话**，原样进 system prompt 的 `{PERSONA}` 位置，程序不解释、不解析、不加前缀。
+
+### 2.9 memories — 长期记忆
+
+```sql
+CREATE TABLE memories (
+  id         TEXT PRIMARY KEY,
+  content_md TEXT NOT NULL,                 -- 一条一句话，≤ 120 字
+  kind       TEXT NOT NULL,                 -- profile|preference|fact
+  source     TEXT NOT NULL,                 -- auto|manual
+  hits       INTEGER NOT NULL DEFAULT 0,    -- 被带进 system prompt 的次数
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX idx_memories_content ON memories(content_md);
+CREATE INDEX idx_memories_updated ON memories(updated_at DESC);
+```
+
+| `kind` | 装什么 | 例子 |
+|---|---|---|
+| `profile` | 我是谁、我的处境与目标 | `在读研二，方向是分布式系统` |
+| `preference` | 我喜欢 / 不喜欢什么、怎么跟我说话 | `不喜欢被追问细节，喜欢直接给结论` |
+| `fact` | 可核对的事实性信息 | `养了一只猫叫豆豆` |
+
+- **`content_md` 唯一**：重复提取同一条是常态（模型每轮都会看到同样的信息），唯一索引让「提取到已存在的记忆」变成 `INSERT OR IGNORE` 的 no-op，不需要先查后写。
+- **上限 50 条。** 写入前若已满，先淘汰一条：`hits` 升序 → `updated_at` 升序（最没用 + 最久没碰的先走）。淘汰是硬删，不做软删、不做归档。
+- **`hits` 是淘汰依据，不是展示字段。** 每次 `chat` 把一条记忆拼进 system 就给它的 `hits + 1`（一条 SQL，`UPDATE ... WHERE id IN (...)`）。
+- 记忆**没有过期时间**：用户手动删才没。`auto` 提取的条目和 `manual` 的条目在存储上完全平等，只有 `source` 一个字段区分来源，供设置页显示与「一键清空自动记忆」。
+
+### 2.10 chat_state — 会话摘要
+
+```sql
+CREATE TABLE chat_state (
+  id              TEXT PRIMARY KEY,              -- 恒为 'main'
+  summary_md      TEXT NOT NULL DEFAULT '',      -- 滚动窗口之前的历史摘要，≤ 600 字
+  upto_message_id TEXT,                          -- 摘要已覆盖到哪一条（含）；NULL = 还没摘要过
+  updated_at      TEXT NOT NULL
+);
+```
+
+- **单行表**，`id` 恒 `'main'`。会话只有一个 thread，多行没有意义。
+- **什么时候写**：`msg.list` 或 `msg.send` 取上下文时，若「`upto_message_id` 之后的原文条数 > 40」才触发一次摘要压缩——把「旧摘要 + 这 40 条里的前 20 条」交给模型压成新的 `summary_md`，`upto_message_id` 前移到第 20 条。**压缩在后台跑，不阻塞这一轮回复**；失败就保留旧摘要、下轮再试，不报错给用户。
+- 摘要只覆盖**对话内容**，不涵盖任务数据。任务摘要每轮由主进程现取现拼（03 §4.3），因为任务的「今天」天天在变，静态摘要第二天就是错的。
 
 ---
 

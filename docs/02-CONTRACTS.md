@@ -327,6 +327,40 @@ export interface ReminderPayload {
   offsetLabel: string;   // '前 1 天' / '前 1 小时' / '每日 21:00'
   level: ReminderLevel;
 }
+
+/** 聊天模式（v0.37）：**只由输入区的模式按钮决定**，禁止从文本内容推断 */
+export type ChatMode = 'chat' | 'task';
+
+/** 人物卡语气档（v0.37）。只影响 03 §4.3 里的一句语气指令，不参与任何业务判断 */
+export type PersonaTone = 'warm' | 'plain' | 'playful';
+
+/** 人物卡（v0.37）。表支持多张，v1 只有一行 `isActive: true` */
+export interface Persona {
+  id: string;
+  name: string;          // 助手名字，1~20 字
+  userCall: string;      // 怎么称呼用户，空串 = 用「你」
+  personaMd: string;     // 用户自己写的人设正文，≤ 800 字，原样进 prompt
+  tone: PersonaTone;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 记忆分类（v0.37）：profile=我是谁 / preference=我怎么被对待 / fact=可核对的事实 */
+export type MemoryKind = 'profile' | 'preference' | 'fact';
+
+/** 记忆来源（v0.37）：auto=模型自动提取，manual=用户手写。存储上完全平等，只用于区分与筛除 */
+export type MemorySource = 'auto' | 'manual';
+
+export interface Memory {
+  id: string;
+  contentMd: string;     // 一条一句话，≤ 120 字，**全局唯一**
+  kind: MemoryKind;
+  source: MemorySource;
+  hits: number;          // 被带进 system prompt 的次数，淘汰依据
+  createdAt: string;
+  updatedAt: string;
+}
 ```
 
 ---
@@ -362,6 +396,7 @@ export interface WebhookConfig {
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string };
+  'ai.chat.model': string;                                        // v0.37 新增：闲聊模型，默认 'glm-4.7-flashx'
   'hud.mode': HudMode;                                            // v0.30：'ball' | 'panel'
   'hud.displayId': number | null;
   'hud.position': { x: number | null; y: number | null };          // ball 只存 y（x 锁右边缘），panel 存 x/y
@@ -390,7 +425,7 @@ export type PublicSettings = AppSettings;
 
 `Difficulty` 与 `NotifyChannel` 从 `domain.ts` 引入，`ipc.ts` 可以 import，不算循环依赖（`domain.ts` 不反向引用 `ipc.ts`）。
 
-**关于 `AppSettings` 的 key 数量**：01 §2.7 列出 15 条，本节定型 **14 条**——少的那条是 `ai.apiKey`，它存 `safeStorage`、不入 settings 表，因此不进类型。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
+**关于 `AppSettings` 的 key 数量**：01 §2.7 列出 18 条，本节定型 **18 条**（v0.37 起；v0.30 时是 17 条，新增的一条是 `ai.chat.model`）。少的那条是 `ai.apiKey`——它存 `safeStorage`、不入 settings 表，因此不进类型，也不在 01 §2.7 的 key 表里。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
 
 **`ai.apiKey` 的读取优先级（v0.22）**：`safeStorage` 文件 > `process.env.ZHIPU_API_KEY`（开发期由 `.env.local` 提供，该文件已被 gitignore）> 未配置（`ai.health` 返回 `configured: false`，`ai.*` 调用返回 `AI_NOT_CONFIGURED`）。v1 不提供"界面输入 key"的通道——设置页还不存在，加了没人调；`writeKey()` 写好导出留着即可，**不许注册成 IPC**。详见 `03-AI-CONTRACT.md` §9.7。
 
@@ -504,11 +539,16 @@ export type CompleteTaskInput =
 
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
-| `msg.send` | `{ text: string; attachmentIds?: string[] }` | `{ userMessage: Message; assistantMessageId: string }` | 立即返回用户消息与占位的 assistant 消息 id，AI 结果通过事件流推送 |
+| `msg.send` | `{ text: string; attachmentIds?: string[]; mode?: ChatMode }` | `{ userMessage: Message; assistantMessageId: string }` | 立即返回用户消息与占位的 assistant 消息 id，AI 结果通过事件流推送 |
 | `msg.retry` | `{ messageId: string }` | `void` | 重跑失败的那一轮 AI |
 | `msg.list` | `{ before?: string; limit?: number }` | `Message[]` | 分页向前翻。**排序是全序**：同毫秒落库的消息按落库序返回（`created_at` 只有毫秒精度，平手由插入序裁决，对渲染层透明）、游标跨毫秒对不丢不重；`before` 是消息 id，查不到报 `NOT_FOUND`「分页游标消息不存在」 |
 
 `msg.send` 的流程：写 user 消息 → 广播 → 返回 → 后台跑 AI → 逐条广播 `message.appended` / `message.patch`。渲染层不要 await 到 AI 完成。
+
+**`mode`（v0.37）**：`'chat'` 走纯文本闲聊管线（03 §4.3，用 `ai.chat.model`），`'task'` 走现有 parse 管线（03 §4.1，用 `ai.provider.model`，出草稿卡）。**省略时按 `'chat'` 处理**——旧调用方（测试、脚本）不该因为多了这个字段就变成另一条链路。`mode` 只由界面按钮给出，主进程**不许**再从文本内容推断（曾经设计过「以『建任务』开头」的关键词判定，v0.37 撤销：按钮已经明确了用户意图，再猜一遍只会产生两份真值且互相打架）。
+
+- `mode='chat'` 时 `attachmentIds` 仍会被写入消息的附件关系，但**不进 prompt**——`ai.chat.model`（`glm-4.7-flashx`）是纯文本模型，送图会直接报错。用户选了图还是发了，是他的自由，不拦、不提示、不置灰按钮。
+- `mode='task'` 时图片照现有 `03 §5` 管线压缩后送模型，一行不改。
 
 ### 3.3b `api.attachment`
 
@@ -586,7 +626,26 @@ v0.30 删除 `hud.setExpanded`：形态只有球/面板两态，由 `hud.setMode
 
 **已知缺口（v0.20 登记）**：`hud.setVisible` 没有回向事件（没有 `hud.visible.changed`），目前顶栏开关是唯一消费方、自己驱动自己。**W8B 设置页也要开关时必须先加这条事件**，否则两个入口会各存一份状态。`hud.visible` 也**不落 settings**：显隐是会话态，重启复位为显示——关掉以后忘了怎么找回，比"重启又出现"更糟。
 
-### 3.8 `api.onEvent`（唯一事件入口）
+### 3.8 `api.persona` / `api.memory`（v0.37 新增）
+
+人物卡与长期记忆。两者都只有主进程能读写 DB，渲染层通过下面这些通道，**没有别的入口**。
+
+| 方法 | 入参 | 返回 `T` | 说明 |
+|---|---|---|---|
+| `persona.get` | — | `Persona` | 返回当前 active 的一张。表空时就地建默认行（`id='default'`、`name='小助手'`、`userCall=''`、`personaMd=''`、`tone='warm'`）再返回，**不报错** |
+| `persona.update` | `{ name?: string; userCall?: string; personaMd?: string; tone?: PersonaTone }` | `Persona` | 局部更新，只写传了的字段。校验：`name` 1~20 字（`INVALID_INPUT`「助手名字不能为空」/「助手名字最多 20 个字」）、`userCall` ≤ 20 字（「称呼最多 20 个字」）、`personaMd` ≤ 800 字（「人设最多 800 字」）。广播 `app.setting.changed`？**不广播**——Persona 不是 settings，跨窗口无人消费；改动下一轮聊天自然生效 |
+| `memory.list` | `{ source?: MemorySource }` | `Memory[]` | `updatedAt` 降序。不传 = 全部 |
+| `memory.add` | `{ contentMd: string; kind: MemoryKind }` | `Memory` | `source` 恒为 `'manual'`，**由主进程写死**，渲染层传了也忽略。`contentMd` 1~120 字（「记忆内容不能为空」/「记忆最多 120 个字」）；与已有条目重复时直接返回已有那条（`INSERT OR IGNORE` 语义），**不报错、不新增** |
+| `memory.update` | `{ id: string; contentMd?: string; kind?: MemoryKind }` | `Memory` | 局部更新，`source` 不可改。改后的内容与另一条撞唯一索引 → `INVALID_INPUT`「这条记忆已经存在」 |
+| `memory.remove` | `{ id: string }` | `void` | 硬删。查不到 → `NOT_FOUND`「记忆不存在」 |
+
+三条硬规则：
+
+- **`memory.add` 的 `source` 只能是 `manual`。** 自动提取走主进程内部函数（03 §4.4），**不经过 IPC**——否则渲染层可以伪造「模型提取的记忆」，来源字段就没有意义了。
+- **记忆上限 50 条，只在自动提取路径上触发淘汰**（01 §2.9）。手动添加撞上限时返回 `INVALID_INPUT`「记忆已达 50 条，请先删几条」，**不淘汰用户手写的东西**。
+- **没有任何「清空全部」通道。** 要清就逐条删；批量删除属于危险操作，界面上给一个按钮、误点一次就没了，不做。
+
+### 3.9 `api.onEvent`（唯一事件入口）
 
 ```ts
 export type DomainEvent =
@@ -633,12 +692,14 @@ contextBridge.exposeInMainWorld('api', {
   occurrence: { today, listByRange, complete, undo, skip },
   calendar:   { dayIndex, dayDetail },
   msg:        { send, retry, list },
-  attachment: { add },
+  attachment: { add, get },                       // v0.35：get 与 add 一条一起注册
   ai:         { confirmDraft, rejectDrafts, review, health },
   points:     { balance, ledger, monthStats, adjust, preview, streakPreview },
   reminder:   { listByTask, listUpcoming, cancel, snooze, syncForTask, testChannel },
   channel:    { list, setConfig, setGlobal },
-  hud:        { setMode, moveTo, setVisible, getState },
+  hud:        { setMode, moveTo, dragBegin, dragTo, setVisible, getState },
+  persona:    { get: getPersona, update: updatePersona },        // v0.37
+  memory:     { list: listMemories, add: addMemory, update: updateMemory, remove: removeMemory }, // v0.37
   onEvent:    (cb: (e: DomainEvent) => void) => () => void,  // 返回取消订阅函数
 });
 ```

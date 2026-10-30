@@ -3,12 +3,13 @@
 > 每次开工前只读这一页 + 你那一节的契约。历史沿革在 `kickoff/08-WAVE1-DELTA.md`，
 > **不要从头读**——那是变更流水，只在"为什么这么定"说不清时才翻。
 >
-> 最后更新：2026-10-30，契约 **v0.36**。v0.21 修完用户手点报的 7 条问题（`cbf5eca`）；
+> 最后更新：2026-10-30，契约 **v0.37**。v0.21 修完用户手点报的 7 条问题（`cbf5eca`）；
 > v0.22 补 W4 开工前的实测口径（`03 §9`：推理模型、`due_hint` 恒 null 的根因、60s 超时、key 三级优先级）；
 > v0.23/v0.24 是 W4 审核与两处更正；v0.25 补明细页两条更正（翻月双向、切视图不卸载工作台），见 `04 §4④`；
 > **v0.26 换形态**：用户真机看过之后，明细从整窗页改成 ④ 的第 4 个标签、右栏 400→460、界面去掉撤销（`kickoff/22`）。
 > **从本轮起每项工程走三段**：交付 → 架构方审核 → **用户手点验收**，见 `kickoff/17-交付验收流程.md`。
 > **v0.36**：`kickoff/33` 补 4 处（H 死锁：`pass` 后 `task.complete` 失败一律回 `doing`；卡面补「不计分」出口；自检 grep 收窄；`guards.test` 必红断言）+ 两处行号精度；新立 **W12 生活助手**（契约未定稿）。
+> **v0.37**：**W12 定稿**（`kickoff/34`）——用户七问七答落地：人物卡 c+a、双模式按钮（文字只有「模式」两字、底色区分、放加号旁边）、聊天模型 `glm-4.7-flashx`（纯文本不识别图）、记忆自动+手动（丙）、逐字显现不做 SSE、聊天模式发图不拦。契约新增 `personas`/`memories`/`chat_state` 三表（迁移 003）、`ai.chat.model` 第 18 个 setting key、`persona`/`memory` 六条 IPC、`AiProvider.chatText`。另立 **W12B 设置面板**（主窗还没有设置页，手动改记忆必须先有界面）与 **W12C SSE 备选**（不做）。
 
 ## 一、进度
 
@@ -27,7 +28,9 @@
 | W9 | 悬浮窗（球 + 双页面板 + 可拉伸） | ✅ **审核 PASS `a427162`**（v0.30，`kickoff/28`）；`kickoff/15` 作废 | 26 文件 +1651/−799，48 文件 591 条绿；球 56×56 贴右距顶 10%、面板 360×480 可拉伸、两页 + 设置页三项、拖动实时变形（48/24 滞回）、回声容差 2px、尺寸只认 resize。遗留：`kickoff/29` 修顶栏开关不同步 |
 | W4 | AI 接入（消息 → 草稿 / 审核 / health） | ✅ 收工（审核 PASS，交付时 40 文件 / 459 条） | `0e3927a` |
 | W7 | 完成审核（含证据闸门，硬依赖 W4 的 `ai.review`） | 🔴 **当前唯一待发 `kickoff/33`（v0.36）** | 48 文件 619 条基线（v0.36 实测）；点完成 → `ai.review` → 只 `pass` 计分；证据走 `attachment.add` + `task.addEvidence`；新增 `missed` 状态；**审核卡接真数据**（fixture 任务源作废）+ `attachment.add`/`get` 两条通道注册；`pass` 落库失败也回 `doing`（v0.36 裁决） |
-| W12 | **生活助手**（日常对话 + 读任务数据 + 人物卡） | 📋 **已立项，契约未定稿，不许开工**（用户 2026-10-30 定「排在 W7 之后」） | 05 W12：四条断点（`msg.send` 未接 / `intent` 无人消费 / 聊天附件假链路 / 输出被 JSON 限死）+ 四件待裁决（人物卡形态 / 对话形态 / 是否流式 / 记忆范围） |
+| W12 | **生活助手**（双模式对话 + 人物卡 + 长期记忆） | 📋 **契约已定稿 v0.37**（`kickoff/34`），**等 W7 合入后发**，不能与 W7 并行 | 05 W12 / `kickoff/34`：聊天纯文本管线（`glm-4.7-flashx`）+ 建任务仍 `glm-5.3-flash`；`msg.send` 加 `mode`，由输入区「模式」按钮给值（不猜文本）；三张新表 + 六条 IPC；逐字显现 40/80 字每秒 |
+| W12B | 设置面板（人物卡 / 记忆编辑 / 模型名） | 📋 **已立项，未排期** | 05 W12B：主窗至今没有设置页，手动改记忆必须有界面 |
+| W12C | SSE 真流式 | ⏸ **备选，不建议做** | 05 W12C：触发条件写死，不满足就别做 |
 | W8 / W8B | 提醒 / 外部通知渠道 | ⏸ **搁置**（用户 2026-10-29 决定：当前主线是让核心闭环可用，提醒往后放） | — |
 | W10 | 打包 | 未开工（临时替代：仓库根 `启动.cmd` 双击构建并启动、`直接启动.cmd` 用现成产物秒开）。**排在 W7、W12 之后** | — |
 
@@ -46,12 +49,13 @@ npm run build
 2. **默认难度 `medium`**，`01 §2.1` 的 `DEFAULT 'easy'` 只是 SQL 兜底。主进程对非法 `type × difficulty` 只拒绝、不归位；归位（`snapDifficulty`）是渲染层的事。
 3. **`task.transition({to:'done'})` 一律 409**。不计分出口是 `task.complete({noPoints:true})`：写 `completed_at`、不写 ledger、`entry` 返回 `null`。
 4. **落库后不可改类型**，`TaskPatch` 没有 `type`。`04 §3.2` 的"类型可就地改"只指草稿卡片。唯一例外是 `promoteDraft` 的 `TaskCreatePatch`（还带 `type`，因为确认本质是**创建**）——落库之后仍不可改。
-5. **写操作必须广播事件**（02 §3.8）。`occurrence.today` / `listByRange` 内部会补行，也算写，必须广播 `occurrence.created`；`app.getBootstrap` 例外。
+5. **写操作必须广播事件**（02 §3.9）。`occurrence.today` / `listByRange` 内部会补行，也算写，必须广播 `occurrence.created`；`app.getBootstrap` 例外。
 6. **界面文案必须先在 `04 §1.1` / §1.2 登记**，包括错误消息。没有登记的串不许写进代码。
 7. **数值取整只允许 `roundPoints`**（`src/shared/points/rubric.ts`）；`Math.floor` 只许用于日期/天数换算，不得对分值本身取整（现有 4 处：月整除 1 处、逾期天数 3 处——逾期天数虽是 `penalty = overdueDays × 2` 的入参，但取整对象是天数不是分值，合规）。
 8. **测试值不是真理**：`tests/` 里的期望值若与 `02` 的公式冲突，以 `02` 为准，并报给架构方。
 9. **本地日历日只有一个实现**：`src/shared/localDay.ts`（v0.20 起主进程与渲染层共用）。不许再写 `toLocalDay` / `localDayOf` 的副本，更不许 `toISOString().slice(0,10)`——那是 UTC 日，东八区 00:00–08:00 会差一天。
 10. **一个组件树里只许有一个 `useTasksData()`**：详情、分组都从 `TasksPanel` 拿 `actions`。多实例会让 `subtasksByParent` 为空、确认条永远弹不出来（v0.20 修，`tests/renderer/tasksPanelWiring.test.ts` 守着）。
+11. **聊天模式只由输入区按钮决定**（v0.37）：`msg.send` 的 `mode` 来自界面状态，主进程**不许**从文本内容推断（关键词、模型分类都不行）。用户 2026-10-30 原话「忘了切换我自己处理，损失不大」——所以不做自动识别、不做提示、不做兜底猜测。
 
 ## 四、还开着的缺口
 
@@ -60,9 +64,9 @@ npm run build
 | `reminders` 表恒为空：`setReminderOffsets` 只写 offsets，不建行 | W8 的 `syncForTask` | 05 W2 · 已知缺口 |
 | `DomainEvent` 没有 `reminder.updated` | W8 开工前必须补 | DELTA v0.12 |
 | 改类型的语义（归位 / 清字段 / 重排提醒 / 补 occurrence） | 结论是"不做"，要改就是新需求 | 05 W5 |
-| 聊天输入框的附件是假的：`toAttachment()` 只造 `local-att-N` 本地预览对象，从未上传主进程 | 聊天附件、W7 之外的证据入口 | W7 验收时发现（`ChatInput.tsx:17`）。`msg.send` 收的 `attachmentIds` 目前是假 id |
-| **主页面对话区发消息根本没接主进程**：`useChatData.ts:462` 仍是 `TODO(W2)`，`send()` 只插一条本地气泡 + 600ms 后停转圈 | **界面上打字 AI 收不到**（W4 的 `msg.send` 通道完整可用，只差渲染层接线）；`retry` / `loadMore` 同理 | 2026-10-30 用户问「能和 AI 对话吗」时核实；`grep msg.send src/renderer` 0 命中 |
-| **`intent` 无人消费**：schema 有 `query`，prompt 也教了识别「我今天做了多少」，但主进程从不读 `intent` | AI 看不到任务数据——`buildParseRequest` 只有 system + fewshot + 最近 6 条聊天 + 本轮图文。03 §257 设计的「主进程 SQL 取数 + 模板拼装」未实现，问数据只能猜 | 03 §4.1、2026-10-30 核实 |
+| 聊天输入框的附件是假的：`toAttachment()` 只造 `local-att-N` 本地预览对象，从未上传主进程 | 聊天附件、W7 之外的证据入口 | W7 验收时发现（`ChatInput.tsx:17`）。`msg.send` 收的 `attachmentIds` 目前是假 id。**v0.37：W12 只解决「chat 模式下不送图」，真上传仍是缺口** |
+| **主页面对话区发消息根本没接主进程**：`useChatData.ts:462` 仍是 `TODO(W2)`，`send()` 只插一条本地气泡 + 600ms 后停转圈 | **界面上打字 AI 收不到**（W4 的 `msg.send` 通道完整可用，只差渲染层接线）；`retry` / `loadMore` 同理 | 2026-10-30 用户问「能和 AI 对话吗」时核实；`grep msg.send src/renderer` 0 命中。**v0.37：由 W12 修**（`kickoff/34` §9） |
+| **`intent` 无人消费**：schema 有 `query`，prompt 也教了识别「我今天做了多少」，但主进程从不读 `intent` | AI 看不到任务数据——`buildParseRequest` 只有 system + fewshot + 最近 6 条聊天 + 本轮图文。03 §257 设计的「主进程 SQL 取数 + 模板拼装」未实现，问数据只能猜 | 03 §4.1、2026-10-30 核实。**v0.37：不用 `intent` 了**——W12 改成在 chat 管线的 system 里直接拼「今日任务 + 积分」段（03 §4.3.1），`intent` 保留在 parse schema 里但继续不消费 |
 | 超期判失败只在「审核驳回」这一刻发生，没有定时扫描 | W8 调度器 | 01 §3 v0.34 |
 | `Attachment.width/height` 恒 `null` | UI 不能靠尺寸占位 | 02 §3.3b |
 | `app://attach` 真机时序未验 | W10 打包时手点一次 | 05 W11 验收 |
