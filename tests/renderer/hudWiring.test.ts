@@ -248,7 +248,7 @@ describe('长条手势（v0.32：点按展开 / 长按拖动）', () => {
   })
 
   it('阈值常量在 hudModel 里，不写死在组件里', () => {
-    expect(MODEL).toMatch(/export const LONG_PRESS_MS = 260/)
+    expect(MODEL).toMatch(/export const LONG_PRESS_MS = 100/)
     expect(MODEL).toMatch(/export const TAP_TOLERANCE = 4/)
     expect(BALL).toMatch(/LONG_PRESS_MS/)
     expect(BALL).toMatch(/TAP_TOLERANCE/)

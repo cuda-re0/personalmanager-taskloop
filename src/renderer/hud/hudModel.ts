@@ -39,10 +39,10 @@ export function ratioLabel(done: number, total: number): string {
 }
 
 /**
- * 长条手势判定阈值（04 §5.2.2 v0.32）：按住 ≥260ms 进入拖动，
- * 未到 260ms 但位移已 >4px 视为手抖（既不展开也不拖）。
+ * 长条手势判定阈值（04 §5.2.2 v0.32）：按住 ≥100ms 进入拖动，
+ * 未到 100ms 但位移已 >4px 视为手抖（既不展开也不拖）。
  */
-export const LONG_PRESS_MS = 260
+export const LONG_PRESS_MS = 100
 export const TAP_TOLERANCE = 4
 
 /**

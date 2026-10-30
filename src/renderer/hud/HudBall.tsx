@@ -17,9 +17,9 @@ import type { HudData } from './useHudData'
  *
  * 手势（v0.32 用户裁决「点按点击，长按拖动」）：整条**不用** `-webkit-app-region: drag`——
  * drag 区收不到任何鼠标事件，做不到「既点又拖」。改由这里自己判：
- * - 点按（< 260ms 松开、位移 ≤ 4px）→ 展开面板；
- * - 长按（≥ 260ms）→ 进入拖动，指针怎么移窗口就跟到哪；
- * - 手抖（未到 260ms 但位移 > 4px）→ 什么都不做。
+ * - 点按（< 100ms 松开、位移 ≤ 4px）→ 展开面板；
+ * - 长按（≥ 100ms）→ 进入拖动，指针怎么移窗口就跟到哪；
+ * - 手抖（未到 100ms 但位移 > 4px）→ 什么都不做。
  *
  * 拖动是**绝对定位**：`dragBegin()` 取长条左上角，算出抓取偏移 `grab = 按下点 − 左上角`，
  * 之后每帧发 `dragTo(指针 − grab)`。不做增量累加——`setBounds` 异步，读回的是上一帧位置，
@@ -50,7 +50,7 @@ interface Gesture {
   lastY: number
   /** 已过长按阈值，进入拖动 */
   dragging: boolean
-  /** 未到 260ms 就动超过 4px：本次按压作废（不展开也不拖） */
+  /** 未到 100ms 就动超过 4px：本次按压作废（不展开也不拖） */
   cancelled: boolean
   /** 抓取偏移 = 按下点 − 长条左上角；`null` = dragBegin 还没回来 */
   grab: Point | null
@@ -171,7 +171,7 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
     if (!g) return
 
     if (!g.dragging) {
-      // 手抖：没到 260ms 就动了超过 4px → 作废本次按压
+      // 手抖：没到 100ms 就动了超过 4px → 作废本次按压
       if (Math.abs(e.screenX - g.startX) + Math.abs(e.screenY - g.startY) > TAP_TOLERANCE) {
         g.cancelled = true
         clearHold()
