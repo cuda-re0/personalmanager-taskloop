@@ -450,14 +450,19 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 
 | 形态 | 尺寸 | 位置 |
 |---|---|---|
-| `ball` 球 | `56 × 56` | **永远贴屏幕右边缘**（`x = workArea.right − 56`），`y` 自由、clamp 进工作区 |
+| `ball` 球 | `56 × 56` | **初始贴屏幕右边缘**（`x = workArea.right − 56`）；之后可自由拖动（x/y 都动），clamp 进工作区 |
 | `panel` 面板 | 默认 `360 × 480`，**用户可拉伸** | 自由位置 + 拉伸后的尺寸，整体 clamp 进工作区 |
 
 - **首次启动**（`hud.position` 为空）：`ball`，`y = workArea.y + workArea.height × 0.1`（距顶 1/10 屏高）。
 - **记忆**：位置落 `hud.position`、面板尺寸落 `hud.size`，重启恢复（v0.30 用户裁决「记住位置和尺寸」）。
-- 形态只由**点击 / ESC** 切换（v0.30）：点球 → 面板；面板内 ESC → 球。
-  **v0.21 的「拖动中实时变形」作废**——球离边 >48px 展开、面板距边 ≤24px 收起，这套逻辑不实现；
-  拖球只改 `y`（`x` 由 `hudService` 在 `move` 里强制回右边缘），拖面板只移动位置。
+- 形态切换三条路径（v0.30 用户裁决：实时变形保留，先做出来看手感）：
+  1. 点球 → 面板；面板内 ESC → 球。
+  2. **拖动中实时变形**（v0.21 口径恢复）：球被拖到距左/右边缘 > `48px` → 当场展开成面板；
+     面板被拖到距边 ≤ `24px` → 当场收成球并贴那条边；中间地带（24 < gap ≤ 48）保持原形态（滞回，防抖）。
+  3. 变形判定在 `move` 事件里去抖 `120ms` 执行；程序化 `setBounds` 产生的回声必须丢弃
+     （比对目标 bounds 与当前 bounds 的 x/y），否则会无限自我切换。
+- 拖动中实时变形若在 Windows 上打断拖拽（`setBounds` 抢占），**不要自己改设计**，
+  在报告里写明现象，由架构方裁决是否退回「松手判定」。
 - 面板拖动把手 = 头部那一行（`-webkit-app-region: drag`）；列表、tab、输入、设置控件一律 `no-drag`。
 - 拉伸：原生窗口边缘（`resizable: true`），`resize` 收尾时落 `hud.size`；球态 `resizable: false`。
 
@@ -472,7 +477,9 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
   - 每日 → `occurrence.complete`（打卡）；限时/活动 → `task.complete`。
   - 完成失败（如 `EVIDENCE_REQUIRED`）在该行**行内**显示 `AppError.message` 原样，4s 消失（与主窗同口径）。
   - 行尾时间 / 分值仍不显示（v0.20 口径不变）。
-- 底部保留「一句话加任务」输入（`task.createManual`，`deadline / medium / 无 due_at`，v0.17 口径）。
+- 保留「一句话加任务」输入（`task.createManual`，`deadline / medium / 无 due_at`，v0.17 口径）。
+  **形态要求（v0.30 用户裁决）**：它是今天页**列表下方**的一行普通输入 + 提交按钮，
+  不做 v0.21 那种贴着窗口顶边的横条（`dock-bar`），也不做成浮在列表上的覆盖条。
 
 **设置页**（替代 v0.21 的右键菜单，**右键菜单不再实现**）
 
