@@ -93,12 +93,26 @@ function hudDisplaysPort(): HudDisplaysPort {
 /** 窗口端口：hudService 只通过这些动作碰窗口，测试可注入假实现 */
 function hudWindowPort(win: BrowserWindow): HudWindowPort {
   return {
-    getBounds: () => win.getBounds(),
+    // 用 content bounds 而不是 outer bounds：Windows 给无边框可拉伸窗口加了一圈隐形边框，
+    // `setBounds(360)` 回读是 362，反复"请求 = 回读"会让面板每开一次胖 2px（实测 372→374→376）。
+    // content bounds 就是渲染层真实可视区域，和 CSS 的 100% 一一对应。
+    getBounds: () => win.getContentBounds(),
     setBounds: rect => {
-      if (!win.isDestroyed()) win.setBounds(rect)
+      if (!win.isDestroyed()) win.setContentBounds(rect)
     },
     setMovable: movable => {
       if (!win.isDestroyed()) win.setMovable(movable)
+    },
+    // 形态能力（04 §5.1）：面板可拉伸 + 上下限，球固定 56×56。
+    // 上下限必须动态设：建窗时就写 minWidth=280 的话，球态 setBounds 到 56 会被系统夹住。
+    setResizable: resizable => {
+      if (!win.isDestroyed()) win.setResizable(resizable)
+    },
+    setMinSize: (width, height) => {
+      if (!win.isDestroyed()) win.setMinimumSize(width, height)
+    },
+    setMaxSize: (width, height) => {
+      if (!win.isDestroyed()) win.setMaximumSize(width, height)
     },
     hide: () => {
       if (!win.isDestroyed()) win.hide()
@@ -107,7 +121,12 @@ function hudWindowPort(win: BrowserWindow): HudWindowPort {
       if (!win.isDestroyed()) win.showInactive()
     },
     isVisible: () => !win.isDestroyed() && win.isVisible(),
-    onMove: listener => win.on('move', listener),
+    onMove: listener => {
+      win.on('move', () => listener())
+    },
+    onResize: listener => {
+      win.on('resize', () => listener())
+    },
     isDestroyed: () => win.isDestroyed()
   }
 }
@@ -120,8 +139,11 @@ export function getHudWindow(): BrowserWindow | null {
 /**
  * HUD：透明置顶无边框（04 §5.1）。
  *
- * 尺寸与坐标不在这里算——由 `hudService` 按 `{ mode, expanded, displayId, position }` 决定，
+ * 尺寸与坐标不在这里算——由 `hudService` 按 `{ mode, displayId, position, size }` 决定，
  * 建窗前先取一次 `resolveInitialBounds`，避免"先按旧尺寸建出来再挪"的闪烁。
+ *
+ * v0.30：建窗时**不写** minWidth/minHeight——那张上下限只对面板有效，建窗即生效会把
+ * 球态（56）夹在 280 上。`resizable` / 上下限都由 `hudService.applyWindowMode()` 按形态动态设。
  */
 export function createHudWindow(): BrowserWindow {
   const displays = hudDisplaysPort()
@@ -133,8 +155,8 @@ export function createHudWindow(): BrowserWindow {
     transparent: true,
     backgroundColor: '#00000000',
     resizable: false,
-    // 先按不可拖建出来，attach 里按模式 setMovable（dock-bar 不可拖，04 §5.2）
-    movable: false,
+    // 球与面板都可拖（面板只有头部是 drag 区），attach 里仍按形态调一次
+    movable: true,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,

@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { CH } from '@shared/channels'
 import type { EventResult } from '@shared/types/domain'
+import type { HudSize } from '@shared/types/ipc'
 import { appError } from '../db/errors'
+import { clampOpacity, clampSize } from '../services/hudService'
 
 /**
  * IPC 入参形状校验（05 W2 段交付项 4）。
@@ -20,8 +22,8 @@ const difficultySchema = z.enum(['trivial', 'easy', 'medium', 'hard', 'epic'])
 const notifyChannelSchema = z.enum(['inapp', 'toast', 'mail', 'webhook'])
 /** Priority 是 0|1|2 的字面量联合，schema 用 literal 而不是 min/max，输出类型才能对上 TaskPatch */
 const prioritySchema = z.union([z.literal(0), z.literal(1), z.literal(2)])
-/** 悬浮形态（02 §3.0 `HudMode`）：两个模式名写死，与契约同步 */
-const hudModeSchema = z.enum(['dock-bar', 'float-pod'])
+/** 悬浮形态（02 §3.0 `HudMode` v0.30）：球 / 面板两值，与契约同步；旧串由 hudService 回落 ball */
+const hudModeSchema = z.enum(['ball', 'panel'])
 const monthSchema = z.number().int().min(1).max(12)
 const yearSchema = z.number().int()
 
@@ -114,6 +116,62 @@ const completeTaskSchema = z.preprocess(
 )
 
 /**
+ * `app.setSetting`（02 §3.0 的封闭 key 集合）。
+ *
+ * 通用形状是 `{key, value:unknown}`——未知 key 由 `settingRepo.set` 抛 `INVALID_INPUT`，这里不复写。
+ * 只有 v0.30 的三个 hud 项需要在这一层收口（04 §5.4 / 施工词 28 §4）：
+ * - `hud.opacity`：必须是有限数，**夹到 0.3–1**（滑杆之外的脏值不该让渲染层炸掉）；
+ * - `hud.size`：`null` 或 `{width,height}` 有限数，夹到 280×320–720×900；
+ * - `hud.background`：`null` 或 `#rrggbb`（合成 `rgba()` 时不再猜格式）。
+ *
+ * 校验用 `superRefine` **不用 transform 里 parse**：zod v4 会原样抛出 transform 内的
+ * `ZodError`（实测），那样 `safeParse` 就变成 throw，信封拿不到 `ok:false`。
+ */
+const HUD_BG_PATTERN = /^#[0-9a-fA-F]{6}$/
+
+const setSettingSchema = z
+  .object({ key: z.string().min(1), value: z.unknown() })
+  .superRefine((input, ctx) => {
+    const fail = (message: string): void => {
+      ctx.addIssue({ code: 'custom', path: ['value'], message })
+    }
+    if (input.key === 'hud.opacity') {
+      if (typeof input.value !== 'number' || !Number.isFinite(input.value)) fail('透明度必须是数字')
+      return
+    }
+    if (input.key === 'hud.size') {
+      if (input.value === null) return
+      const size = input.value as { width?: unknown; height?: unknown }
+      if (
+        typeof size !== 'object' ||
+        size === null ||
+        typeof size.width !== 'number' ||
+        typeof size.height !== 'number' ||
+        !Number.isFinite(size.width) ||
+        !Number.isFinite(size.height)
+      ) {
+        fail('面板尺寸必须是 {width,height}')
+      }
+      return
+    }
+    if (input.key === 'hud.background') {
+      if (input.value === null) return
+      if (typeof input.value !== 'string' || !HUD_BG_PATTERN.test(input.value)) {
+        fail('背景色必须是 #rrggbb')
+      }
+    }
+  })
+  .transform(input => {
+    if (input.key === 'hud.opacity') {
+      return { ...input, value: clampOpacity(input.value as number) }
+    }
+    if (input.key === 'hud.size' && input.value !== null) {
+      return { ...input, value: clampSize(input.value as HudSize) }
+    }
+    return input
+  })
+
+/**
  * 每条 WIRED 通道一张表：channel → zod schema。
  * 无入参的通道（getBootstrap / quit / balance / occurrence.today…）用 `z.undefined()`——
  * preload 的 `invoke(ch)` 不带 payload，ipcMain 收到的就是 undefined。
@@ -122,7 +180,7 @@ const completeTaskSchema = z.preprocess(
 export const g = {
   // app
   getBootstrap: z.undefined(),
-  setSetting: z.object({ key: z.string().min(1), value: z.unknown() }),
+  setSetting: setSettingSchema,
   openExternal: z.object({ url: z.string() }),
   quit: z.undefined(),
   // task
@@ -203,9 +261,8 @@ export const g = {
   adjust: z.object({ delta: z.number(), reason: z.string() }),
   preview: z.object({ type: taskTypeSchema, difficulty: difficultySchema }),
   streakPreview: z.object({ current: z.number(), nextDayWillReach: z.number() }),
-  // hud（W9）：坐标必须有限值——NaN/Infinity 会让 setBounds 抛出，且会写进 hud.position
+  // hud（W9 · v0.30）：坐标必须有限值——NaN/Infinity 会让 setBounds 抛出，且会写进 hud.position
   hudSetMode: z.object({ mode: hudModeSchema }),
-  hudSetExpanded: z.object({ expanded: z.boolean() }),
   hudMoveTo: z.object({ x: z.number().finite(), y: z.number().finite() }),
   hudSetVisible: z.object({ visible: z.boolean() }),
   hudGetState: z.undefined()
@@ -262,7 +319,6 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.points.preview]: g.preview,
   [CH.points.streakPreview]: g.streakPreview,
   [CH.hud.setMode]: g.hudSetMode,
-  [CH.hud.setExpanded]: g.hudSetExpanded,
   [CH.hud.moveTo]: g.hudMoveTo,
   [CH.hud.setVisible]: g.hudSetVisible,
   [CH.hud.getState]: g.hudGetState

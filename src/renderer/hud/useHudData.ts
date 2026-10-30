@@ -2,13 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Occurrence, Task } from '@shared/types/domain'
 import type { DomainEvent } from '@shared/types/events'
 import type { HudMode } from '@shared/types/ipc'
-import {
-  buildRows,
-  localDayOf,
-  pendingCount,
-  recentTitle,
-  type HudRow
-} from './hudModel'
+import { buildRows, composeHudBg, localDayOf, type HudRow } from './hudModel'
 
 /**
  * HUD 的数据入口（04 §5.5）。
@@ -17,60 +11,83 @@ import {
  * （两个渲染进程各自独立）。所有写入都走已接通的通道，成功后不做本地乐观更新：
  * 主进程的广播会把增量推回来，界面因此永远显示落库后的真值。
  *
- * 100ms 达标路径（验收 1）：`task.complete` → `points.changed` + `daystats.changed`；
- * `occurrence.complete` → `occurrence.updated` + `points.changed`。都是事件推送，没有轮询。
+ * 背景与透明度（v0.30）走 `app.setSetting`（`hud.background` / `hud.opacity`）。
+ * 这两个值要求"即时生效"，所以先落本地状态再发 IPC：IPC 失败只进控制台，
+ * 界面上的 `--hud-bg` 由 `app.setting.changed` 的回归值兜住。
  */
 
 const ACTIVE_STATUS = new Set(['todo', 'doing', 'reviewing'])
-/** 轻提示停留时长：错误 `message` 原样展示，够看清即可 */
+/** 行内红字停留时长：`AppError.message` 原样展示，够看清即可（与主窗同口径） */
 const ERROR_TTL_MS = 4000
+const DEFAULT_THEME_BG = '#ffffff'
 
 interface Snapshot {
   ready: boolean
   mode: HudMode
-  expanded: boolean
   occurrences: Occurrence[]
   tasks: Task[]
   /** 今日积分：只来自 `bootstrap.today.points` / `points.changed.today` / `daystats.changed` */
   points: number
+  /** `hud.background`：null = 跟随主题 `--bg` */
+  background: string | null
+  /** `hud.opacity`：0.3–1 */
+  opacity: number
 }
 
 const EMPTY: Snapshot = {
   ready: false,
-  mode: 'dock-bar',
-  expanded: false,
+  mode: 'ball',
   occurrences: [],
   tasks: [],
-  points: 0
+  points: 0,
+  background: null,
+  opacity: 1
+}
+
+/** 行内错误：哪一行 + `AppError.message` 原文 */
+export interface HudRowError {
+  rowId: string
+  message: string
 }
 
 export interface HudActions {
-  /** 展开/收起（dock-bar 的 hover 计时、float-pod 的点击/ESC 都调它） */
-  setExpanded(expanded: boolean): void
-  /** 切换形态（`⋯` 按钮）：主进程换 bounds + 广播，窗口不重建 */
-  switchMode(): void
-  /** 勾一行：每日 → `occurrence.complete`；限时/活动 → 提交后 `task.complete` */
+  /** 手动切换形态：点球 → `panel`，ESC → `ball`（主进程换 bounds + 广播） */
+  setMode(mode: HudMode): void
+  /** 勾一行：每日 → `occurrence.complete`；限时/活动 → 先 reviewing 再 `task.complete` */
   completeRow(row: HudRow): void
-  /** 一句话加任务：`task.createManual`（deadline / medium / 无 due_at）。成功返回 true，调用方可清空输入 */
+  /** 一句话加任务：`task.createManual`（deadline / medium / 无 due_at）。成功返回 true */
   addTask(title: string): Promise<boolean>
+  /** 背景色（`#rrggbb`）：即时生效 + 落 `hud.background` */
+  setBackground(color: string): void
+  /** 透明度 0.3–1：即时生效 + 落 `hud.opacity` */
+  setOpacity(value: number): void
+  /** 关闭悬浮窗（`hud.setVisible({ visible: false })`），回主窗顶栏可再打开 */
+  close(): void
 }
 
 export interface HudData {
   ready: boolean
   mode: HudMode
-  expanded: boolean
   /** 今日打卡完成数 / 应打卡数 */
   done: number
   total: number
   points: number
   rows: HudRow[]
-  /** 收起态 dock-bar 右侧的标题 */
-  recentTitle: string | null
-  /** float-pod 角标 */
-  pending: number
-  /** 轻提示：`AppError.message` 原样（04 §1.1 登记过的串） */
-  error: string | null
+  /** 行内错误（`AppError.message` 原样，4s 消失） */
+  rowError: HudRowError | null
+  /** 合成好的背景（`rgba()`），直接写进 CSS 变量 `--hud-bg` */
+  hudBg: string
+  /** 设置页 `<input type="color">` 的值：`hud.background` 为空时取主题底色 */
+  background: string
+  opacity: number
   actions: HudActions
+}
+
+/** 主题底色（`--bg`）：`hud.background` 为 null 时用它合成 rgba */
+function readThemeBg(): string {
+  if (typeof window === 'undefined') return DEFAULT_THEME_BG
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+  return value.length > 0 ? value : DEFAULT_THEME_BG
 }
 
 function upsertOccurrences(list: Occurrence[], incoming: Occurrence[]): Occurrence[] {
@@ -105,13 +122,14 @@ function upsertTask(list: Task[], task: Task): Task[] {
 
 export function useHudData(): HudData {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
-  const [error, setError] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<HudRowError | null>(null)
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const themeBg = useMemo(readThemeBg, [])
 
-  const showError = useCallback((message: string): void => {
-    setError(message)
+  const showError = useCallback((rowId: string, message: string): void => {
+    setRowError({ rowId, message })
     if (errorTimer.current) clearTimeout(errorTimer.current)
-    errorTimer.current = setTimeout(() => setError(null), ERROR_TTL_MS)
+    errorTimer.current = setTimeout(() => setRowError(null), ERROR_TTL_MS)
   }, [])
 
   useEffect(() => {
@@ -142,6 +160,14 @@ export function useHudData(): HudData {
               : prev
           case 'hud.mode.changed':
             return { ...prev, mode: event.mode }
+          case 'app.setting.changed':
+            if (event.key === 'hud.background') {
+              return { ...prev, background: typeof event.value === 'string' ? event.value : null }
+            }
+            if (event.key === 'hud.opacity' && typeof event.value === 'number') {
+              return { ...prev, opacity: event.value }
+            }
+            return prev
           default:
             return prev
         }
@@ -161,15 +187,16 @@ export function useHudData(): HudData {
           console.error('[hud] app.getBootstrap 失败', bootstrap.error)
           return
         }
-        const { tasks, todayOccurrences, today } = bootstrap.data
+        const { tasks, todayOccurrences, today, settings } = bootstrap.data
         setSnapshot({
           ready: true,
-          // 形态与展开态以窗口状态为准（settings 里的是上次落库值，可能还没同步到窗口）
+          // 形态以窗口状态为准（settings 里的是上次落库值，可能还没同步到窗口）
           mode: state.data.mode,
-          expanded: state.data.expanded,
           occurrences: todayOccurrences,
           tasks,
-          points: today.points
+          points: today.points,
+          background: settings['hud.background'],
+          opacity: settings['hud.opacity']
         })
       })
       .catch((e: unknown) => console.error('[hud] 首载失败', e))
@@ -181,13 +208,8 @@ export function useHudData(): HudData {
     }
   }, [])
 
-  /**
-   * 用主进程的真值覆盖 `mode` / `expanded`。
-   * 切换形态时**必须**重新取一次：展开态是按模式各记一份的（`hud.expanded`），
-   * `hud.mode.changed` 只带 `mode`，本地若沿用旧展开态就会与窗口实际高度对不上
-   * （260px 的窗口里塞一个收起态外壳，或者反过来）。同理，IPC 失败时也靠它回弹。
-   */
-  const refreshWindowState = useCallback((): void => {
+  /** IPC 失败时用主进程真值回弹（形态可能已被主进程改过） */
+  const refreshMode = useCallback((): void => {
     void window.api.hud
       .getState()
       .then(res => {
@@ -195,43 +217,27 @@ export function useHudData(): HudData {
           console.error('[hud] hud.getState 失败', res.error)
           return
         }
-        setSnapshot(prev => ({ ...prev, mode: res.data.mode, expanded: res.data.expanded }))
+        setSnapshot(prev => ({ ...prev, mode: res.data.mode }))
       })
       .catch((e: unknown) => console.error('[hud] hud.getState 调用失败', e))
   }, [])
 
-  const setExpanded = useCallback(
-    (expanded: boolean): void => {
-      setSnapshot(prev => (prev.expanded === expanded ? prev : { ...prev, expanded }))
+  const setMode = useCallback(
+    (mode: HudMode): void => {
+      setSnapshot(prev => (prev.mode === mode ? prev : { ...prev, mode }))
+      // 换 bounds + 广播 hud.mode.changed 在主进程（04 §5.2），窗口不重建
       void window.api.hud
-        .setExpanded({ expanded })
+        .setMode({ mode })
         .then(res => {
           if (!res.ok) {
-            console.error('[hud] hud.setExpanded 失败', res.error)
-            refreshWindowState()
+            console.error('[hud] hud.setMode 失败', res.error)
+            refreshMode()
           }
         })
-        .catch((e: unknown) => console.error('[hud] hud.setExpanded 调用失败', e))
+        .catch((e: unknown) => console.error('[hud] hud.setMode 调用失败', e))
     },
-    [refreshWindowState]
+    [refreshMode]
   )
-
-  const switchMode = useCallback((): void => {
-    const mode: HudMode = snapshot.mode === 'dock-bar' ? 'float-pod' : 'dock-bar'
-    setSnapshot(prev => ({ ...prev, mode }))
-    // 换 bounds + 广播 hud.mode.changed 在主进程（04 §5.4），窗口不重建
-    void window.api.hud
-      .setMode({ mode })
-      .then(res => {
-        if (!res.ok) {
-          console.error('[hud] hud.setMode 失败', res.error)
-          refreshWindowState()
-          return
-        }
-        refreshWindowState()
-      })
-      .catch((e: unknown) => console.error('[hud] hud.setMode 调用失败', e))
-  }, [snapshot.mode, refreshWindowState])
 
   const completeRow = useCallback(
     (row: HudRow): void => {
@@ -240,22 +246,22 @@ export function useHudData(): HudData {
         void window.api.occurrence
           .complete({ id: row.id })
           .then(res => {
-            if (!res.ok) showError(res.error.message)
+            if (!res.ok) showError(row.id, res.error.message)
           })
           .catch((e: unknown) => console.error('[hud] occurrence.complete 调用失败', e))
         return
       }
-      // 与 W6 右栏 [完成（计分）] 同一条路径：done 只能从 reviewing 进入（01 §3），
+      // 与主窗 [完成（计分）] 同一条路径：done 只能从 reviewing 进入（01 §3），
       // 所以先 transition 再 complete，参数 quality='met'
       void window.api.task
         .transition({ id: row.id, to: 'reviewing' })
         .then(res => {
           if (!res.ok) {
-            showError(res.error.message)
+            showError(row.id, res.error.message)
             return undefined
           }
           return window.api.task.complete({ id: row.id, quality: 'met' }).then(done => {
-            if (!done.ok) showError(done.error.message)
+            if (!done.ok) showError(row.id, done.error.message)
           })
         })
         .catch((e: unknown) => console.error('[hud] task.complete 调用失败', e))
@@ -271,7 +277,7 @@ export function useHudData(): HudData {
         .createManual({ type: 'deadline', title: text, patch: { difficulty: 'medium' } })
         .then(res => {
           if (!res.ok) {
-            showError(res.error.message)
+            showError('add', res.error.message)
             return false
           }
           return true
@@ -284,24 +290,54 @@ export function useHudData(): HudData {
     [showError]
   )
 
+  const setBackground = useCallback((color: string): void => {
+    setSnapshot(prev => ({ ...prev, background: color }))
+    void window.api.app
+      .setSetting({ key: 'hud.background', value: color })
+      .then(res => {
+        if (!res.ok) console.error('[hud] hud.background 写入失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[hud] hud.background 写入失败', e))
+  }, [])
+
+  const setOpacity = useCallback((value: number): void => {
+    setSnapshot(prev => ({ ...prev, opacity: value }))
+    void window.api.app
+      .setSetting({ key: 'hud.opacity', value })
+      .then(res => {
+        if (!res.ok) console.error('[hud] hud.opacity 写入失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[hud] hud.opacity 写入失败', e))
+  }, [])
+
+  const close = useCallback((): void => {
+    void window.api.hud
+      .setVisible({ visible: false })
+      .then(res => {
+        if (!res.ok) console.error('[hud] hud.setVisible 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[hud] hud.setVisible 调用失败', e))
+  }, [])
+
   const rows = useMemo(
     () => buildRows(snapshot.occurrences, snapshot.tasks),
     [snapshot.occurrences, snapshot.tasks]
   )
   const done = snapshot.occurrences.filter(o => o.status === 'done').length
   const total = snapshot.occurrences.length
+  const hudBg = composeHudBg(snapshot.background, snapshot.opacity, themeBg)
 
   return {
     ready: snapshot.ready,
     mode: snapshot.mode,
-    expanded: snapshot.expanded,
     done,
     total,
     points: snapshot.points,
     rows,
-    recentTitle: recentTitle(rows),
-    pending: pendingCount(snapshot.occurrences, snapshot.tasks),
-    error,
-    actions: { setExpanded, switchMode, completeRow, addTask }
+    rowError,
+    hudBg,
+    background: snapshot.background ?? themeBg,
+    opacity: snapshot.opacity,
+    actions: { setMode, completeRow, addTask, setBackground, setOpacity, close }
   }
 }

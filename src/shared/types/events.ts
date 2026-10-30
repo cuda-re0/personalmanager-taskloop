@@ -7,6 +7,7 @@ import type {
   ReminderLevel,
   Task
 } from './domain'
+import type { HudMode } from './ipc'
 
 export type DomainEvent =
   | { type: 'task.created'; task: Task }
@@ -29,6 +30,6 @@ export type DomainEvent =
   | { type: 'daystats.changed'; day: DayStat }
   | { type: 'app.setting.changed'; key: string; value: unknown }
   | { type: 'channel.status'; channels: { id: NotifyChannel; available: boolean }[] }
-  | { type: 'hud.mode.changed'; mode: 'dock-bar' | 'float-pod' }
+  | { type: 'hud.mode.changed'; mode: HudMode }
 
 export type DomainEventType = DomainEvent['type']

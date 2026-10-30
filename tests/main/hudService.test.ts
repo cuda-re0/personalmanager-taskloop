@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setTransport } from '../../src/main/bus'
 import type { DomainEvent } from '../../src/shared/types/events'
+import type { HudMode } from '../../src/shared/types/ipc'
 import * as settingRepo from '../../src/main/db/repositories/settingRepo'
 import * as hudService from '../../src/main/services/hudService'
 import type {
@@ -12,11 +13,12 @@ import type {
 import { closeTestDb, openMemoryDb } from '../db/helpers'
 
 /**
- * W9 · HUD 状态机（04 §5）。
+ * W9 · HUD 状态机（04 §5 v0.30：球 + 可拉伸面板）。
  *
  * 全程用假窗口/假显示器端口 + 内存库：`hudService` 不 import electron 值，
- * 所以在 `ELECTRON_RUN_AS_NODE` 宿主里能直接跑。断言四件事——
- * 四形态的 bounds、边缘吸附/multi-display 回落、模式切换不重建窗口、持久化与 visible。
+ * 所以在 `ELECTRON_RUN_AS_NODE` 宿主里能直接跑。断言五件事——
+ * 几何（球/面板/展开落点）、实时变形的三条滞回区间、回声抑制（防自循环）、
+ * 位置与尺寸的记忆、拔屏回落。
  */
 
 const PRIMARY: HudDisplayArea = {
@@ -34,15 +36,13 @@ function makeDisplays(areas: HudDisplayArea[]): HudDisplaysPort & { areas: HudDi
   const port = {
     areas,
     workAreaOf(displayId: number | null): HudDisplayArea {
-      const found =
-        displayId === null ? undefined : port.areas.find(a => a.displayId === displayId)
+      const found = displayId === null ? undefined : port.areas.find(a => a.displayId === displayId)
       return found ?? port.areas[0]
     },
     nearestWorkArea(rect: Rect): HudDisplayArea {
       return (
-        port.areas.find(
-          a => rect.x >= a.workArea.x && rect.x < a.workArea.x + a.workArea.width
-        ) ?? port.areas[0]
+        port.areas.find(a => rect.x >= a.workArea.x && rect.x < a.workArea.x + a.workArea.width) ??
+        port.areas[0]
       )
     }
   }
@@ -50,30 +50,63 @@ function makeDisplays(areas: HudDisplayArea[]): HudDisplaysPort & { areas: HudDi
 }
 
 interface FakeWindow extends HudWindowPort {
-  /** 模拟用户拖动：直接改物理位置再触发 move（真实环境是 OS 移动窗口后发 move） */
+  /** 模拟用户拖动：直接改物理位置（不发 move，由用例显式 fireMove） */
   dragTo(x: number, y: number): void
+  /** 模拟用户拉伸右下角：直接改尺寸（不发 resize） */
+  resizeTo(width: number, height: number): void
   fireMove(): void
+  fireResize(): void
+  /** 模拟分数缩放（150%）下 setBounds 回读差 1–2px（宽高也可带偏移） */
+  setDpiOffset(x: number, y: number, width?: number, height?: number): void
   boundsCalls: Rect[]
   movable(): boolean
+  resizable(): boolean
+  minSize(): [number, number]
+  maxSize(): [number, number]
 }
 
 function makeWindow(initial: Rect): FakeWindow {
   let bounds: Rect = { ...initial }
   let visible = true
   let movableValue = true
-  const listeners: (() => void)[] = []
+  let resizableValue = false
+  let minSize: [number, number] = [0, 0]
+  let maxSize: [number, number] = [0, 0]
+  let dpiOffset = { x: 0, y: 0, width: 0, height: 0 }
+  const moveListeners: (() => void)[] = []
+  const resizeListeners: (() => void)[] = []
   const boundsCalls: Rect[] = []
 
   return {
     boundsCalls,
     movable: () => movableValue,
-    getBounds: () => ({ ...bounds }),
+    resizable: () => resizableValue,
+    minSize: () => minSize,
+    maxSize: () => maxSize,
+    getBounds: () => ({
+      x: bounds.x + dpiOffset.x,
+      y: bounds.y + dpiOffset.y,
+      width: bounds.width + dpiOffset.width,
+      height: bounds.height + dpiOffset.height
+    }),
+    setDpiOffset: (x, y, width = 0, height = 0) => {
+      dpiOffset = { x, y, width, height }
+    },
     setBounds: rect => {
       bounds = { ...rect }
       boundsCalls.push({ ...rect })
     },
     setMovable: value => {
       movableValue = value
+    },
+    setResizable: value => {
+      resizableValue = value
+    },
+    setMinSize: (width, height) => {
+      minSize = [width, height]
+    },
+    setMaxSize: (width, height) => {
+      maxSize = [width, height]
     },
     hide: () => {
       visible = false
@@ -82,65 +115,124 @@ function makeWindow(initial: Rect): FakeWindow {
       visible = true
     },
     isVisible: () => visible,
-    onMove: listener => listeners.push(listener),
+    onMove: listener => {
+      moveListeners.push(listener)
+    },
+    onResize: listener => {
+      resizeListeners.push(listener)
+    },
     isDestroyed: () => false,
     dragTo: (x, y) => {
       bounds = { ...bounds, x, y }
     },
-    fireMove: () => listeners.forEach(fn => fn())
+    resizeTo: (width, height) => {
+      bounds = { ...bounds, width, height }
+    },
+    fireMove: () => moveListeners.forEach(fn => fn()),
+    fireResize: () => resizeListeners.forEach(fn => fn())
   }
 }
 
-describe('HUD 纯几何（四形态）', () => {
+describe('HUD 纯几何（球 / 面板 / 展开落点）', () => {
   const wa = PRIMARY.workArea
 
-  it('dock-bar：收起 32、展开 min(260, h-8)，左右各留 8px', () => {
-    expect(hudService.dockBarBounds(wa, false)).toEqual({ x: 8, y: 0, width: 1904, height: 32 })
-    expect(hudService.dockBarBounds(wa, true)).toEqual({ x: 8, y: 0, width: 1904, height: 260 })
-    // 工作区矮于 268 时展开高度跟着缩（不超出 workArea）
-    expect(hudService.dockBarBounds({ x: 0, y: 0, width: 800, height: 200 }, true).height).toBe(192)
-  })
-
-  it('float-pod 无记忆落点：右上角内缩 24px', () => {
-    expect(hudService.defaultPodPoint(wa)).toEqual({ x: 1840, y: 24 })
-    expect(hudService.podBounds(wa, { x: 1840, y: 24 }, false)).toEqual({
-      x: 1840,
-      y: 24,
+  it('首次启动的球位：贴右边缘（x = right − 56）、距顶 = 工作区高度 × 0.1', () => {
+    expect(hudService.initialBallPoint(wa)).toEqual({ x: 1864, y: 104 })
+    expect(hudService.ballBounds(wa, { x: 1864, y: 104 })).toEqual({
+      x: 1864,
+      y: 104,
       width: 56,
       height: 56
     })
   })
 
-  it('float-pod 展开：圆在右半向左长、在左半向右长', () => {
-    expect(hudService.podPanelBounds(wa, { x: 1840, y: 24 })).toEqual({
-      x: 1536, // 1840 + 56 - 360
-      y: 24,
-      width: 360,
-      height: 480
-    })
-    expect(hudService.podPanelBounds(wa, { x: 100, y: 24 }).x).toBe(100)
+  it('球的 x/y 都 clamp 进工作区（自由拖动，不锁边）', () => {
+    expect(hudService.clampBallPoint(wa, { x: -100, y: -100 })).toEqual({ x: 0, y: 0 })
+    expect(hudService.clampBallPoint(wa, { x: 9999, y: 9999 })).toEqual({ x: 1864, y: 984 })
+    expect(hudService.clampBallPoint(wa, { x: 800, y: 500 })).toEqual({ x: 800, y: 500 })
   })
 
-  it('float-pod 展开：超出底部时向上收，整体 clamp 进 workArea', () => {
-    // 24 + 480 = 504 < 1040 → 原地下沉；900 + 480 > 1040 → 底边 - 480
-    expect(hudService.podPanelBounds(wa, { x: 100, y: 900 }).y).toBe(560)
-    // 工作区比面板矮：高度取 workArea.height，y 被 clamp 到顶
-    const short = { x: 0, y: 0, width: 800, height: 400 }
-    expect(hudService.podPanelBounds(short, { x: 700, y: 300 })).toEqual({
-      x: 396, // 700 + 56 - 360，仍在 workArea 内（800-360=440 的上界没碰到）
-      y: 0,
-      width: 360,
-      height: 400
+  it('展开落点：右半屏以球右边缘为基准向左长，左半屏向右长', () => {
+    // 右边缘的球：1864 + 56 − 360 = 1560，但右边距 0 → 按防自锁内缩到 PEEK_GAP
+    expect(
+      hudService.peekPanelBounds(wa, { x: 1864, y: 104 }, hudService.DEFAULT_PANEL_SIZE)
+    ).toEqual({ x: 1920 - 360 - hudService.PEEK_GAP, y: 104, width: 360, height: 480 })
+    expect(
+      hudService.peekPanelBounds(wa, { x: 100, y: 104 }, hudService.DEFAULT_PANEL_SIZE)
+    ).toEqual({ x: 100, y: 104, width: 360, height: 480 })
+  })
+
+  it('展开落点必留 > 24 的边距（否则面板态的「≤24 收球」会立刻把它收回去 → 自锁）', () => {
+    for (const x of [0, 56, 200, 900, 1864]) {
+      const rect = hudService.peekPanelBounds(wa, { x, y: 300 }, hudService.DEFAULT_PANEL_SIZE)
+      expect(hudService.edgeGap(wa, rect)).toBeGreaterThan(hudService.EDGE_COLLAPSE)
+    }
+  })
+
+  it('收球贴边：左/右两条边，纵向沿用面板顶并 clamp', () => {
+    expect(
+      hudService.ballFromPanel(wa, { x: 10, y: 300, width: 360, height: 480 }, 'left')
+    ).toEqual({
+      x: 0,
+      y: 300
+    })
+    expect(
+      hudService.ballFromPanel(wa, { x: 1500, y: 300, width: 360, height: 480 }, 'right')
+    ).toEqual({ x: 1864, y: 300 })
+    // 面板顶靠近底部（1000 + 56 > 1040）→ 收球时纵向 clamp 回来
+    expect(
+      hudService.ballFromPanel(wa, { x: 10, y: 1000, width: 360, height: 40 }, 'left')
+    ).toEqual({
+      x: 0,
+      y: 984
     })
   })
 
-  it('吸附：距边 < 24 贴边/贴角，吸附后再 clamp', () => {
-    expect(hudService.snapPod(wa, { x: 10, y: 500 })).toEqual({ x: 0, y: 500 })
-    expect(hudService.snapPod(wa, { x: 1850, y: 500 })).toEqual({ x: 1864, y: 500 })
-    expect(hudService.snapPod(wa, { x: 500, y: 5 })).toEqual({ x: 500, y: 0 })
-    expect(hudService.snapPod(wa, { x: 500, y: 1000 })).toEqual({ x: 500, y: 984 })
-    // 离边远：原位不动
-    expect(hudService.snapPod(wa, { x: 600, y: 600 })).toEqual({ x: 600, y: 600 })
+  it('尺寸夹到 280×320 – 720×900，并适配工作区', () => {
+    expect(hudService.clampSize({ width: 100, height: 100 })).toEqual({ width: 280, height: 320 })
+    expect(hudService.clampSize({ width: 9999, height: 9999 })).toEqual({ width: 720, height: 900 })
+    expect(hudService.fitSize(wa, { width: 500, height: 600 })).toEqual({ width: 500, height: 600 })
+    // 工作区比最小尺寸还小：只能取工作区（总比被窗口裁切好）
+    expect(
+      hudService.fitSize({ x: 0, y: 0, width: 240, height: 300 }, { width: 360, height: 480 })
+    ).toEqual({ width: 240, height: 300 })
+  })
+
+  it('透明度夹到 0.3–1', () => {
+    expect(hudService.clampOpacity(0.1)).toBe(0.3)
+    expect(hudService.clampOpacity(2)).toBe(1)
+    expect(hudService.clampOpacity(0.7)).toBe(0.7)
+  })
+})
+
+describe('形态判定 resolveDragStep（三条滞回区间）', () => {
+  const wa = PRIMARY.workArea
+
+  it('球态：gap > 48 才展开；24 < gap ≤ 48 保持球', () => {
+    expect(hudService.resolveDragStep('ball', wa, { x: 800, y: 300, width: 56, height: 56 })).toBe(
+      'expand'
+    )
+    // 左边距 30、右边距更远 → 滞回区，不展开
+    expect(hudService.resolveDragStep('ball', wa, { x: 30, y: 300, width: 56, height: 56 })).toBe(
+      'none'
+    )
+    // 正好 48：不算「> 48」
+    expect(hudService.resolveDragStep('ball', wa, { x: 48, y: 300, width: 56, height: 56 })).toBe(
+      'none'
+    )
+  })
+
+  it('面板态：gap ≤ 24 才收球，且收向更近的那条边', () => {
+    expect(hudService.resolveDragStep('panel', wa, { x: 0, y: 300, width: 360, height: 480 })).toBe(
+      'collapse-left'
+    )
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: 1560, y: 300, width: 360, height: 480 })
+    ).toBe('collapse-right')
+    // 24 < gap：保持面板（与球态的 48 之间就是滞回带）
+    expect(
+      hudService.resolveDragStep('panel', wa, { x: 30, y: 300, width: 360, height: 480 })
+    ).toBe('none')
   })
 })
 
@@ -168,104 +260,233 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     return { win, displays }
   }
 
-  it('默认形态是 dock-bar 收起：贴顶、宽 workArea-16，且把回落的显示器写回', () => {
+  const modeEvents = (): DomainEvent[] => events.filter(e => e.type === 'hud.mode.changed')
+
+  it('默认形态是球：56×56 贴右、y = 10%，不可拉伸，且把回落的显示器写回', () => {
     const { win } = attachDefault()
-    expect(win.getBounds()).toEqual({ x: 8, y: 0, width: 1904, height: 32 })
-    expect(win.movable()).toBe(false)
+    expect(win.getBounds()).toEqual({ x: 1864, y: 104, width: 56, height: 56 })
+    expect(win.resizable()).toBe(false)
+    expect(win.minSize()).toEqual([0, 0])
     expect(settingRepo.get('hud.displayId')).toBe(1)
-    expect(hudService.getState()).toEqual({
-      mode: 'dock-bar',
-      expanded: false,
-      displayId: 1,
-      visible: true
-    })
+    expect(hudService.getState()).toEqual({ mode: 'ball', displayId: 1, visible: true })
   })
 
-  it('setMode：只换 bounds 不重建窗口，并广播 hud.mode.changed；movable 随模式', () => {
+  it('库里的旧形态串（dock-bar / float-pod / 未知）一律按 ball 起', () => {
+    for (const legacy of ['dock-bar', 'float-pod', 'nonsense']) {
+      settingRepo.set('hud.mode', legacy as unknown as HudMode)
+      const displays = makeDisplays([PRIMARY])
+      const win = makeWindow(hudService.resolveInitialBounds(displays))
+      hudService.attach(win, displays)
+      expect(hudService.getState().mode).toBe('ball')
+      expect(win.getBounds()).toEqual({ x: 1864, y: 104, width: 56, height: 56 })
+      hudService.detach()
+    }
+  })
+
+  it('setMode(panel)：只换 bounds 不重建窗口，可拉伸 + 上下限，并广播 hud.mode.changed', () => {
     const { win } = attachDefault()
     const callsBefore = win.boundsCalls.length
 
-    hudService.setMode('float-pod')
+    hudService.setMode('panel')
 
     expect(win.boundsCalls.length).toBe(callsBefore + 1)
-    expect(win.getBounds()).toEqual({ x: 1840, y: 24, width: 56, height: 56 })
-    expect(win.movable()).toBe(true)
-    expect(settingRepo.get('hud.mode')).toBe('float-pod')
-    expect(events.filter(e => e.type === 'hud.mode.changed')).toEqual([
-      { type: 'hud.mode.changed', mode: 'float-pod' }
-    ])
-    // 同一个窗口对象：attach 只在建窗时调一次
-    expect(hudService.getState().mode).toBe('float-pod')
+    expect(win.getBounds()).toEqual({
+      x: 1920 - 360 - hudService.PEEK_GAP,
+      y: 104,
+      width: 360,
+      height: 480
+    })
+    expect(win.resizable()).toBe(true)
+    expect(win.minSize()).toEqual([280, 320])
+    expect(win.maxSize()).toEqual([720, 900])
+    expect(settingRepo.get('hud.mode')).toBe('panel')
+    expect(modeEvents()).toEqual([{ type: 'hud.mode.changed', mode: 'panel' }])
   })
 
-  it('两模式各自的展开态分别记忆（重启后恢复）', () => {
-    const { win, displays } = attachDefault()
-    hudService.setExpanded(true) // dock-bar 展开
-    expect(win.getBounds().height).toBe(260)
-
-    hudService.setMode('float-pod')
-    // float-pod 自己那份还是 false → 56×56 圆
-    expect(win.getBounds()).toEqual({ x: 1840, y: 24, width: 56, height: 56 })
-
-    hudService.setExpanded(true)
-    expect(win.getBounds()).toEqual({ x: 1536, y: 24, width: 360, height: 480 })
-    expect(settingRepo.get('hud.expanded')).toEqual({ 'dock-bar': true, 'float-pod': true })
-
-    hudService.setMode('dock-bar')
-    expect(win.getBounds().height).toBe(260)
-
-    // 重启：新窗口按 settings 还原（float-pod + 展开 + 记忆坐标）
-    hudService.detach()
-    const restart = makeWindow(hudService.resolveInitialBounds(displays))
-    hudService.attach(restart, displays)
-    expect(restart.getBounds().height).toBe(260)
-    expect(hudService.getState().mode).toBe('dock-bar')
-  })
-
-  it('float-pod 记忆坐标：重启回到原位（不被默认落点覆盖）', () => {
-    const { displays } = attachDefault()
-    hudService.setMode('float-pod')
-    hudService.moveTo(300, 400)
-    expect(settingRepo.get('hud.position')).toEqual({ x: 300, y: 400 })
-
-    hudService.detach()
-    const restart = makeWindow(hudService.resolveInitialBounds(displays))
-    hudService.attach(restart, displays)
-    expect(restart.getBounds()).toEqual({ x: 300, y: 400, width: 56, height: 56 })
-  })
-
-  it('moveTo：clamp 进 workArea 再落库', () => {
+  it('面板尺寸：hud.size 生效；收球再展开回到用户拉过的尺寸', () => {
+    settingRepo.set('hud.mode', 'panel')
+    settingRepo.set('hud.size', { width: 500, height: 600 })
     const { win } = attachDefault()
-    hudService.setMode('float-pod')
+    // y 仍是 10%（104），x 被 500 宽的面板顶回工作区内（1920 − 500）
+    expect(win.getBounds()).toEqual({ x: 1420, y: 104, width: 500, height: 600 })
 
-    hudService.moveTo(5000, 5000)
-    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
-    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
-
-    hudService.moveTo(-100, -100)
-    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 56, height: 56 })
+    hudService.setMode('ball')
+    expect(win.getBounds()).toEqual({ x: 1420, y: 104, width: 56, height: 56 })
+    // 球态不覆盖面板尺寸：再展开还是 500×600
+    hudService.setMode('panel')
+    expect(win.getBounds().width).toBe(500)
+    expect(win.getBounds().height).toBe(600)
+    expect(settingRepo.get('hud.size')).toEqual({ width: 500, height: 600 })
   })
 
-  it('拖动收尾：move 去抖 300ms 后才吸附 + 落库；程序化 setBounds 的回声不算拖动', () => {
+  it('球拖动中实时变形：move 去抖 120ms 后 gap > 48 → 当场展开成面板', () => {
     vi.useFakeTimers()
     const { win } = attachDefault()
-    hudService.setMode('float-pod')
     win.boundsCalls.length = 0
 
-    // 程序化写入后由窗口回抛一条 move：位置与状态一致 → 忽略
+    win.dragTo(200, 300)
     win.fireMove()
-    vi.advanceTimersByTime(hudService.DRAG_SETTLE_MS)
-    expect(win.boundsCalls.length).toBe(0)
-
-    // 用户把圆拖到左边缘 10px 处松手
-    win.dragTo(10, 700)
-    win.fireMove()
-    vi.advanceTimersByTime(hudService.DRAG_SETTLE_MS - 1)
-    expect(win.boundsCalls.length).toBe(0) // 还没到 300ms，不认为松手
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS - 1)
+    expect(hudService.getState().mode).toBe('ball')
 
     vi.advanceTimersByTime(1)
-    expect(win.getBounds()).toEqual({ x: 0, y: 700, width: 56, height: 56 })
-    expect(settingRepo.get('hud.position')).toEqual({ x: 0, y: 700 })
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.getBounds()).toEqual({ x: 200, y: 300, width: 360, height: 480 })
+    expect(win.resizable()).toBe(true)
+    expect(modeEvents()).toEqual([{ type: 'hud.mode.changed', mode: 'panel' }])
+  })
+
+  it('面板拖动中实时变形：move 去抖后 gap ≤ 24 → 收球并贴该边', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    win.boundsCalls.length = 0
+
+    win.dragTo(10, 300)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+
+    expect(hudService.getState().mode).toBe('ball')
+    expect(win.getBounds()).toEqual({ x: 0, y: 300, width: 56, height: 56 })
+    expect(win.resizable()).toBe(false)
+    expect(modeEvents().map(e => e.type === 'hud.mode.changed' && e.mode)).toEqual([
+      'panel',
+      'ball'
+    ])
+  })
+
+  it('滞回带（24 < gap ≤ 48）不来回切：球拖到 gap 30、面板拖到 gap 30 都保持原形态', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    win.boundsCalls.length = 0
+
+    win.dragTo(30, 300)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    expect(hudService.getState().mode).toBe('ball')
+    expect(win.boundsCalls).toHaveLength(0)
+
+    hudService.setMode('panel')
+    const panelCalls = win.boundsCalls.length
+    // y 错开 20px：与 setBounds 目标不同，才不会被当成回声吞掉（这里要测的是滞回，不是回声）
+    win.dragTo(30, 320)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.boundsCalls.length).toBe(panelCalls)
+  })
+
+  it('分数缩放（150%）下回读差 1px 不算拖动：不得自我漂移（反复 setBounds）', () => {
+    vi.useFakeTimers()
+    const displays = makeDisplays([PRIMARY])
+    const win = makeWindow(hudService.resolveInitialBounds(displays))
+    // 本机就是 150%：setBounds(56×56) 回读会差 1px
+    win.setDpiOffset(1, 1)
+    hudService.attach(win, displays)
+    const afterAttach = win.boundsCalls.length
+
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS + hudService.SETTLE_MS + 500)
+
+    expect(win.boundsCalls.length).toBe(afterAttach)
+    expect(hudService.getState().mode).toBe('ball')
+  })
+
+  it('回声抑制：程序化 setBounds 引发的 move 被丢弃，不会触发第二次切换（防死循环）', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel') // 面板落点距边 > 24，本身不该被收回去
+    const afterExpand = win.boundsCalls.length
+    expect(hudService.edgeGap(PRIMARY.workArea, win.getBounds())).toBeGreaterThan(24)
+
+    // 窗口回抛的 move（位置与目标一致）—— 丢
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.boundsCalls.length).toBe(afterExpand)
+
+    // 再来一次也必须是幂等的
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(win.boundsCalls.length).toBe(afterExpand)
+    expect(modeEvents()).toHaveLength(1)
+  })
+
+  it('拖动/拉伸收尾：300ms 后落 hud.position / hud.size，越界则 clamp 回工作区', () => {
+    vi.useFakeTimers()
+    const { win } = attachDefault()
+    hudService.setMode('panel')
+    win.boundsCalls.length = 0
+
+    // 拖到中间（gap > 24，不会收球），收尾后位置落库
+    win.dragTo(1400, 300)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1400, y: 300 })
+
+    win.resizeTo(520, 640)
+    win.fireResize()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    expect(settingRepo.get('hud.size')).toEqual({ width: 520, height: 640 })
+    // 拉伸后不能被旧尺寸弹回
+    expect(win.getBounds()).toEqual({ x: 1400, y: 300, width: 520, height: 640 })
+
+    // 越界：球被拖出屏幕，收尾时 clamp 回来
+    hudService.setMode('ball')
+    win.dragTo(5000, 5000)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.MOVE_JUDGE_MS)
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
+  })
+
+  it('展开/收球往返不涨尺寸：OS 回读 +1px 不算用户拉伸（否则每往返一次胖 1px）', () => {
+    vi.useFakeTimers()
+    const displays = makeDisplays([PRIMARY])
+    const win = makeWindow(hudService.resolveInitialBounds(displays))
+    win.setDpiOffset(1, 1, 1, 1)
+    hudService.attach(win, displays)
+    win.boundsCalls.length = 0
+
+    for (let i = 0; i < 3; i++) {
+      hudService.setMode('panel')
+      // 自己的 setBounds 也会引发 move + resize：两条都得当回声吞掉
+      win.fireMove()
+      win.fireResize()
+      vi.advanceTimersByTime(hudService.SETTLE_MS)
+      hudService.setMode('ball')
+      win.fireMove()
+      win.fireResize()
+      vi.advanceTimersByTime(hudService.SETTLE_MS)
+    }
+
+    // 每次都按 360×480 请求，不跟着回读的 361×481 长
+    for (const call of win.boundsCalls.filter(r => r.width > 56)) {
+      expect([call.width, call.height]).toEqual([360, 480])
+    }
+    expect(settingRepo.get('hud.size')).toBeNull()
+  })
+
+  it('重启：位置与尺寸都保持（形态也保持）', () => {
+    vi.useFakeTimers()
+    const displays = makeDisplays([PRIMARY])
+    const { win } = attachDefault(displays)
+    hudService.setMode('panel')
+    win.dragTo(700, 200)
+    win.fireMove()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    win.resizeTo(600, 700)
+    win.fireResize()
+    vi.advanceTimersByTime(hudService.SETTLE_MS)
+    expect(settingRepo.get('hud.position')).toEqual({ x: 700, y: 200 })
+
+    hudService.detach()
+    const restart = makeWindow(hudService.resolveInitialBounds(displays))
+    hudService.attach(restart, displays)
+    expect(hudService.getState().mode).toBe('panel')
+    expect(restart.getBounds()).toEqual({ x: 700, y: 200, width: 600, height: 700 })
   })
 
   it('setVisible：hide/showInactive 落地，getState().visible 跟着变', () => {
@@ -279,39 +500,46 @@ describe('HUD 状态机（假窗口 + 假显示器 + 内存库）', () => {
     expect(hudService.getState().visible).toBe(true)
   })
 
-  it('拔屏：记忆的显示器不在了 → 回落主屏顶部，不留在屏幕外', () => {
+  it('拔屏：记忆的显示器不在了 → 回落主屏并 clamp，不留在屏幕外', () => {
     settingRepo.set('hud.displayId', 2)
-    settingRepo.set('hud.mode', 'float-pod')
+    settingRepo.set('hud.mode', 'panel')
     settingRepo.set('hud.position', { x: 2500, y: 300 })
     const twoScreens = makeDisplays([PRIMARY, SECOND])
     const { win } = attachDefault(twoScreens)
-    expect(win.getBounds()).toEqual({ x: 2500, y: 300, width: 56, height: 56 })
+    expect(win.getBounds()).toEqual({ x: 2500, y: 300, width: 360, height: 480 })
 
     // 副屏拔掉：只剩主屏，显示器配置变化后重新 clamp
     twoScreens.areas = [PRIMARY]
     hudService.syncDisplays()
 
     const bounds = win.getBounds()
-    expect(bounds.width).toBe(56)
-    expect(bounds.x).toBeLessThanOrEqual(PRIMARY.workArea.width - 56)
+    expect(bounds.width).toBe(360)
+    expect(bounds.x).toBeLessThanOrEqual(PRIMARY.workArea.width - 360)
     expect(settingRepo.get('hud.displayId')).toBe(1)
     expect(hudService.getState().displayId).toBe(1)
   })
 
-  it('工作区变小（分辨率/缩放变化）：dock-bar 与 float-pod 都重新 clamp', () => {
+  it('工作区变小（分辨率/缩放变化）：尺寸与坐标一起收回来', () => {
+    settingRepo.set('hud.mode', 'panel')
+    settingRepo.set('hud.size', { width: 700, height: 880 })
     const displays = makeDisplays([PRIMARY])
     const { win } = attachDefault(displays)
-    hudService.setMode('float-pod')
-    hudService.moveTo(1800, 900)
-    expect(win.getBounds()).toEqual({ x: 1800, y: 900, width: 56, height: 56 })
 
-    displays.areas = [
-      { displayId: 1, workArea: { x: 0, y: 0, width: 1280, height: 720 } }
-    ]
+    displays.areas = [{ displayId: 1, workArea: { x: 0, y: 0, width: 1280, height: 720 } }]
     hudService.syncDisplays()
-    expect(win.getBounds()).toEqual({ x: 1224, y: 664, width: 56, height: 56 })
 
-    hudService.setMode('dock-bar')
-    expect(win.getBounds()).toEqual({ x: 8, y: 0, width: 1264, height: 32 })
+    const bounds = win.getBounds()
+    expect(bounds.width).toBe(700)
+    expect(bounds.height).toBe(720)
+    expect(bounds.x).toBeLessThanOrEqual(1280 - 700)
+    expect(settingRepo.get('hud.size')).toEqual({ width: 700, height: 720 })
+  })
+
+  it('moveTo：clamp 进工作区再落库（程序化移动不触发变形判定）', () => {
+    const { win } = attachDefault()
+    hudService.moveTo(5000, 5000)
+    expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
+    expect(hudService.getState().mode).toBe('ball')
   })
 })

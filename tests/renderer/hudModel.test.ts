@@ -3,10 +3,10 @@ import type { Occurrence, Task } from '@shared/types/domain'
 import {
   buildRows,
   completionRatio,
+  composeHudBg,
   localDayOf,
   pendingCount,
   ratioLabel,
-  recentTitle,
   todayPointsLabel
 } from '../../src/renderer/hud/hudModel'
 
@@ -117,19 +117,39 @@ describe('列表拼装（每日打卡在前，限时/活动在后，最多 6 条
     makeTask({ id: 'e', title: '招聘需求' })
   ]
 
+  it('每日任务不进任务行（否则同标题两行，任务行点完成会被服务端拒绝）', () => {
+    const daily = makeTask({ id: 'd1', title: '每日A', type: 'daily' })
+    const deadline = makeTask({ id: 'e1', title: '限时B' })
+    const rows = buildRows(
+      [makeOccurrence({ id: 'o1', taskId: 'd1', day: '2026-10-28', taskTitle: '每日A' })],
+      [daily, deadline]
+    )
+    expect(rows).toEqual([
+      { kind: 'occurrence', id: 'o1', title: '每日A', done: false },
+      { kind: 'task', id: 'e1', title: '限时B', done: false }
+    ])
+  })
+
   it('每日在前、任务在后，完成的打卡仍留在列表里（与 3/5 对得上）', () => {
     const rows = buildRows(occurrences, tasks)
     expect(rows.map(r => r.id)).toEqual(['o1', 'o2', 'a', 'b', 'c', 'd'])
     expect(rows[1]).toEqual({ kind: 'occurrence', id: 'o2', title: '客户回访', done: true })
   })
+})
 
-  it('最近待办标题取第一条未完成的；全完成则退回第一条', () => {
-    expect(recentTitle(buildRows(occurrences, tasks))).toBe('报告初稿')
-    const allDone = buildRows(
-      [makeOccurrence({ id: 'o1', taskId: 't1', day: '2026-10-28', status: 'done', taskTitle: 'X' })],
-      []
-    )
-    expect(recentTitle(allDone)).toBe('X')
-    expect(recentTitle([])).toBeNull()
+describe('背景合成（04 §5.4 v0.30：透明度只进 alpha）', () => {
+  it('hud.background 为空时取主题底色，alpha 就是透明度', () => {
+    expect(composeHudBg(null, 0.5, '#ffffff')).toBe('rgba(255, 255, 255, 0.5)')
+    expect(composeHudBg(null, 1, '#ffffff')).toBe('rgba(255, 255, 255, 1)')
+  })
+
+  it('自定义颜色按 #rrggbb / #rgb 解析，透明度夹在 0..1', () => {
+    expect(composeHudBg('#1f2f3f', 0.7, '#ffffff')).toBe('rgba(31, 47, 63, 0.7)')
+    expect(composeHudBg('#fff', 0.4, '#000000')).toBe('rgba(255, 255, 255, 0.4)')
+    expect(composeHudBg('#1f2f3f', 2, '#ffffff')).toBe('rgba(31, 47, 63, 1)')
+  })
+
+  it('认不出的颜色退回白色，不抛错', () => {
+    expect(composeHudBg('red', 1, 'rgb(0,0,0)')).toBe('rgba(255, 255, 255, 1)')
   })
 })

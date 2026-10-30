@@ -24,8 +24,8 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 42 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
- * W9 起 hud 五条、v0.19 起 task.undo 接通、**W4 起 msg 两条 + ai 四条**，
+ * **只接 WIRED 里的 41 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * W9 起 hud 四条（v0.30 删 setExpanded）、v0.19 起 task.undo 接通、**W4 起 msg 两条 + ai 四条**，
  * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
@@ -97,7 +97,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 42 条
+ * WIRED：本轮接通的 41 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -418,11 +418,10 @@ const TABLE: Row[] = [
     pointsService.streakBonusAt(input.nextDayWillReach)
   ),
 
-  /* ---------------- hud（5，W9） ---------------- */
+  /* ---------------- hud（4，W9 · v0.30） ---------------- */
   // 状态与坐标全在 hudService：handler 只做入参校验 + 转发，不在这里算 bounds。
   // setMode 的 `hud.mode.changed` 广播也在 hudService 里（同一处改动同一个广播，避免漏发）。
   row(CH.hud.setMode, g.hudSetMode, input => hudService.setMode(input.mode)),
-  row(CH.hud.setExpanded, g.hudSetExpanded, input => hudService.setExpanded(input.expanded)),
   row(CH.hud.moveTo, g.hudMoveTo, input => hudService.moveTo(input.x, input.y)),
   row(CH.hud.setVisible, g.hudSetVisible, input => hudService.setVisible(input.visible)),
   row(CH.hud.getState, g.hudGetState, () => hudService.getState())

@@ -71,8 +71,18 @@ export interface Bootstrap {
  * §3.0 补充类型
  * ------------------------------------------------------------------ */
 
-/** 悬浮形态：顶部贴边条 / 自由浮窗 */
-export type HudMode = 'dock-bar' | 'float-pod'
+/**
+ * 悬浮形态（04 §5.2 v0.30）：`ball` 56×56 圆球 / `panel` 可拉伸面板。
+ * 值域与 `hud.mode` 的库里旧值不同——`dock-bar` / `float-pod` / 任何未知串一律按 `ball` 起
+ * （见 `hudService.resolveLayout`），不给旧形态留兼容分支。
+ */
+export type HudMode = 'ball' | 'panel'
+
+/** 面板尺寸（`hud.size`；null = 用默认 360×480） */
+export interface HudSize {
+  width: number
+  height: number
+}
 
 /** webhook 渠道配置（非敏感部分；token 存 safeStorage，不在此） */
 export interface WebhookConfig {
@@ -94,7 +104,12 @@ export interface AppSettings {
   'hud.mode': HudMode
   'hud.displayId': number | null
   'hud.position': { x: number | null; y: number | null }
-  'hud.expanded': { 'dock-bar': boolean; 'float-pod': boolean }
+  /** 面板尺寸（v0.30）：`null` = 默认 360×480；球态不写 */
+  'hud.size': HudSize | null
+  /** 面板背景色 `#rrggbb`（v0.30）：`null` = 取主题 `--bg` */
+  'hud.background': string | null
+  /** 背景透明度 0.3–1（v0.30，只作用于背景，不加在容器上） */
+  'hud.opacity': number
   'hud.autoHideFullscreen': boolean
   'points.difficultyBase': Record<Difficulty, number>
   'points.dailyBase': number
@@ -249,13 +264,11 @@ export interface Api {
   }
 
   hud: {
+    /** 手动切换形态（点球展开 / ESC 收回）：主进程换 bounds + 广播 `hud.mode.changed` */
     setMode(input: { mode: HudMode }): Promise<IpcResult<void>>
-    setExpanded(input: { expanded: boolean }): Promise<IpcResult<void>>
     moveTo(input: { x: number; y: number }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
-    getState(): Promise<
-      IpcResult<{ mode: HudMode; expanded: boolean; displayId: number; visible: boolean }>
-    >
+    getState(): Promise<IpcResult<{ mode: HudMode; displayId: number; visible: boolean }>>
   }
 
   /** 唯一事件入口，返回取消订阅函数 */

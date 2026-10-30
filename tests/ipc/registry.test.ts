@@ -11,22 +11,16 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 42 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 五条、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(42)
-    expect(new Set(WIRED_CHANNELS).size).toBe(42)
+  it('WIRED 有 41 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条）', () => {
+    expect(WIRED_CHANNELS.length).toBe(41)
+    expect(new Set(WIRED_CHANNELS).size).toBe(41)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
     for (const ch of [CH.occurrence.complete, CH.occurrence.undo, CH.occurrence.skip]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
-    for (const ch of [
-      CH.hud.setMode,
-      CH.hud.setExpanded,
-      CH.hud.moveTo,
-      CH.hud.setVisible,
-      CH.hud.getState
-    ]) {
+    for (const ch of [CH.hud.setMode, CH.hud.moveTo, CH.hud.setVisible, CH.hud.getState]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
     // W4：AI 接入的六条

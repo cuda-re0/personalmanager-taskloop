@@ -73,7 +73,6 @@ export const CH = {
   },
   hud: {
     setMode: 'hud:setMode',
-    setExpanded: 'hud:setExpanded',
     moveTo: 'hud:moveTo',
     setVisible: 'hud:setVisible',
     getState: 'hud:getState'

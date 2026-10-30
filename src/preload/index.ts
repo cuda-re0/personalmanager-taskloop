@@ -112,13 +112,11 @@ const api: Api = {
 
   hud: {
     setMode: input => invoke<void>(CH.hud.setMode, input),
-    setExpanded: input => invoke<void>(CH.hud.setExpanded, input),
     moveTo: input => invoke<void>(CH.hud.moveTo, input),
     setVisible: input => invoke<void>(CH.hud.setVisible, input),
     getState: () =>
       invoke<{
-        mode: 'dock-bar' | 'float-pod'
-        expanded: boolean
+        mode: 'ball' | 'panel'
         displayId: number
         visible: boolean
       }>(CH.hud.getState)

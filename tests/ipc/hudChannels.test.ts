@@ -3,16 +3,17 @@ import { CH } from '@shared/channels'
 import type { IpcResult } from '@shared/types/ipc'
 import type { DomainEvent } from '@shared/types/events'
 import { setTransport } from '../../src/main/bus'
+import * as settingRepo from '../../src/main/db/repositories/settingRepo'
 import * as hudService from '../../src/main/services/hudService'
 import type { HudDisplaysPort, HudWindowPort, Rect } from '../../src/main/services/hudService'
 import { createHandlers, type IpcLike } from '../../src/main/ipc/registry'
 import { closeTestDb, openMemoryDb } from '../db/helpers'
 
 /**
- * W9 · 五条 hud 通道（04 §3.7b）。
+ * W9 · 四条 hud 通道（04 §3.7b v0.30，`hud.setExpanded` 已删除）。
  *
- * 覆盖的是"接线"本身：守卫形状、handler 转发到 hudService、广播、以及
- * `getState().visible` 与 `setVisible` 的一致性。几何细节在 tests/main/hudService.test.ts。
+ * 覆盖"接线"本身：守卫形状、handler 转发到 hudService、广播、`getState().visible` 一致性。
+ * 几何细节在 tests/main/hudService.test.ts；`app.setSetting` 里三个 hud 项的形状/夹限也在这里锁。
  */
 
 vi.mock('electron', () => ({
@@ -36,6 +37,9 @@ function makeWindow(initial: Rect): HudWindowPort & { hidden: boolean } {
       bounds = { ...rect }
     },
     setMovable: () => undefined,
+    setResizable: () => undefined,
+    setMinSize: () => undefined,
+    setMaxSize: () => undefined,
     hide: () => {
       self.hidden = true
     },
@@ -44,12 +48,13 @@ function makeWindow(initial: Rect): HudWindowPort & { hidden: boolean } {
     },
     isVisible: () => !self.hidden,
     onMove: () => undefined,
+    onResize: () => undefined,
     isDestroyed: () => false
   }
   return self
 }
 
-describe('W9 五条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
+describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
   let wired: Map<string, (input: unknown) => unknown>
   let events: DomainEvent[]
   let win: ReturnType<typeof makeWindow>
@@ -83,22 +88,17 @@ describe('W9 五条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     closeTestDb()
   })
 
-  it('五条都注册了，且不再是 NOT_WIRED', () => {
-    for (const ch of [
-      CH.hud.setMode,
-      CH.hud.setExpanded,
-      CH.hud.moveTo,
-      CH.hud.setVisible,
-      CH.hud.getState
-    ]) {
+  it('四条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
+    for (const ch of [CH.hud.setMode, CH.hud.moveTo, CH.hud.setVisible, CH.hud.getState]) {
       expect(wired.has(ch)).toBe(true)
     }
+    expect(wired.size).toBe(41)
   })
 
-  it('hud.getState 返回 { mode, expanded, displayId, visible }，不含别的字段', () => {
+  it('hud.getState 返回 { mode, displayId, visible }，不含 expanded', () => {
     const state = callOk<Record<string, unknown>>(CH.hud.getState)
-    expect(Object.keys(state).sort()).toEqual(['displayId', 'expanded', 'mode', 'visible'])
-    expect(state).toEqual({ mode: 'dock-bar', expanded: false, displayId: 1, visible: true })
+    expect(Object.keys(state).sort()).toEqual(['displayId', 'mode', 'visible'])
+    expect(state).toEqual({ mode: 'ball', displayId: 1, visible: true })
   })
 
   it('hud.setVisible → 窗口 hide/showInactive，getState().visible 与之一致', () => {
@@ -111,32 +111,30 @@ describe('W9 五条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     expect(callOk<{ visible: boolean }>(CH.hud.getState).visible).toBe(true)
   })
 
-  it('hud.setExpanded → 主进程换 bounds（dock-bar 260 / 收起 32）', () => {
-    callOk(CH.hud.setExpanded, { expanded: true })
-    expect(win.getBounds()).toEqual({ x: 8, y: 0, width: 1904, height: 260 })
-    callOk(CH.hud.setExpanded, { expanded: false })
-    expect(win.getBounds()).toEqual({ x: 8, y: 0, width: 1904, height: 32 })
-  })
-
   it('hud.setMode → 广播 hud.mode.changed，窗口本身不重建（bounds 直接变）', () => {
-    callOk(CH.hud.setMode, { mode: 'float-pod' })
-    expect(win.getBounds()).toEqual({ x: 1840, y: 24, width: 56, height: 56 })
+    callOk(CH.hud.setMode, { mode: 'panel' })
+    expect(win.getBounds()).toEqual({
+      width: 360,
+      height: 480,
+      x: 1920 - 360 - hudService.PEEK_GAP,
+      y: 104
+    })
     expect(events.filter(e => e.type === 'hud.mode.changed')).toEqual([
-      { type: 'hud.mode.changed', mode: 'float-pod' }
+      { type: 'hud.mode.changed', mode: 'panel' }
     ])
+    expect(callOk<{ mode: string }>(CH.hud.getState).mode).toBe('panel')
   })
 
-  it('hud.moveTo → clamp 进 workArea 并落库（重启位置来自这里）', () => {
-    callOk(CH.hud.setMode, { mode: 'float-pod' })
+  it('hud.moveTo → clamp 进 workArea 并落库', () => {
     callOk(CH.hud.moveTo, { x: 9999, y: 9999 })
     expect(win.getBounds()).toEqual({ x: 1864, y: 984, width: 56, height: 56 })
+    expect(settingRepo.get('hud.position')).toEqual({ x: 1864, y: 984 })
   })
 
   it('非法入参统一 INVALID_INPUT（04 §1.1「请求参数格式不正确」），且不改窗口', () => {
     const before = win.getBounds()
     for (const [channel, input] of [
       [CH.hud.setMode, { mode: 'flying' }],
-      [CH.hud.setExpanded, { expanded: 'yes' }],
       [CH.hud.moveTo, { x: 1 }],
       [CH.hud.setVisible, {}]
     ] as const) {
@@ -148,5 +146,32 @@ describe('W9 五条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
       }
     }
     expect(win.getBounds()).toEqual(before)
+  })
+
+  it('app.setSetting 收口三个 hud 项：opacity 夹到 0.3–1、size 夹到值域、背景色形态', () => {
+    callOk(CH.app.setSetting, { key: 'hud.opacity', value: 0.1 })
+    expect(settingRepo.get('hud.opacity')).toBe(0.3)
+    callOk(CH.app.setSetting, { key: 'hud.opacity', value: 5 })
+    expect(settingRepo.get('hud.opacity')).toBe(1)
+
+    callOk(CH.app.setSetting, { key: 'hud.size', value: { width: 100, height: 5000 } })
+    expect(settingRepo.get('hud.size')).toEqual({ width: 280, height: 900 })
+    callOk(CH.app.setSetting, { key: 'hud.size', value: null })
+    expect(settingRepo.get('hud.size')).toBeNull()
+
+    callOk(CH.app.setSetting, { key: 'hud.background', value: '#123456' })
+    expect(settingRepo.get('hud.background')).toBe('#123456')
+
+    for (const [key, value] of [
+      ['hud.background', 'red'],
+      ['hud.opacity', 'opaque'],
+      ['hud.size', { width: '360' }]
+    ] as const) {
+      const result = call(CH.app.setSetting, { key, value })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.code).toBe('INVALID_INPUT')
+    }
+    // 被拒的写入不落库
+    expect(settingRepo.get('hud.background')).toBe('#123456')
   })
 })
