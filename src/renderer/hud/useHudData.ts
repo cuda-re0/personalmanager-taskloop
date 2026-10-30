@@ -90,18 +90,23 @@ function readThemeBg(): string {
   return value.length > 0 ? value : DEFAULT_THEME_BG
 }
 
-function upsertOccurrences(list: Occurrence[], incoming: Occurrence[]): Occurrence[] {
+function upsertOccurrences(
+  list: Occurrence[],
+  incoming: Occurrence[],
+  titleOf: (taskId: string) => string | undefined
+): Occurrence[] {
   // 只收今天（v0.21）：HUD 的 done/total 就是「今日打卡」，混进未来日期会把 0/1 显示成 0/4
   const today = localDayOf(new Date())
   const map = new Map(list.filter(o => o.day === today).map(o => [o.id, o] as const))
   for (const o of incoming) {
     if (o.day !== today) continue
-    // `occurrence.complete/undo/skip` 推的是裸行（无联表字段），`taskTitle` 会被覆盖成 undefined
-    // → HUD 列表会变成空白行。这里保留上一个已知标题与类型（同 id 同任务，不会串）。
+    // `occurrence.complete/undo/skip` 与 `task.createManual` 推的是裸行（无联表字段），
+    // `taskTitle` 会被覆盖成 undefined → HUD 列表会变成空白行。按「上一条同 id > 任务表」补齐，
+    // 同 id 同任务，不会串。
     const prev = map.get(o.id)
     map.set(o.id, {
       ...o,
-      taskTitle: o.taskTitle ?? prev?.taskTitle,
+      taskTitle: o.taskTitle ?? prev?.taskTitle ?? titleOf(o.taskId),
       taskType: o.taskType ?? prev?.taskType
     })
   }
@@ -159,13 +164,19 @@ export function useHudData(): HudData {
 
     const handleEvent = (event: DomainEvent): void => {
       setSnapshot(prev => {
+        // occurrence 的裸行没有标题，按 taskId 从任务表补（任务行先到，见 02 §3.8 的广播顺序）
+        const titleOf = (taskId: string): string | undefined =>
+          prev.tasks.find(t => t.id === taskId)?.title
         switch (event.type) {
           case 'occurrence.created':
-            return { ...prev, occurrences: upsertOccurrences(prev.occurrences, event.occurrences) }
+            return {
+              ...prev,
+              occurrences: upsertOccurrences(prev.occurrences, event.occurrences, titleOf)
+            }
           case 'occurrence.updated':
             return {
               ...prev,
-              occurrences: upsertOccurrences(prev.occurrences, [event.occurrence])
+              occurrences: upsertOccurrences(prev.occurrences, [event.occurrence], titleOf)
             }
           case 'task.created':
           case 'task.updated':
