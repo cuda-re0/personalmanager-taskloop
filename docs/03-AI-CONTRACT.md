@@ -230,7 +230,7 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
     title: string;
     detailMd: string;
     type: TaskType;
-    requiresEvidence: boolean;
+    requiresEvidence: boolean;   // v0.38 起不再参与判定，保留字段仅为兼容；证据要求一律按 type
     dueAt: string | null;
     steps: { title: string; done: boolean }[];
   };
@@ -253,26 +253,28 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 
 `result` 只对 `type='event'` 有意义，其他类型必须为 `null`；而 event 的 `quality` 恒为 `met`（活动不看"做没做完"，看结果）。判定依据：用户说了排名/名次/分数/评价就据此判，什么都没说就填 `met`（不猜）。
 
-判定标准（写进 prompt）：
+判定标准（写进 prompt，**v0.38 起不再区分"要不要证据"**）：
 
 1. **先看证据，再看用户话术。** 用户说"做完了"不构成证据。
-2. `requiresEvidence = true` 且 `evidence` 为空 → **只能返回 `need_evidence`**，`followup` 说明需要什么（"发一下报告文件""截个提交记录"）。**不许猜、不许先给分。**
-3. `requiresEvidence = true` 且 `evidence` 非空 → 逐个对照证据与任务描述：
+2. `evidence` 为空 → **只能返回 `need_evidence`**，`followup` 说明需要什么（"发一下报告文件""截个提交记录"）。**不许猜、不许先给分。** 主进程在调模型之前就用 `hardGateOf` 拦掉这一步，模型通常根本不会被问到。
+3. `evidence` 非空 → 逐个对照证据与任务描述：
    - 证据能证明核心产出完成 → `pass` + `met`（明显超出要求 → `exceeded`）
    - 证据只覆盖部分步骤，或有明显缺口 → `partial` + `partial`，`reason` 说明缺什么
    - 证据与任务**对不上**（发了个无关截图、文字是"我做了"）→ `need_evidence` + `followup` 指出对不上在哪
-4. `requiresEvidence = false`（跑步、背单词这类）→ 按用户陈述判定，`pass` + `met` 即可，不要求证据。
-5. 用户明确说没做 → `fail`。
-6. `reason` 必须写出**判断依据**（"截图显示报告已导出为 PDF"），不能写"看起来完成了"这类空话。
+4. 用户明确说没做 → `fail`。
+5. `reason` 必须写出**判断依据**（"截图显示报告已导出为 PDF"），不能写"看起来完成了"这类空话。
+
+> **v0.38 删掉的是这一条**：「`requiresEvidence = false`（跑步、背单词这类）→ 按用户陈述判定，`pass` + `met` 即可」。
+> 它导致手动建的限时任务（`requires_evidence` 默认 0）全部凭一句"我做完了"秒过、直接发分。现在**限时/活动一律要证据**，每日任务根本不进审核。
 
 业务层拿到 `verdict` 后的动作，AI 不管钱：
 
 | verdict | 业务动作 |
 |---|---|
 | `pass` (met / exceeded) | `task.complete` → 按 rubric 入账 → `done` |
-| `partial` | 入账 60% → 状态回 `doing`，卡片列出缺口 |
+| `partial` | **不发分**。`due_at` 已过 → `missed`；否则回 `doing`，卡片列出缺口（v0.34 裁决：部分完成不算通过） |
 | `need_evidence` | **不入账、状态停在 `reviewing`**，会话里追问一句，等 `task.addEvidence` 后重跑审核 |
-| `fail` | 不扣分，状态回 `doing` |
+| `fail` | 不扣分。`due_at` 已过 → `missed`；否则回 `doing` |
 
 **关键差异（与旧版的区别）**：旧版允许 `pass + followup` 先入账再追问，那是为了让流程不卡住。S4 落地后取消这个口子——**没证据就不发分**。否则"证据"只是个装饰。
 

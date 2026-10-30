@@ -29,7 +29,7 @@ export type AppErrorCode =
   | 'FILE_TOO_LARGE' | 'UNSUPPORTED_MIME' | 'UNKNOWN';
 ```
 
-`EVIDENCE_REQUIRED` 是 v0.9 补的：`requires_evidence` 的任务在缺证据时 `task.complete` 停在 `reviewing`、不入账，这个状态既不是 `CONFLICT`（不是状态冲突，是缺资料）也不是 `INVALID_INPUT`（输入合法，只是不完整）。单列一个码，UI 才能据此把卡片切到"补证据"而不是弹一条通用错误。它与 `retryable: false` 搭配。
+`EVIDENCE_REQUIRED` 是 v0.9 补的：`deadline` / `event` 在缺证据时 `task.complete` 停在 `reviewing`、不入账（v0.38 起一律按类型判，不再看 `requires_evidence`），这个状态既不是 `CONFLICT`（不是状态冲突，是缺资料）也不是 `INVALID_INPUT`（输入合法，只是不完整）。单列一个码，UI 才能据此把卡片切到"补证据"而不是弹一条通用错误。它与 `retryable: false` 搭配。
 
 3. **渲染进程只能通过 `window.api` 访问**，`contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。preload 用白名单暴露，禁止 `ipcRenderer` 直传。
 4. **事件单向**：主进程 → 渲染。渲染进程订阅统一入口 `window.api.onEvent(cb)`，不需要按通道分别订阅。
@@ -52,7 +52,7 @@ export type AppErrorCode =
 
 ```ts
 export type TaskType    = 'daily' | 'deadline' | 'event';
-export type TaskStatus  = 'todo' | 'doing' | 'reviewing' | 'done' | 'discarded' | 'archived';
+export type TaskStatus  = 'todo' | 'doing' | 'pending_review' | 'reviewing' | 'done' | 'missed' | 'discarded' | 'archived';
 export type Difficulty  = 'trivial' | 'easy' | 'medium' | 'hard' | 'epic';
 export type Quality     = 'partial' | 'met' | 'exceeded';
 /** 活动任务的结果档（v0.7 起参与积分）；与 Quality 分开：Quality 是"做没做完"，这是"做出什么结果" */
@@ -279,7 +279,7 @@ export interface TaskDraft {
   tags: string[];
   steps: DraftStep[];
   missingInfo: string[];             // 信息不足时列出要问用户的点，可能为空
-  requiresEvidence: boolean;         // AI 判定这项完成时是否需要证据
+  requiresEvidence: boolean;         // v0.38 起不参与审核判定（限时/活动一律要证据）；字段留着只为兼容历史草稿
   confidence: number;                // 0~1
   pointsPlanned: number;             // 小数（2 位）。AI 不给。按 type 分派：
                                      //   daily → settings['points.dailyBase']
@@ -464,11 +464,11 @@ export interface Bootstrap {
 | `task.get` | `{ id: string }` | `Task & { subtasks: Task[] }` |
 | `task.promoteDraft` | `{ messageId: string; localId: string; patch?: TaskCreatePatch }` | `Task` | 同一 draft 重复确认返回已生成的原 Task（幂等），不重复落库 |
 | `task.update` | `{ id: string; patch: TaskPatch }` | `Task` |
-| `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` |
-| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | `requiresEvidence=true` 且无 evidence 时抛 `EVIDENCE_REQUIRED`，任务停在 `reviewing`、不入账。**v0.34：`deadline`/`event` 的调用方必须先走 `ai.review` 再按结论调用本通道**（只有 `pass` 才调）；主进程不做这个约束——它只管「状态 + 闸门 + 入账」三件事 |
+| `task.transition` | `{ id: string; to: TaskStatus; reason?: string }` | `Task` | 合法边见 01 §3。**v0.38**：点完成先到 `pending_review`（待提交），卡片上点「提交」才到 `reviewing`；`pending_review` 停留超 10 分钟由主进程自动退回 `doing` |
+| `task.complete` | `CompleteTaskInput`（见下） | `{ task: Task; entry: PointEntry \| null }` | **v0.38**：`deadline`/`event` 无 evidence 时抛 `EVIDENCE_REQUIRED`，任务停在 `reviewing`、不入账（不再看 `requires_evidence`）。**v0.34：调用方必须先走 `ai.review` 再按结论调用本通道**（只有 `pass` 才调）；主进程不做这个约束——它只管「状态 + 闸门 + 入账」三件事 |
 | `task.undo` | `{ id: string }` | `{ task: Task; entry: PointEntry \| null }` | 24h 内撤销完成：`done → doing` + 原发分行标 `reversed_at` + 写等额负流水（01 §2.4） |
-| `task.addEvidence` | `{ id: string; evidence: Evidence }` | `Task` | 审核中补证据，用于"先追问再补"的来回 |
-| `task.setRequiresEvidence` | `{ id: string; value: boolean }` | `Task` | 用户手动改判 |
+| `task.addEvidence` | `{ id: string; evidence: Evidence }` | `Task` | 审核中补证据，用于"先追问再补"的来回。**v0.38：`pending_review` 下也允许**（这就是"先传材料再提交"的正常路径） |
+| `task.setRequiresEvidence` | `{ id: string; value: boolean }` | `Task` | **v0.38 起失效**：审核一律要求证据，本通道保留注册但不再改变任何行为（01 §3 证据闸门）。新代码不许调用 |
 | `task.reorder` | `{ id: string; beforeId: string \| null }` | `void` |
 | `task.createManual` | `{ type: TaskType; title: string; patch?: TaskPatch }` | `Task` |
 | `task.remove` | `{ id: string }` | `void` | 软删 → `discarded` |

@@ -88,7 +88,7 @@ CREATE TABLE tasks (
   points_awarded  REAL,                           -- ★ 限时/活动：实际入账；daily 恒为 NULL（看 occurrences）
   quality         TEXT,                           -- partial|met|exceeded
 
-  requires_evidence INTEGER NOT NULL DEFAULT 0,   -- ★ 1 = 完成时必须附证据才计分（S4 已定）
+  requires_evidence INTEGER NOT NULL DEFAULT 0,   -- ★ 历史字段：v0.38 起不参与任何判定（限时/活动一律要证据），保留不删以免迁移
   evidence_json   TEXT NOT NULL DEFAULT '[]',     -- ★ Evidence[]：文字说明或附件 id
   streak_current  INTEGER NOT NULL DEFAULT 0,     -- daily 专用：当前连续天数
   streak_best     INTEGER NOT NULL DEFAULT 0,     -- daily 专用：历史最佳
@@ -408,26 +408,40 @@ CREATE TABLE chat_state (
                     ┌──────────── 用户点丢弃 ──────────→ discarded
                     │
   (AI 产出草稿)      │
-  会话卡片 ──确认──→ todo ──开始──→ doing ──提交完成──→ reviewing ──通过──→ done
-                     ↑  │             │  ↑                  │              │
-                     │  └──── 放弃 ───┘  └──── 驳回 ─────────┘              │
-                     └────── 提交完成 ─────────────────────→┘               │
-                                                                           │
-  reviewing ──驳回且已过 due_at──→ missed（v0.34：判失败，不计分）          │
-  done ──24h 内撤销──→ doing（同时写一条负流水冲销）                          │
-  任意状态 ──归档──→ archived ←─────────────────────────────────────────────┘
+  会话卡片 ──确认──→ todo ──开始──→ doing
+                     │  ↑             │  ↑
+                     │  └──── 放弃 ───┘  └──── 取消／超时 10 分钟 ────────┐
+                     │                                                    │
+                     └────── 提交完成 ──┐        ┌── 提交完成 ──────────────┤
+                                        ↓        ↓                          │
+                                  pending_review（v0.38 新增：待提交）        │
+                                        │                                   │
+                                        └──提交审核──→ reviewing ──通过──→ done
+                                                          │                 │
+                                                          └──驳回──→ doing ──┘
+  reviewing ──驳回且已过 due_at──→ missed（v0.34：判失败，不计分）
+  done ──24h 内撤销──→ doing（同时写一条负流水冲销）
+  任意状态 ──归档──→ archived
 ```
 
 约束：
 
 - **`todo → reviewing` 是合法边（v0.25）**：界面没有「开始」按钮，新建任务默认就是 `todo`，不允许这条边等于「新建的限时/活动任务永远完不成」。这条边**不改 `started_at`**（没开始过就是没开始过），`task.complete` 仍要求前置状态为 `reviewing`。调度器（W8）判定 `event` 超期时走的也是这条边。
-- `draft` **不是** tasks 的状态。草稿只存在于 `messages.meta_json`。`tasks.status` 合法值 = `todo|doing|reviewing|done|discarded|archived`。
+- `draft` **不是** tasks 的状态。草稿只存在于 `messages.meta_json`。`tasks.status` 合法值 = `todo|doing|pending_review|reviewing|done|missed|discarded|archived`。
+- **`pending_review`（v0.38 新增：待提交）**：用户点了完成、但还没提交审核的暂存态。
+  - 入口只有两条：`todo → pending_review`、`doing → pending_review`（点完成 / 确认条上的完成）。
+  - 出口三条：`→ reviewing`（卡片上点「提交」，且必须已有至少 1 条证据）、`→ doing`（点「取消」，或**停留超过 10 分钟**被主进程自动退回）、`→ discarded / archived`。
+  - **没有任何计时意义上的"审核中"**：任务停在这里时 AI 一次都没被调用、也不会自动送审。这条状态存在的唯一理由，是让"等着用户交材料"和"AI 正在看材料"在状态机里可区分——否则「10 分钟超时退回」会把正在等 AI 回复的任务一起打回去。
+  - `pending_review → reviewing → done` 时 `started_at` 与 `completed_at` 的写入规则不变（`started_at` 只在第一次进 `doing` 时写）。
 - **`deadline` / `event`**：进入 `done` 必须同时满足：`completed_at` 非空、`points_awarded` 非空、`point_ledger` 有对应 `task_done` 行（且 `occurrence_id IS NULL`）。三者同一事务写入。
-- **`daily`**：任务本身**永不进入 `done`**，它一直在 `todo`/`doing`，直到 `active_to` 到期或用户手动归档。每天的状态体现在 `task_occurrences.status` 上。`tasks.points_awarded` 对 daily 恒为 NULL。
+- **`daily`**：任务本身**永不进入 `done`**，它一直在 `todo`/`doing`，直到 `active_to` 到期或用户手动归档。每天的状态体现在 `task_occurrences.status` 上。`tasks.points_awarded` 对 daily 恒为 NULL。**`daily` 也不接受 `pending_review` / `reviewing`**（每日任务不接审核）。
 - **`event` 的自动流转**：`due_at` 过后 24 小时仍是 `todo`/`doing` 时，调度器把它推进到 `reviewing`，等用户确认结果（考试结束了，结果如何）。避免"考完就忘了点完成"，让积分烂尾。
 - `discarded` 不计入任何统计，列表默认过滤。
 - 有 `parent_id` 的子步骤，自身**不单独计分**，父任务完成时统一计分。
-- **证据闸门（S4 已定）**：`requires_evidence = 1` 的任务，`reviewing → done` 必须满足 `evidence_json` 非空。缺证据时状态**停在 `reviewing`**，只能被驳回回 `doing` 或继续补证据，不能直接入账。这条在 `taskService.complete` 里硬校验，不靠 UI 拦。
+- **证据闸门（v0.38 改）**：**`deadline` / `event` 一律要求证据**，不再看 `requires_evidence` 字段。
+  - `reviewing → done` 必须满足 `evidence_json` 非空；缺证据时状态停在 `reviewing`，只能被驳回回 `doing` 或继续补证据，不能直接入账。这条在 `taskService.complete` 里硬校验，不靠 UI 拦。
+  - AI 侧同样硬拦：`reviewPipeline.hardGateOf` 只在证据数 > 0 时才允许调模型，否则直接判 `need_evidence`。**只凭用户一句"我做完了"不可能拿到 `pass`** —— 这正是 v0.37 之前的行为（`requires_evidence` 手动建任务时恒为 false，导致所有限时任务被当"不需要证据"秒过）。
+  - `requires_evidence` 列**保留不删**（避免迁移），但自 v0.38 起**不参与任何判定**，仅作历史数据。`task.setRequiresEvidence` 通道同步失效（保留注册，调用不再改变审核行为）。
 - **`missed` 是终点状态（v0.34）**：`reviewing → missed` 是唯一入口，且只在「AI 审核驳回（`partial` 或 `fail`）**且** `due_at` 已过」时进入；只有 `archived` 一条出口。`missed` 不计分、不写流水、不计入完成率。`due_at` 为 null 的任务驳回后一律回 `doing`，不判 `missed`——不做定时扫描，超期判失败只发生在审核驳回这一刻。
 
 ---
@@ -439,8 +453,8 @@ CREATE TABLE chat_state (
 | 当前积分余额 | `SUM(point_ledger.delta)` | ledger |
 | 今日积分 | `SUM(delta) WHERE day = 本地今日` | ledger |
 | 今日完成数 | `COUNT(DISTINCT task_id) WHERE status='done' AND completed_at 为今日` + `COUNT(occurrences WHERE day=今日 AND status='done')` | tasks + occurrences |
-| 今日待办数 | `COUNT(tasks WHERE type!='daily' AND status IN ('todo','doing'))` + `COUNT(occurrences WHERE day=今日 AND status='pending')` | 两表 |
-| 当前任务 | 限时/活动：`status IN ('todo','doing','reviewing')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
+| 今日待办数 | `COUNT(tasks WHERE type!='daily' AND status IN ('todo','doing','pending_review'))` + `COUNT(occurrences WHERE day=今日 AND status='pending')` | 两表 |
+| 当前任务 | 限时/活动：`status IN ('todo','doing','pending_review','reviewing')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
 | **日历红点** | **只算 `deadline` / `event`**：`tasks(type IN ('deadline','event') AND date(due_at)=d AND status NOT IN ('discarded','archived'))`。**每日任务不参与红点**（Q2 已定） | 见 §4.1 |
 | 连续天数 streak | `COUNT` 从今天（或昨天）向前连续 `occurrence.status='done'` 的天数 | occurrences |
 
