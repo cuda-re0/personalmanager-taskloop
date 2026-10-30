@@ -1,6 +1,6 @@
-# 38 · W9 二笔：missed 沉底 + 每日完成行恢复淡色（v0.39）
+# 38 · W9 二笔：missed 沉底 + 每日完成行淡色 + N/M 改列表全量（v0.39）
 
-基线：`f8ffc7e`（W9 已合入 `57288d7` / `eb4e01d`，W7 补丁 `f8ffc7e` 同时落地）。四命令 **53 文件 / 657 条**。
+基线：`329f296`（W9 已合入 `57288d7` / `eb4e01d`，W7 补丁 `f8ffc7e` 同时落地）。四命令 **53 文件 / 657 条**。
 只动 `src/renderer/hud/**` 与两个 hud 测试。不碰主进程、不碰主窗、不碰 `hudService` / `windowManager`。
 
 ## 0. 用户裁定（原话口径）
@@ -104,4 +104,4 @@ occurrence 行不受影响：`done` 仍按 `status === 'done'`。
 - [ ] `git show --stat` 对照 §5，越界 0
 - [ ] `grep -n "opacity:" src/renderer/hud/hud.css` → 只有一行，即 `.hud-row-item:has(.hud-row-title.is-done) .hud-row:not(.hud-row--daily) { opacity: 0.5 }`
 - [ ] `grep -n "text-decoration" src/renderer/hud/hud.css` → 不含 `.hud-row-title` 相关的任何一条
-- [ ] §7 两条：真机做了几条、造不出哪条，如实写
+- [ ] §7 三条：真机做了几条、造不出哪条，如实写
