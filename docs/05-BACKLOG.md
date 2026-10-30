@@ -288,31 +288,36 @@
 
 ---
 
-## W7 · 完成审核（含证据闸门）（v0.34 重写）
+## W7 · 完成审核（含证据闸门）（v0.35 修订）
 
 规格唯一来源：`kickoff/33-W7-完成审核与证据.md`。用户 2026-10-30 裁决：
 **必须过审才计分**；证据是**文件/图片附件**；审核不通过回 `doing`，**限时/活动超期则判失败**；
-**「部分完成」不算通过、不发分**。
+**「部分完成」不算通过、不发分**；**证据不可删**（没有删除通道就不给按钮）。
 
-**只许改**：`src/shared/types/domain.ts`（`TaskStatus` 加 `missed`）、`src/main/db/stateMachine.ts`、
-`src/main/ipc/guards.ts`（`taskStatusSchema`）、`src/renderer/main/features/tasks/**`、
-`src/renderer/main/features/chat/{useChatData,chatTypes}.ts`、`src/renderer/main/components/{EvidencePanel,TaskReviewCard}.tsx`、
-相关样式与 `tests/`。
+**只许改**：`src/shared/types/domain.ts`、`src/shared/channels.ts`、`src/shared/types/ipc.ts`、
+`src/preload/index.ts`、`src/main/db/stateMachine.ts`、`src/main/ipc/{guards,registry}.ts`、
+`src/renderer/main/features/tasks/**`（含新增 `reviewFlow.ts`）、
+`src/renderer/main/features/chat/{useChatData,chatTypes}.ts`、
+`src/renderer/main/components/TaskReviewCard.tsx`、相关样式与 `tests/`。
 
 **交付**
 
-1. 点完成 → `reviewing` → `ai.review` → 按 verdict 分流（`pass` 计分；`partial`/`fail` 回 `doing` 或判 `missed`；
-   `need_evidence` 停在 `reviewing`；请求失败回 `doing` 并显示错误原文）。
-2. 证据首次真正接通附件存储：`attachment.add` → `task.addEvidence`（聊天框里那条 `local-att-N` 假链路不在本单范围）。
-3. `missed` 状态：`reviewing → missed` 唯一入口、终点状态、不计分，与 `done` 同档显示。
-4. 每日任务不接审核（`occurrence.complete` 一行不动）。
+1. 点完成 → `reviewing` → `ai.review` → 按 verdict 分流（`pass` 自动 `task.complete` 计分；
+   `partial`/`fail` 回 `doing` 或判 `missed`；`need_evidence` 停在 `reviewing`；请求失败回 `doing` 并显示错误原文）。
+2. **审核卡接真数据**（v0.35 补）：`useChatData` 里的 fixture 任务/证据/need 计数三处全部换成 `task.get` + `attachment.get`，
+   并订阅 `message.appended`（仅 `meta.kind === 'task_review'`）。不换的话卡片永远不渲染，§验收全过不了。
+3. **附件通道真正接通**（v0.35 补）：`attachment.add` 此前只在 preload 声明、主进程未注册 handler；
+   本单注册 `attachment.add` + 新增 `attachment.get`（只回元数据）。
+4. `missed` 状态：`reviewing → missed` 唯一入口、终点状态、不计分，与 `done` 同档显示（过滤口径 `updatedAt` 当天）。
+5. 每日任务不接审核（`occurrence.complete` 一行不动）。
 
 **验收**
 
-- [ ] 需要证据的任务：点完成 → 卡片追问 → 加文件 → 再提交 → 判 `pass` → 加分。
+- [ ] 需要证据的任务：点完成 → 卡片追问 → 加文件 → 证据出现在卡片（缩略图/角标）→ 重新审核 → 判 `pass` → 加分、卡片无按钮。
 - [ ] 普通任务：点完成先审核，`pass` 才加分；审核中按钮不可重复点。
 - [ ] 驳回：`partial`/`fail` → 回 `doing`、分数不变；已过截止时间的驳回 → 落 `missed`（列表底部、变淡）。
 - [ ] 未配置 AI key 时点完成 → 回 `doing` + 行内错误原文，任务不卡在 `reviewing`。
+- [ ] 重启后审核卡仍在，且已有证据的缩略图仍能显示（证明走的是库里的数据，不是内存态）。
 - [ ] ~~全屏自动隐藏~~（v0.17 顺延 W10，key 保留不实现）
 
 

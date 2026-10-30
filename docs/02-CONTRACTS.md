@@ -515,6 +515,9 @@ export type CompleteTaskInput =
 | 方法 | 入参 | 返回 `T` | 说明 |
 |---|---|---|---|
 | `attachment.add` | `{ name: string; mime: string; base64?: string; sourcePath?: string }` | `Attachment` | `base64` 与 `sourcePath` 二选一，都给以 `sourcePath` 为准；都不给是 `INVALID_INPUT` |
+| `attachment.get` | `{ id: string }` | `Attachment` | **v0.35 新增**：只回元数据（`id/kind/url/mime/bytes/width/height`），不回字节。查不到与 id 形状不合法同为 `NOT_FOUND` |
+
+> **v0.35 接线状态**：`attachment.add` 此前只在 preload 声明、主进程**没有注册 handler**（一直在 `NOT_WIRED` 里挂 W11 名下），渲染层调用会收到 "No handler registered"。v0.35 起两条一起真正注册。`attachment.get` 是证据卡片渲染已有附件（缩略图 / 类型角标）的唯一入口——`Evidence` 只存 `attachmentId`，没有 mime 与 url。
 
 **这是唯一一个"把字节搬进系统"的入口。** 其余所有涉及附件的路径（消息、证据）都只传 `attachmentId`，不传文件本身。
 
