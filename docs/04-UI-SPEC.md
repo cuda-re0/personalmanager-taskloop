@@ -457,15 +457,17 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 - **记忆**：位置落 `hud.position`、面板尺寸落 `hud.size`，重启恢复。
 - 形态切换三条路径：
   1. **点按**长条 → 面板；**长按**长条 → 拖动（见 §5.2.2）；面板内 ESC → 长条。
-  2. **拖动中实时变形**：
-     - 长条态：距左/右边 `gap > 48` → 当场展开成面板。
-     - 面板态：**左右出屏宽度 > 面板宽度 × 1/3** → 当场收成长条，**贴在出屏的那一侧**；
-       `≤ 1/3` 时**保持原位置不动**（允许部分出屏，不推回屏内。v0.31 用户裁决：
-       「在边侧超过 1/3 超出桌面时，才自动收起」——原来的「距边 ≤24px 就收」作废）。
+  2. **松手才判形态**（v0.32 用户裁决「移动时不需要改变状态，改变状态只有点击和位置判断」）：
+     拖动过程中**形态一律不变**，松手时判一次：
+     - 长条态：距左/右边 `> 工作区宽度 × 1/8` → 展开成面板。
+       （v0.31 的固定 `48px` 作废——用户裁决「超过屏幕的 1/8 就展开」；1920 宽屏即 240px。）
+     - 面板态：**左右出屏宽度 > 面板宽度 × 1/3** → 收成长条，**贴在出屏的那一侧**；
+       `≤ 1/3` 时**保持原位置不动**（允许部分出屏，不推回屏内。v0.31 用户裁决）。
      - 出屏宽度按 `max(0, workArea.x − rect.x)`（左）与 `max(0, rect.right − workArea.right)`（右）算，
        **不取两者的 min**，比的是"哪一侧真的露在外面"。
-  3. 变形判定在 `move` 事件里去抖 `120ms` 执行；程序化 `setBounds` 产生的回声必须丢弃
-     （比对目标 bounds 与当前 bounds 的 x/y），否则会无限自我切换。
+  3. 判定时机分两条路：长条态由渲染层 `end:true` 直接触发（**没有 120ms 去抖**）；
+     面板态仍走 `move` 去抖 `120ms` + `settle` 补判（原生拖动拿不到松手事件）。
+     程序化 `setBounds` 产生的回声必须丢弃（比对目标 bounds 与当前 bounds 的 x/y），否则会无限自我切换。
 - 面板拖动把手 = 头部那一行（`-webkit-app-region: drag`）；列表、tab、输入、设置控件一律 `no-drag`。
 - 拉伸：原生窗口边缘（`resizable: true`），`resize` 收尾时落 `hud.size`；长条态 `resizable: false`。
 
@@ -486,30 +488,39 @@ win.setVisibleOnAllWorkspaces(true)        // macOS 有效，Windows 无副作�
 
 #### 5.2.2 长条手势（v0.32）
 
-用户原话：「点按点击，长按拖动」。长条整条都可点、都可拖，靠按压时长区分：
+用户原话：「点按点击，长按拖动」「移动时不需要改变状态」「放上去鼠标样式不要变，那个小手不好看」。
 
 | 手势 | 判定 | 结果 |
 |---|---|---|
-| 点按 | 按下后 `< 260ms` 松开，且位移 `≤ 4px` | 展开成面板 |
-| 长按 | 按住 `≥ 260ms` | 进入拖动；此后指针怎么移，窗口就跟到哪 |
+| 点按 | 按下后 `< 260ms` 松开，位移 `≤ 4px` | 展开成面板 |
+| 长按 | 按住 `≥ 260ms` | 进入拖动；此后窗口**贴着光标**走 |
 | 抖动 | 未到 260ms 但位移已 `> 4px` | 什么都不做（既不展开也不拖），避免手抖误开 |
 
-常量：`LONG_PRESS_MS = 260`、`TAP_TOLERANCE = 4`，放 `hudModel.ts` 导出，别写在组件里。
+常量：`LONG_PRESS_MS = 260`、`TAP_TOLERANCE = 4`（`hudModel.ts` 导出）。
 
-实现约束（照着写，不要换方案）：
+**拖动必须是绝对定位，不许用增量累加**（v0.32 修正）：
 
-- 整条 `.hud-ball` **去掉** `-webkit-app-region: drag`；覆盖全条的 `.hud-hit` 保留（它承接 pointer 事件，
-  也是 `aria-label` 的载体），但其 `onClick` 要**删掉**——点击只由 pointerup 判定，否则长按松手会误触发一次 click。
-- 手势用 Pointer Events：`onPointerDown` 里 `setPointerCapture(e.pointerId)`，保证指针移出窗口后仍收得到事件；
-  `onPointerUp` / `onPointerCancel` / `onLostPointerCapture` 三处都要收尾（清定时器、复位状态）。
-- 拖动位移取 `e.screenX/screenY` 差值（屏幕坐标，窗口自己在动，用 clientX 会漂）。
-- 每帧最多一次 IPC：`pointermove` 只累加 delta，`requestAnimationFrame` 里发一次 `hud.dragBy({dx,dy,end:false})`；
-  松手时把剩余 delta 发一次 `end:true`。
-- **拖动中不判形态**（长条拖到屏幕中间也不当场变面板），松手时由主进程判一次——否则窗口在拖动中途变大，
-  指针相对位置突变，手感会跳。
-- 拖动中 `.is-dragging { cursor: grabbing }`，常态 `cursor: grab`。这是多出来的唯一视觉反馈，没有文字。
-- 面板态**不改**：仍靠 `.hud-head` 的 `-webkit-app-region: drag` 原生拖动。头部 `.hud-grow` 补 `min-width: 24px`，
-  保证面板拉到最窄（280）时头部仍有可抓的空白，不会全被 tab 占满。
+- 长按判定成功的瞬间调一次 `hud.dragBegin()`，拿回长条当前左上角 `{x,y}`；
+  记 `grabOffset = { 按下时 screenX − x, 按下时 screenY − y }`。
+- 之后每个 `pointermove` 算**绝对目标**：`{ x: e.screenX − grabOffset.x, y: e.screenY − grabOffset.y }`，
+  直接发给 `hud.dragTo({ x, y, end: false })`。
+- 理由：`setBounds` 是异步的，上一版「读当前 bounds + 加增量」会读到旧位置，增量一帧帧漏掉/错位，
+  表现就是「窗口不跟光标、越拖越偏」。绝对目标每帧重新对齐光标，丢帧也不会累积误差。
+- `dragBegin` 返回前收到的 move 只更新基准、不发送（避免用未就绪的 `grabOffset` 甩一下窗口）。
+- 每帧最多一次 IPC：`pointermove` 只更新目标点，`requestAnimationFrame` 里发一次。
+- 松手时把当前目标点连 `end: true` 再发一次（主进程据此落库并判形态）。
+
+其它约束：
+
+- 整条 `.hud-ball` **不写** `-webkit-app-region`（没有 drag 区）；`.hud-hit` 保留覆盖全条的 `inset:0` 承接
+  pointer 事件与 `aria-label`，但**不许挂 `onClick`**（点击只由 `pointerup` 判定）。
+- `pointerdown` 里 `setPointerCapture(e.pointerId)`；`pointerup` / `pointercancel` / `lostpointercapture`
+  共用一个收尾函数，`gesture = null` 要在发 `end` 之前置位，避免丢捕获时二次发送。
+- 位移一律用 `e.screenX/screenY`（`clientX` 会随窗口移动漂）。
+- **鼠标样式全程不变**：不写 `cursor: pointer` / `grab` / `grabbing`，保持系统默认箭头。
+  拖动中也只有窗口在动，不加任何视觉状态。
+- 面板态不改：仍靠 `.hud-head` 的原生 `drag`。`.hud-grow` 保持 `min-width: 24px`，
+  保证面板拉到最窄（280）时头部仍有可抓空白。
 
 ### 5.3 页结构（v0.30）
 

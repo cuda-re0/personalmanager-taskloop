@@ -107,7 +107,8 @@ npm run build
 | 26 | 日历浮层修错了：要的是积分区变成日历层 | 同上 | ✅ 交付 `b239517` 审核 PASS，**待用户手点验收** | `dayDetail` 提升到 index，③④ 槽位二选一渲染 `PointsPanel`/`CalendarDayView`；再点同天=关闭、点他天=切换；浮层机制（floorTopOf/CellAnchor/`.calendar-floor`）删净（grep 0 命中）。层内只显示每日任务打卡行（occurrence 联表口径，限时/活动不出现——kickoff/25 既定） |
 
 | 30 | HUD v0.31 三条：长条替代圆球（环+N/M+星期）、出屏超 1/3 才收起、关掉后能重开 | W9 收尾 | ✅ **`aed30d1` 审核 PASS**（用户手点「还行」） | 132×40 胶囊、出屏 >宽 1/3 才收（≤1/3 保持原位）、`hud.visible.changed` 事件；48 文件 604 条绿 |
-| 31 | 长条拖不动（`.hud-hit` 铺满全条且 `no-drag`，drag 区收不到事件） | W9 收尾 | 🔴 **当前唯一待发 `kickoff/31`** | 用户裁决「点按点击，长按拖动」：整条改 no-drag + Pointer Events 判手势（260ms / 4px），新增 `hud.dragBy` 通道，拖动中不判形态、松手才判 |
+| 31 | 长条拖不动（`.hud-hit` 铺满全条且 `no-drag`，drag 区收不到事件） | W9 收尾 | ✅ 已交付 `2563bf4`（48 文件 615 条绿） | 点按/长按/手抖三判定（260ms / 4px），`hud.dragBy` 通道，无 `onClick` |
+| 32 | 拖动不跟光标（增量累加 + 异步 setBounds 累积误差）；展开阈值要 1/8 屏宽；鼠标样式别变 | W9 收尾 | 🔴 **当前唯一待发 `kickoff/32`** | 用户三条：①拖动改**绝对定位**（`dragBegin` 给起点 + `dragTo` 发绝对坐标，替代 `dragBy` 增量）②展开阈值 `EDGE_EXPAND 48px` → `workArea.width / 8` ③删全部 `cursor` 声明 |
 | 29 | 主窗顶栏 HUD 开关与主进程不同步 | — | ⤵️ **已并入 `kickoff/30`**，勿单独派发 | 单独派发会与 30 同时改 `hudService.ts` |
 | 27 | 生产构建产物 `connection` 双副本 → IPC 全瘫 | 构建链 | ✅ `c586411` 审核 PASS，**根因未定位** | 本机 5 次构建 + dev + 并发写全单副本，不可复现。改为构建期守卫 `assertSingleModuleInstance`（`generateBundle` 里按 `realpathSync.native` 归一，同文件两个 id 直接 `this.error` 并打印）；入口 input 改相对路径；产物 `getDb`=1、`$1`=0；四命令 47/562 绿 |
 
