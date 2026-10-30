@@ -288,11 +288,12 @@
 
 ---
 
-## W7 · 完成审核（含证据闸门）（v0.35 修订）
+## W7 · 完成审核（含证据闸门）（v0.36 修订）
 
 规格唯一来源：`kickoff/33-W7-完成审核与证据.md`。用户 2026-10-30 裁决：
 **必须过审才计分**；证据是**文件/图片附件**；审核不通过回 `doing`，**限时/活动超期则判失败**；
 **「部分完成」不算通过、不发分**；**证据不可删**（没有删除通道就不给按钮）。
+v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai.review` 失败同一个兜底，`pass` 卡不加按钮）。
 
 **只许改**：`src/shared/types/domain.ts`、`src/shared/channels.ts`、`src/shared/types/ipc.ts`、
 `src/preload/index.ts`、`src/main/db/stateMachine.ts`、`src/main/ipc/{guards,registry}.ts`、
@@ -310,6 +311,8 @@
    本单注册 `attachment.add` + 新增 `attachment.get`（只回元数据）。
 4. `missed` 状态：`reviewing → missed` 唯一入口、终点状态、不计分，与 `done` 同档显示（过滤口径 `updatedAt` 当天）。
 5. 每日任务不接审核（`occurrence.complete` 一行不动）。
+6. 卡片动作区（v0.36 明确）：`need_evidence` 有 `[补证据]`→有证据后 `[重新审核]`，**连续 3 次后最右加弱化 `[直接标记完成（不计分）]`**；
+   `pass`/`partial`/`fail` 一律无按钮。
 
 **验收**
 
@@ -449,6 +452,32 @@
 - [ ] 把 id 换成 `../../../etc/passwd` 调 `read` → `NOT_FOUND`，不读任何文件。
 - [ ] 10 MiB 的 PDF 走 `sourcePath` 能落盘；26 MiB 的返回 `FILE_TOO_LARGE`。
 - [ ] 重启应用后 `app://attach/<id>` 仍能取到图片（不是内存对象也不依赖渲染层 blob）。**这条单测覆盖不了**——协议注册时序与 `standard/secure/stream` 标志只在真 Electron 里生效，归 W10 打包验收：手点一次 `<img src="app://attach/<id>">`。
+
+---
+
+## W12 · 生活助手：能聊、能读数据、能挂人物卡（v0.36 立项，**契约未定稿，不许开工**）
+
+用户 2026-10-30 原话：「放在 w7 后面做吧，要像豆包那样可以进行日常对话（其实是想要一个生活小助手，能接入人物卡就更好了）」。
+
+**排期**：W7 之后、W10 打包之前。硬依赖 W7——W7 会重写 `useChatData` 的数据链与 `task_review` 实时订阅，本单在同一个文件上继续，并行必然冲突。
+
+**现在为什么聊不起来（实测，四条断点）**
+
+1. **渲染层根本没调 `msg.send`**：`useChatData.ts:462` 还是 `// TODO(W2)`，`send()` 只往本地数组插气泡 + 600ms 假转圈。全仓库 `src/renderer` 下 `msg.send` **0 命中**。主进程链路（W4）是完整的，断在最后一米。
+2. **AI 读不到任何任务数据**：`buildParseRequest` 只喂 system + fewshot + 最近 6 条聊天 + 本轮文字/图片。没有任务列表、没有完成记录、没有积分、没有日历。`intent` 里的 `query` 只有 schema 定义，**主进程从不读它**（03 §257 设计的「SQL 取数 + 模板拼装」没实现）。
+3. **聊天附件是假的**：`ChatInput.toAttachment()` 只造 `local-att-N` 预览对象，从未上传；`msg.send` 收到的 `attachmentIds` 是假 id。
+4. **输出被 JSON 锁死**：每轮必须回 `{reply, tasks}`，`reply` 上限 120 字（prompt 要求 60 字），且只带最近 6 条上下文——做不了连续对话，也记不住前面说过什么。
+
+**要裁决的四件事（定了才写契约）**
+
+| # | 问题 | 候选 |
+|---|---|---|
+| 1 | 「人物卡」指什么 | (a) 内置人设：UI 里填名字/称呼/性格/语气，存一张 `personas` 表；(b) 导入外部角色卡（SillyTavern 系 PNG/JSON，含 `name`/`personality`/`first_mes`/`mes_example`）；(c) 用户画像：助手记住「我是谁」（作息、目标、偏好），本质是长期记忆而非扮演 |
+| 2 | 对话形态怎么变 | (a) 保留「边聊边抽任务」，但只在识别到任务意图时出卡，`reply` 放开长度；(b) 双模式：闲聊不抽卡、说「建个任务」才进 parse；(c) 完全拆开，对话与建任务互不干扰 |
+| 3 | 是否要流式 | 现在是整段 patch 一次落库。豆包式体验需要 SSE/分块 + 打字机渲染，改动主进程 `aiService` + 渲染层消息态两层 |
+| 4 | 记忆范围 | 只带最近 N 条（现状 6）/ 带今日摘要 / 带回滚窗口（最近 30 条 + 摘要压缩）/ 落到 `memories` 表做长期 |
+
+**已知代价**：本单必然动 `src/main/ai/**`（提示词与请求格式）、`aiService.ts`（多轮与流式）、`useChatData.ts`（发送与消息态），是全项目耦合最重的一处。要么一次做对，要么不做。
 
 ---
 
