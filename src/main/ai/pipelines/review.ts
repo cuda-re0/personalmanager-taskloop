@@ -8,8 +8,9 @@ import { toDataUrl } from './parse'
 /**
  * review 管线：任务 + 证据 → `ReviewVerdict`。
  *
- * 一条**硬闸门**在模型之前：任务要求证据、而这次一条证据都没有时，直接返回
- * `need_evidence`，**不发请求**（开工词 §4.7、03 §4.2 判定标准第 2 条）。
+ * 一条**硬闸门**在模型之前：这次一条证据都没有时，直接返回 `need_evidence`，
+ * **不发请求**（开工词 §4.7、03 §4.2 判定标准第 2 条；v0.38 起不再看 `requiresEvidence`，
+ * 限时/活动一律要证据）。
  * 理由是钱和体验两头：这种请求模型只能回"看不见证据"，白花几秒和一次调用；
  * 而"没证据就先给分"是 S4 明令取消的口子——没证据就不发分。
  */
@@ -30,9 +31,13 @@ const TYPE_LABEL: Record<TaskType, string> = {
  * 硬闸门。返回 null = 可以问模型；返回 verdict = 按 `need_evidence` 直接收工。
  *
  * 判据用**证据条数**而不是"证据内容像不像"：像不像只有模型能判，条数为零是确定事实。
+ *
+ * v0.38：**一律要证据**——`requiresEvidence` 不再参与判定。手动建的限时/活动任务以前
+ * 恒为 false，于是每次都跳过闸门交给模型，模型只能凭一句"我做完了"放行（满分白拿）。
+ * 参数保留是为了不惊动调用方与测试，判定已不看它。
  */
-export function hardGateOf(task: Task, evidenceCount: number): ReviewVerdict | null {
-  if (!task.requiresEvidence || evidenceCount > 0) return null
+export function hardGateOf(_task: Task, evidenceCount: number): ReviewVerdict | null {
+  if (evidenceCount > 0) return null
   return {
     verdict: 'need_evidence',
     quality: null,
@@ -59,7 +64,6 @@ function taskBrief(task: Task, userText: string | undefined): string {
   if (task.dueAt !== null) {
     lines.push(`${task.type === 'event' ? '发生时间' : '截止时间'}：${task.dueAt}`)
   }
-  lines.push(`是否要求证据：${task.requiresEvidence ? '是' : '否'}`)
   if (task.detailMd.trim().length > 0) lines.push(`任务描述：${task.detailMd.trim()}`)
   if (userText !== undefined && userText.trim().length > 0) {
     lines.push(`用户这一轮说：${userText.trim()}`)

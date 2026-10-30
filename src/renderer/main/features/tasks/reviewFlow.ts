@@ -80,6 +80,52 @@ export function countNeedEvidence(messages: Message[], taskId: string): number {
   return count
 }
 
+/**
+ * 待提交列表的合成（v0.38 §7）：主进程真值 ∪ 提交中快照，按 `updatedAt` 升序（先进的在上）。
+ *
+ * 为什么要把提交中的任务留在列表里：点提交后任务立刻变成 `reviewing`，如果只认主进程真值，
+ * 卡片会在 transition 成功的那一刻消失，用户在等 AI 的几秒里看不到任何东西。
+ * 纯函数，导出让测试直接断言排序与「已变 reviewing 仍在列表」。
+ */
+export function mergePendingSubmit(
+  pending: Task[],
+  submitting: Record<string, Task>
+): Task[] {
+  const map = new Map<string, Task>()
+  for (const task of pending) map.set(task.id, task)
+  for (const [id, task] of Object.entries(submitting)) if (!map.has(id)) map.set(id, task)
+  return [...map.values()].sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+}
+
+/**
+ * 提交审核（v0.38 §5）：待提交卡上的 `[提交]` 走这里，**组件里不许自己拼这两步**。
+ *
+ * ```
+ * transition({to:'reviewing'})  →  成功才 runReview  →  分流全在 runReview 里
+ * ```
+ *
+ * 三条边界：
+ * - 零证据直接返回 null（不提交、不报错）：按钮侧本就 `disabled`，这里是兜底，
+ *   免得主进程抛 `EVIDENCE_REQUIRED` 变成一句用户看不懂的红字。
+ * - `transition` 失败 → 返回错误原文并**不调 AI**（任务还没进审核，调了就是白发一次请求）。
+ * - `runReview` 失败 → 它自己已经把任务从 `reviewing` 捞回 `doing`，这里只透传原文。
+ */
+export async function submitForReview(taskId: string): Promise<string | null> {
+  try {
+    const loaded = await api().task.get({ id: taskId })
+    if (!loaded.ok) return loaded.error.message
+    if (loaded.data.evidence.length === 0) return null
+
+    const moved = await api().task.transition({ id: taskId, to: 'reviewing' })
+    if (!moved.ok) return moved.error.message
+
+    const result = await runReview(taskId)
+    return result.kind === 'error' ? result.message : null
+  } catch (e: unknown) {
+    return messageOf(e)
+  }
+}
+
 function messageOf(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message
   return String(error)

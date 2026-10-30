@@ -1,0 +1,113 @@
+import { useEffect, useState } from 'react'
+import type { ReactElement } from 'react'
+import { fmtPoints } from '@shared/format'
+import type { Task } from '@shared/types/domain'
+import type { EvidenceView } from '../features/chat/chatTypes'
+import { TYPE_LABEL } from '../features/chat/chatViewModel'
+import { EvidencePanel } from './EvidencePanel'
+
+interface Props {
+  task: Task
+  /** 已转好的证据视图（附件元数据在 `useChatData` 的缓存里） */
+  evidence: EvidenceView[]
+  /** 提交中（父层的 `submittingIds`）：两颗按钮与证据区一并禁用，不新增任何文字 */
+  busy: boolean
+  onPick(file: File): Promise<string | null>
+  /** 失败返回 AppError.message 原文（成功为 null） */
+  onCancel(): Promise<string | null>
+  onSubmit(): Promise<string | null>
+}
+
+/** 卡片内错误行的停留时长（与审核卡同一个值，04 §3.2b） */
+const ERROR_MS = 2600
+
+/**
+ * 04 §3.2b 待提交卡（v0.38）。
+ *
+ * 点完成之后、送审之前的那张卡：用户在这里交材料，再点 `[提交]` 才进审核。
+ * **它是渲染层从 `status === 'pending_review'` 派生的，不是消息**——取消、提交、超时
+ * 之后卡片自然消失，历史里不留痕。
+ *
+ * 三条写死的规则：
+ * - 没有 `reason` 行：此刻还没有 AI 结论，也不写"请提交证据""提交后由 AI 审核"这类说明。
+ * - `[提交]` 在证据数为 0 时 `disabled`（灰、点不动、不加提示文字）。
+ * - `[取消]` 没有任何二次确认。
+ */
+export function SubmitCard({
+  task,
+  evidence,
+  busy,
+  onPick,
+  onCancel,
+  onSubmit
+}: Props): ReactElement {
+  const [opened, setOpened] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // 卡片自己的动作在飞（一次一个动作）；与父层的 busy 合成同一个禁用态
+  const [localBusy, setLocalBusy] = useState(false)
+  const disabled = busy || localBusy
+
+  // 错误原文停留 2.6s；连点只重置计时，不叠多行
+  useEffect(() => {
+    if (error === null) return
+    const timer = window.setTimeout(() => setError(null), ERROR_MS)
+    return () => window.clearTimeout(timer)
+  }, [error])
+
+  const runAction = (fn: () => Promise<string | null>): void => {
+    if (disabled) return
+    setLocalBusy(true)
+    void fn()
+      .then(message => {
+        if (message) setError(message)
+      })
+      .finally(() => setLocalBusy(false))
+  }
+
+  return (
+    <div className="submit-card">
+      <div className="review-head">
+        <span className="review-title">{task.title}</span>
+        <span className="review-meta">
+          {TYPE_LABEL[task.type]} · {fmtPoints(task.pointsPlanned)}分
+        </span>
+      </div>
+
+      <EvidencePanel
+        busy={disabled}
+        canAdd
+        evidence={evidence}
+        onOpen={setOpened}
+        onPick={file => runAction(() => onPick(file))}
+        openSignal={0}
+      />
+
+      <div className="review-actions">
+        <button
+          className="btn btn--ghost"
+          disabled={disabled}
+          onClick={() => runAction(onCancel)}
+          type="button"
+        >
+          取消
+        </button>
+        <button
+          className="btn btn--primary"
+          disabled={disabled || evidence.length === 0}
+          onClick={() => runAction(onSubmit)}
+          type="button"
+        >
+          提交
+        </button>
+      </div>
+
+      {error !== null ? <p className="submit-error">{error}</p> : null}
+
+      {opened ? (
+        <div className="lightbox" onClick={() => setOpened(null)} role="presentation">
+          <img alt="" className="lightbox-img" src={opened} />
+        </div>
+      ) : null}
+    </div>
+  )
+}

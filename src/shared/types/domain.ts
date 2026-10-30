@@ -4,6 +4,8 @@ export type TaskType = 'daily' | 'deadline' | 'event'
 export type TaskStatus =
   | 'todo'
   | 'doing'
+  /** 等用户交材料（v0.38）：取消/超时回 doing，提交才进 reviewing */
+  | 'pending_review'
   | 'reviewing'
   | 'done'
   /** 审核驳回且已过 due_at（v0.34）：终点状态，不计分、不写流水 */

@@ -39,7 +39,8 @@ export function isMissedToday(task: Task, today: string): boolean {
   return task.status === 'missed' && localDayOf(new Date(task.updatedAt)) === today
 }
 
-/** 每日组的一行：今日 occurrence + 联带的任务（streak 显示用） */export interface DailyRow {
+/** 每日组的一行：今日 occurrence + 联带的任务（streak 显示用） */
+export interface DailyRow {
   occurrence: Occurrence
   task: Task | null
 }
@@ -76,7 +77,8 @@ export function groupTasks(
     })
   const topLevel = tasks.filter(t => t.parentId === null)
   // 活跃在前（原排序不动），今日 done / missed 沉底（内部保持原排序）；
-  // done / missed 但不是今天的直接不出现（v0.27 done、v0.34 missed）
+  // done / missed 但不是今天的直接不出现（v0.27 done、v0.34 missed）。
+  // v0.38：pending_review（待提交）算活跃——用户还要交材料，不能沉底也不能消失。
   const byType = (type: TaskType): Task[] => [
     ...topLevel
       .filter(t => t.type === type && t.status !== 'done' && t.status !== 'missed')

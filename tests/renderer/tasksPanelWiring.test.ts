@@ -46,7 +46,8 @@ describe('TasksPanel 的 hook 实例纪律', () => {
  */
 describe('完成被拒的行内红字（v0.24）', () => {
   it('submitAndComplete 的三个失败分支都写入 notice，而不是只打控制台', () => {
-    // v0.34 起多一条：送审失败（runReview 返回 error）也要落到同一行的红字里
+    // v0.38：计分路径只剩一步 transition(pending_review)，失败要落红字；
+    // 不计分直通仍是两步（transition + complete），两个分支各有一条
     const notices = SUBMIT_SOURCE.match(/setNotice\(/g) ?? []
     expect(notices).toHaveLength(3)
     expect(SUBMIT_SOURCE).toMatch(
@@ -55,9 +56,12 @@ describe('完成被拒的行内红字（v0.24）', () => {
     expect(SUBMIT_SOURCE).toMatch(
       /if \(!done\.ok\)[\s\S]{0,300}?setNotice\(\{ taskId: task\.id, message: done\.error\.message \}\)/
     )
-    expect(SUBMIT_SOURCE).toMatch(
-      /result\.kind === 'error'[\s\S]{0,80}?setNotice\(\{ taskId: task\.id, message: result\.message \}\)/
-    )
+  })
+
+  it('点完成只进 pending_review，不再在这里送审（v0.38 §5）', () => {
+    expect(SUBMIT_SOURCE).toContain("to: 'pending_review'")
+    // 送审与分流在 reviewFlow，useTasksData 不该再调用 runReview
+    expect(USE_TASKS_SOURCE).not.toMatch(/runReview\(/)
   })
 
   it('文案零新增：显示的是 AppError.message 原样，代码里不写死中文句子', () => {
@@ -101,12 +105,12 @@ describe('今日已完成行（v0.27）', () => {
     expect(SOURCE).toMatch(/const done = occurrence\.status === 'done'/)
   })
 
-  it('限时/活动 done 行：右列留空、详情无 [完成] 入口（v0.34 起 missed 与 done 同档）', () => {
+  it('限时/活动 done 行：右列留空、详情无 [完成] 入口（v0.34 missed 同档、v0.38 起 pending_review 也没有）', () => {
     expect(SOURCE).toMatch(
       /task\.status === 'done' \|\| task\.status === 'missed' \? '' : remainingLabel\(task, now\)/
     )
     expect(SOURCE).toMatch(
-      /task\.type !== 'daily' && task\.status !== 'done' && task\.status !== 'missed' \? \(/
+      /task\.type !== 'daily' &&[\s\S]{0,120}?task\.status !== 'done'[\s\S]{0,120}?task\.status !== 'missed'[\s\S]{0,120}?task\.status !== 'pending_review' \? \(/
     )
   })
 })

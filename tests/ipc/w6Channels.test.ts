@@ -55,11 +55,16 @@ describe('W6 四条通道（假 ipc + 假 transport + 内存库）', () => {
     closeTestDb()
   })
 
-  /** 待确认的限时任务（done 只能从 reviewing 进入，01 §3） */
+  /** 待确认的限时任务（done 只能从 reviewing 进入，01 §3）；v0.38 起完成必须带证据 */
   function deadline(): string {
     const task = taskService.createTask({ type: 'deadline', title: '交作业' })
     taskService.transitionTask(task.id, 'doing')
-    return taskService.transitionTask(task.id, 'reviewing').id
+    taskService.transitionTask(task.id, 'reviewing')
+    return taskService.addEvidence(task.id, {
+      kind: 'text',
+      text: '已交作业',
+      addedAt: new Date().toISOString()
+    }).id
   }
 
   function dailyToday(): { taskId: string; occurrenceId: string } {

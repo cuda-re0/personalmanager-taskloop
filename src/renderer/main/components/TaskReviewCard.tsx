@@ -36,6 +36,13 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
   const isNeed = verdict.verdict === 'need_evidence'
   // 旧卡只读：同一任务补证据后重审会产生新的一条消息，旧卡若还能点会连发多份请求
   const actionable = isNeed && isLatest && task.status === 'reviewing'
+  // 证据入口的开关只看任务状态（36 §8）：驳回后任务回 doing，审核卡是补材料的唯一入口，
+  // 所以 doing 必须在允许集合里；done / missed / discarded / archived 一颗加号都不留。
+  const canAdd =
+    task.status === 'todo' ||
+    task.status === 'doing' ||
+    task.status === 'pending_review' ||
+    task.status === 'reviewing'
 
   // 错误原文停留 2.6s；连点只重置计时，不叠加多行
   useEffect(() => {
@@ -78,6 +85,7 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
 
       <EvidencePanel
         busy={busy}
+        canAdd={canAdd}
         evidence={evidence}
         onOpen={setOpened}
         onPick={file => runAction(() => actions.addEvidence(task.id, file))}
@@ -86,6 +94,15 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
 
       {actionable ? (
         <div className="review-actions">
+          {/* v0.38 §8：need_evidence 卡最左加 [取消] —— 回 doing，不发分 */}
+          <button
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() => runAction(() => actions.cancelSubmit(task.id))}
+            type="button"
+          >
+            取消
+          </button>
           {evidence.length > 0 ? (
             <button
               className="btn btn--ghost"

@@ -52,7 +52,8 @@ export function requireById(id: string): Task {
 }
 
 export function list(options: ListTasksOptions = {}): Task[] {
-  const statuses = options.status ?? ['todo', 'doing', 'reviewing']
+  // 默认「活跃」集合（v0.38 加 pending_review：待提交也是活任务，不在列表里就等于消失）
+  const statuses = options.status ?? ['todo', 'doing', 'pending_review', 'reviewing']
   if (statuses.length === 0) return []
 
   const where: string[] = [`status IN (${placeholders(statuses.length)})`]

@@ -29,7 +29,8 @@ function deadlineReadyToComplete(): Task {
   const task = taskService.createTask({ type: 'deadline', title: '交作业', difficulty: 'medium' })
   taskService.transitionTask(task.id, 'doing')
   taskService.transitionTask(task.id, 'reviewing')
-  return task
+  // v0.38 起证据无条件必填，否则完成会撞 EVIDENCE_REQUIRED
+  return taskService.addEvidence(task.id, { kind: 'text', text: '已交作业', addedAt: nowIso() })
 }
 
 /** 限时任务撤销后状态回到 `doing`（01 §3），重做要先走回 `reviewing` */

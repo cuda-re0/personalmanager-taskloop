@@ -21,7 +21,7 @@ import {
   pointsConfigOf,
   toEvidenceViews
 } from './chatViewModel'
-import { countNeedEvidence, runReview } from '../tasks/reviewFlow'
+import { countNeedEvidence, mergePendingSubmit, runReview, submitForReview } from '../tasks/reviewFlow'
 import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtures__/messages'
 
 /**
@@ -69,7 +69,7 @@ function overdueDaysOf(leadHours: number | null): number {
 /**
  * 审核卡要显示的两个数（导出只为可测）。
  * 实得分：v0.9 起入参是对象，限时带 leadHours、活动带 result，活动不看完成度。
- * TODO(W6): leadHours 依赖真正的 completedAt（用户点确认/审核通过的时刻），现在读 fixture。
+ * `leadHours` 读任务的 `completedAt`（审核通过那一刻由主进程写入）。
  */
 export function scoreOf(
   task: Task,
@@ -183,6 +183,13 @@ export function useChatData(): ChatData {
   const [attachmentById, setAttachmentById] = useState<Record<string, Attachment>>({})
   /** 取不到的 id：记下来就**不再重试**，否则每次渲染都重打一次 IPC */
   const missing = useRef<Set<string>>(new Set())
+  /**
+   * 待提交卡（v0.38）：`pendingList` 是主进程的真值，`submittingTasks` 是提交中的快照。
+   * 两者合起来才是要渲染的列表——提交后任务已变 `reviewing`，但从列表里立刻消失会让
+   * 用户在「正在审核」的几秒里看不到任何东西。
+   */
+  const [pendingList, setPendingList] = useState<Task[]>([])
+  const [submittingTasks, setSubmittingTasks] = useState<Record<string, Task>>({})
   const [sending, setSending] = useState(false)
   const [hasMore, setHasMore] = useState(() => bulkCount() === 0)
   const olderPool = useRef<Message[]>(bulkCount() === 0 ? makeOlderMessages(60) : [])
@@ -243,10 +250,29 @@ export function useChatData(): ChatData {
     [fetchTask]
   )
 
-  /** 任务进缓存后，把它的证据附件也补齐（同样并发、同样记 missing） */
+  /** 拉取待提交列表（v0.38 §7）：状态是唯一真值源，取消/提交/超时后它自然变空 */
+  const reloadPending = useCallback(async (): Promise<void> => {
+    try {
+      const res = await window.api.task.list({ status: ['pending_review'] })
+      if (!res.ok) {
+        console.warn('[chat] 待提交列表取不到', res.error)
+        return
+      }
+      setPendingList(res.data)
+    } catch (e: unknown) {
+      console.warn('[chat] task.list(pending_review) 调用失败', e)
+    }
+  }, [])
+
+  /** 首载：与 bootstrap 那次并发，互不依赖 */
+  useEffect(() => {
+    void reloadPending()
+  }, [reloadPending])
+
+  /** 任务进缓存后，把它的证据附件也补齐（同样并发、同样记 missing）；待提交卡同理 */
   useEffect(() => {
     const ids = new Set<string>()
-    for (const task of Object.values(taskById)) {
+    for (const task of [...Object.values(taskById), ...pendingList]) {
       for (const item of task.evidence) {
         if (item.kind === 'attachment') ids.add(item.attachmentId)
       }
@@ -256,7 +282,7 @@ export function useChatData(): ChatData {
     )
     if (pending.length === 0) return
     void Promise.all(pending.map(id => fetchAttachment(id)))
-  }, [taskById, attachmentById, fetchAttachment])
+  }, [taskById, pendingList, attachmentById, fetchAttachment])
 
   useEffect(() => {
     return () => {
@@ -319,6 +345,17 @@ export function useChatData(): ChatData {
     const off = window.api.onEvent(e => {
       if (e.type === 'task.created' || e.type === 'task.updated') {
         setTaskById(prev => (prev[e.task.id] === undefined ? prev : { ...prev, [e.task.id]: e.task }))
+        // 待提交列表（v0.38）：进 pending_review 就进列表，离开就出列表，都用载荷，不额打 IPC
+        setPendingList(prev => {
+          const isPending = e.task.status === 'pending_review'
+          const exists = prev.some(t => t.id === e.task.id)
+          if (!isPending) return exists ? prev.filter(t => t.id !== e.task.id) : prev
+          return exists ? prev.map(t => (t.id === e.task.id ? e.task : t)) : [...prev, e.task]
+        })
+        return
+      }
+      if (e.type === 'task.removed') {
+        setPendingList(prev => prev.filter(t => t.id !== e.taskId))
         return
       }
       if (e.type !== 'message.appended') return
@@ -486,6 +523,12 @@ export function useChatData(): ChatData {
       // 缓存就地更新：证据列表要立刻多一条，缩略图也不必再补拉
       setAttachmentById(prev => ({ ...prev, [added.data.id]: added.data }))
       setTaskById(prev => ({ ...prev, [taskId]: attached.data }))
+      // 待提交卡（v0.38）读的是 pendingList，同样就地更新，不必等事件回归
+      setPendingList(prev =>
+        prev.some(t => t.id === taskId)
+          ? prev.map(t => (t.id === taskId ? attached.data : t))
+          : prev
+      )
       return null
     } catch (e: unknown) {
       return e instanceof Error ? e.message : String(e)
@@ -525,6 +568,41 @@ export function useChatData(): ChatData {
     []
   )
 
+  /**
+   * 待提交卡的 `[提交]`（v0.38 §5）：两步（`transition` → 送审）在 `reviewFlow.submitForReview`
+   * 里，组件不拼流程。提交期间任务留在 `submittingTasks` 里，卡片不会在等 AI 的几秒内消失。
+   */
+  const submitReview = useCallback(
+    async (taskId: string): Promise<string | null> => {
+      const snapshot = pendingList.find(t => t.id === taskId)
+      if (snapshot) setSubmittingTasks(prev => ({ ...prev, [taskId]: snapshot }))
+      try {
+        return await submitForReview(taskId)
+      } finally {
+        setSubmittingTasks(prev => {
+          if (prev[taskId] === undefined) return prev
+          const next = { ...prev }
+          delete next[taskId]
+          return next
+        })
+        void reloadPending()
+      }
+    },
+    [pendingList, reloadPending]
+  )
+
+  /** 待提交卡 / 审核卡的 `[取消]`（v0.38 §8）：回进行中，不发分、不调 AI */
+  const cancelSubmit = useCallback(async (taskId: string): Promise<string | null> => {
+    try {
+      const moved = await window.api.task.transition({ id: taskId, to: 'doing' })
+      if (!moved.ok) return moved.error.message
+      setPendingList(prev => prev.filter(t => t.id !== taskId))
+      return null
+    } catch (e: unknown) {
+      return e instanceof Error ? e.message : String(e)
+    }
+  }, [])
+
   const actions = useMemo<ChatActions>(
     () => ({
       patchDraft,
@@ -535,7 +613,9 @@ export function useChatData(): ChatData {
       snoozeReminder,
       addEvidence,
       reReview,
-      markDoneWithoutPoints
+      markDoneWithoutPoints,
+      cancelSubmit,
+      submitReview
     }),
     [
       patchDraft,
@@ -546,7 +626,9 @@ export function useChatData(): ChatData {
       snoozeReminder,
       addEvidence,
       reReview,
-      markDoneWithoutPoints
+      markDoneWithoutPoints,
+      cancelSubmit,
+      submitReview
     ]
   )
 
@@ -589,10 +671,21 @@ export function useChatData(): ChatData {
     setHasMore(olderPool.current.length > 0)
   }, [])
 
+  /** 待提交卡要渲染的列表（v0.38）：主进程真值 ∪ 提交中快照，按 `updatedAt` 升序（先进的在上） */
+  const pendingSubmit = useMemo(
+    () => mergePendingSubmit(pendingList, submittingTasks),
+    [pendingList, submittingTasks]
+  )
+
+  const submittingIds = useMemo(() => new Set(Object.keys(submittingTasks)), [submittingTasks])
+
   return {
     messages,
     draftViews,
     reviewViews,
+    pendingSubmit,
+    submittingIds,
+    attachmentById,
     sending,
     hasMore,
     // 本地 mock 是同步的；W2 换成真接口后这里接 loading 态

@@ -60,6 +60,8 @@ export interface ReviewView {
  * v0.36：审核卡只剩三个动作——补证据、重审、不计分直达。`completeTask` / `continueTask`
  * / `setEventResult` / `removeEvidence` 已删（pass 自动完成、驳回自动回 doing 或判 missed，
  * 结果档下拉与移除按钮都没有存在理由）。
+ *
+ * v0.38：点完成改走「待提交」，新增 `submitReview` / `cancelSubmit`（只给待提交卡用）。
  */
 export interface ChatActions {
   patchDraft(localId: string, patch: DraftPatch): void
@@ -74,12 +76,26 @@ export interface ChatActions {
   reReview(taskId: string): Promise<string | null>
   /** 连续 3 次 need_evidence 后的防死锁出口：`task.complete({ noPoints:true })` */
   markDoneWithoutPoints(taskId: string): Promise<string | null>
+  /** 审核卡上的取消（v0.38）：`transition({to:'doing'})`，任务回进行中、不发分 */
+  cancelSubmit(taskId: string): Promise<string | null>
+  /** 待提交卡上的提交（v0.38）：`transition({to:'reviewing'})` → 送审。失败返回原文 */
+  submitReview(taskId: string): Promise<string | null>
 }
 
 export interface ChatData {
   messages: Message[]
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
+  /**
+   * 待提交卡（v0.38）：由 `status === 'pending_review'` 派生，**不是消息**。
+   * 按 `updatedAt` 升序（先进的在上）；提交中的任务仍留在列表里（`submittingIds`），
+   * 否则 transition 到 reviewing 的那一瞬卡片就消失、等 AI 的几秒里界面上什么都没有。
+   */
+  pendingSubmit: Task[]
+  /** 正在提交的任务 id（按钮与证据区一并禁用） */
+  submittingIds: ReadonlySet<string>
+  /** 证据附件元数据（`Attachment.url/kind/mime`），待提交卡渲染缩略图要用 */
+  attachmentById: Record<string, Attachment>
   sending: boolean
   hasMore: boolean
   loadingMore: boolean

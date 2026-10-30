@@ -21,14 +21,19 @@ afterEach(() => {
 /**
  * 建一个"待确认"的限时任务：状态机是 todo → doing → reviewing → done（01 §3），
  * `done` 只能从 `reviewing` 进入，所以完成前要先把这两条边都走过。
+ *
+ * v0.38 起证据是**无条件**闸门（限时/活动一律要证据），所以默认挂一条文字证据；
+ * 只有专门验证闸门的用例才传 `evidence: false`。
  */
 function deadlineInProgress(options: {
   difficulty?: Difficulty
   /** 相对现在的截止时刻（小时，负数=已逾期）；null = 不设截止 */
   dueInHours?: number | null
   requiresEvidence?: boolean
+  evidence?: boolean
 }): Task {
-  const { difficulty = 'medium', dueInHours = null, requiresEvidence = false } = options
+  const { difficulty = 'medium', dueInHours = null, requiresEvidence = false, evidence = true } =
+    options
   const dueAt =
     dueInHours === null ? null : new Date(Date.now() + dueInHours * 3600000).toISOString()
   const task = taskService.createTask({
@@ -39,7 +44,9 @@ function deadlineInProgress(options: {
     requiresEvidence
   })
   taskService.transitionTask(task.id, 'doing')
-  return taskService.transitionTask(task.id, 'reviewing')
+  const reviewing = taskService.transitionTask(task.id, 'reviewing')
+  if (!evidence) return reviewing
+  return taskService.addEvidence(task.id, { kind: 'text', text: '已完成', addedAt: nowIso() })
 }
 
 describe('task.complete · 计分', () => {
@@ -137,9 +144,9 @@ describe('task.complete · 计分', () => {
   })
 })
 
-describe('task.complete · 证据闸门（01 §3）', () => {
-  it('requiresEvidence 且无证据 → EVIDENCE_REQUIRED，库无新流水、状态停在 reviewing', () => {
-    const task = deadlineInProgress({ requiresEvidence: true })
+describe('task.complete · 证据闸门（01 §3，v0.38 起无条件）', () => {
+  it('无证据 → EVIDENCE_REQUIRED，库无新流水、状态停在 reviewing', () => {
+    const task = deadlineInProgress({ requiresEvidence: true, evidence: false })
     expectErrorCode(
       () => taskService.completeTask({ id: task.id, quality: 'met' }),
       'EVIDENCE_REQUIRED'
@@ -152,8 +159,18 @@ describe('task.complete · 证据闸门（01 §3）', () => {
     expect(after.pointsAwarded).toBeNull()
   })
 
+  it('requiresEvidence=false 且无证据 → 同样 EVIDENCE_REQUIRED（锁 v0.38 修的漏分口子）', () => {
+    const task = deadlineInProgress({ requiresEvidence: false, evidence: false })
+    expectErrorCode(
+      () => taskService.completeTask({ id: task.id, quality: 'met' }),
+      'EVIDENCE_REQUIRED'
+    )
+    expect(ledgerRepo.countAll()).toBe(0)
+    expect(taskService.requireTask(task.id).status).toBe('reviewing')
+  })
+
   it('证据闸门的文案与 detail 保持 04 §1.1 的登记，只换了码名', () => {
-    const task = deadlineInProgress({ requiresEvidence: true })
+    const task = deadlineInProgress({ requiresEvidence: true, evidence: false })
     let thrown: unknown
     try {
       taskService.completeTask({ id: task.id, quality: 'met' })
@@ -162,13 +179,13 @@ describe('task.complete · 证据闸门（01 §3）', () => {
     }
     expect((thrown as { code?: string }).code).toBe('EVIDENCE_REQUIRED')
     expect((thrown as Error).message).toBe('证据不能为空')
-    expect((thrown as { detail?: string }).detail).toBe('requiresEvidence=true 且任务与入参都没有证据')
+    expect((thrown as { detail?: string }).detail).toBe('任务与入参都没有证据')
     // retryable: false（02 §1：缺资料，重试同一次请求不会变）
     expect((thrown as { retryable?: boolean }).retryable).toBe(false)
   })
 
-  it('requiresEvidence 但入参带证据 → 通过，并把证据落到任务上', () => {
-    const task = deadlineInProgress({ requiresEvidence: true })
+  it('入参带证据 → 通过，并把证据落到任务上', () => {
+    const task = deadlineInProgress({ requiresEvidence: true, evidence: false })
     const { task: done, entry } = taskService.completeTask({
       id: task.id,
       quality: 'met',
@@ -182,11 +199,12 @@ describe('task.complete · 证据闸门（01 §3）', () => {
 })
 
 describe('task.complete · 活动 result（02 §3.2 v0.19）', () => {
-  /** 待确认的活动任务（medium 应得分 20，event 的 quality 不进公式） */
+  /** 待确认的活动任务（medium 应得分 20，event 的 quality 不进公式）；带证据过闸门 */
   function eventInReview(): Task {
     const task = taskService.createTask({ type: 'event', title: '期中考试', difficulty: 'medium' })
     taskService.transitionTask(task.id, 'doing')
-    return taskService.transitionTask(task.id, 'reviewing')
+    taskService.transitionTask(task.id, 'reviewing')
+    return taskService.addEvidence(task.id, { kind: 'text', text: '成绩单', addedAt: nowIso() })
   }
 
   it("result: 'exceeded' → 20 × 1.2 = 24", () => {

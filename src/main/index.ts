@@ -5,10 +5,14 @@ import {
 } from './attachments/registerProtocol'
 import { initDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { startReviewSweeper } from './services/reviewSweeper'
 import { createHudWindow, createMainWindow } from './windowManager'
 
 // 必须在 app.whenReady() 之前（Electron 33）：晚了 secure/stream 标志不生效
 registerAttachmentScheme()
+
+/** 待提交超时扫描的停止函数（v0.38）：ready 后启动，退出前关掉 */
+let stopReviewSweeper: (() => void) | null = null
 
 app.whenReady().then(() => {
   initDb() // W1 填实现
@@ -18,10 +22,17 @@ app.whenReady().then(() => {
   createHudWindow()
   registerIpcHandlers() // W2 填实现
   console.log('[main] registerIpcHandlers() invoked')
+  // 待提交任务 10 分钟未提交自动退回 doing：窗口关着也要生效，所以放主进程
+  stopReviewSweeper = startReviewSweeper()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
   })
+})
+
+app.on('before-quit', () => {
+  stopReviewSweeper?.()
+  stopReviewSweeper = null
 })
 
 app.on('window-all-closed', () => {

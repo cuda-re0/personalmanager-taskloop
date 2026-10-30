@@ -7,6 +7,12 @@ interface Props {
   evidence: EvidenceView[]
   /** 有动作在飞：`[+]` 与文件选择一并禁用（一次一个动作） */
   busy: boolean
+  /**
+   * 还能不能加证据（v0.38，判据**只能是任务状态**）。
+   * false 时 `[+]` 与隐藏的 `<input type="file">` **都不进 DOM**——`done` / `missed` /
+   * `discarded` / `archived` 的卡上不该有一颗能点却没有任何出口的加号。
+   */
+  canAdd: boolean
   /** 数字递增即打开文件选择——卡片动作区的 `[补证据]` 与行末 `[+]` 共用这一个 input */
   openSignal: number
   onPick(file: File): void
@@ -43,7 +49,7 @@ function EvidenceChip({
 }
 
 /**
- * 审核卡上的证据区（施工词 33 §4 / §5）。
+ * 审核卡 / 待提交卡上的证据区（施工词 33 §4 / 36 §8）。
  *
  * 只做三件事：列出已加证据、提供一个**真的**选文件入口、上传期间禁用。
  * 大小与 mime 校验全在主进程（`FILE_TOO_LARGE` / `UNSUPPORTED_MIME`），
@@ -52,6 +58,7 @@ function EvidenceChip({
 export function EvidencePanel({
   evidence,
   busy,
+  canAdd,
   openSignal,
   onPick,
   onOpen
@@ -68,27 +75,31 @@ export function EvidencePanel({
       {evidence.map(item => (
         <EvidenceChip item={item} key={item.key} onOpen={onOpen} />
       ))}
-      <button
-        aria-label="添加文件"
-        className="ev-add"
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        type="button"
-      >
-        +
-      </button>
-      <input
-        className="ev-file-input"
-        disabled={busy}
-        onChange={event => {
-          const file = event.target.files?.[0]
-          // 清掉 value，同一个文件再选一次也能触发 onChange
-          event.target.value = ''
-          if (file) onPick(file)
-        }}
-        ref={inputRef}
-        type="file"
-      />
+      {canAdd ? (
+        <>
+          <button
+            aria-label="添加文件"
+            className="ev-add"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            type="button"
+          >
+            +
+          </button>
+          <input
+            className="ev-file-input"
+            disabled={busy}
+            onChange={event => {
+              const file = event.target.files?.[0]
+              // 清掉 value，同一个文件再选一次也能触发 onChange
+              event.target.value = ''
+              if (file) onPick(file)
+            }}
+            ref={inputRef}
+            type="file"
+          />
+        </>
+      ) : null}
     </div>
   )
 }

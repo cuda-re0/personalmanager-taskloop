@@ -110,7 +110,7 @@ const TABLE: Row[] = [
     const [year, month] = today.split('-').map(Number)
     const { from, to } = monthBounds(year, month)
     return {
-      tasks: taskService.listTasks({ status: ['todo', 'doing', 'reviewing'] }),
+      tasks: taskService.listTasks({ status: ['todo', 'doing', 'pending_review', 'reviewing'] }),
       todayOccurrences: occurrenceService.listToday(),
       messages: messageService.recentMessages(30),
       balance: pointsService.balance(),

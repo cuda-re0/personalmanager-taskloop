@@ -19,6 +19,7 @@ export const INVALID_INPUT_MESSAGE = '请求参数格式不正确'
 const taskStatusSchema = z.enum([
   'todo',
   'doing',
+  'pending_review',
   'reviewing',
   'done',
   'missed',

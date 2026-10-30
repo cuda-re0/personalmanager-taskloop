@@ -4,7 +4,6 @@ import type { Occurrence, Task, TaskPatch, TaskStatus, TaskType } from '@shared/
 import { toLocalDay as localDayOf } from '@shared/localDay'
 import { isDoneToday, isMissedToday, isStepChecked } from './tasksModel'
 import { onFocusTask } from './focusTask'
-import { runReview } from './reviewFlow'
 
 /**
  * 右栏①「当前任务」的数据入口。
@@ -15,9 +14,12 @@ import { runReview } from './reviewFlow'
  *
  * 通道边界（W6 起）：
  * - 步骤勾选 → `task.transition`（todo ↔ doing，只改子任务）。
- * - [完成] → 先 `task.transition({to:'reviewing'})` 提交，再 `task.complete({quality:'met'})`。
+ * - [完成] → `task.transition({to:'pending_review'})`，**到此为止**（v0.38）：任务进「待提交」，
+ *   会话末尾出待提交卡，用户交材料后点提交才 `transition({to:'reviewing'})` 并送审
+ *   （送审与分流在 `reviewFlow.submitForReview` / `runReview`，本文件不再直接调）。
+ *   不计分直通仍走 `transition('reviewing')` + `task.complete({ noPoints: true })`——
  *   **done 只能从 reviewing 进入**（01 §3），而 `task.complete` 是唯一写 `completed_at` +
- *   ledger 的入口（02 §3.2）；两步都用已接通的通道，不碰 `transition({to:'done'})`（恒 409）。
+ *   ledger 的入口（02 §3.2）；全程不碰 `transition({to:'done'})`（恒 409）。
  * - [直接标记完成（不计分）] → `task.complete({ noPoints: true })`，`entry` 返回 null。
  * - 每日组的圆形勾选框 → `occurrence.complete`（每日任务不进 done，状态在 occurrence 上）。
  * - 拖动排序 → `task.reorder`（sortKey 落库，重启保持）。
@@ -26,7 +28,7 @@ import { runReview } from './reviewFlow'
  * - `taskloop:focus-task`（W6B 日历浮层 / ④ 明细点行）→ 展开 + 滚动 + 短暂高亮。
  */
 
-const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'reviewing']
+const ACTIVE_STATUS: TaskStatus[] = ['todo', 'doing', 'pending_review', 'reviewing']
 
 /** 今日已完成行的拉取状态（v0.27：done 且今天完成的保留、变淡、沉底，第二天自然消失） */
 const DONE_STATUS: TaskStatus[] = ['done']
@@ -78,7 +80,7 @@ export interface TasksData {
   doneTasks: Task[]
   /** 今日被判失败的顶层任务（v0.34）：missed 且 updatedAt 是今天，与 done 同档渲染 */
   missedTasks: Task[]
-  /** 正在送审/审核的任务 id（期间 [完成] 与确认条按钮禁用，防止重复发请求） */
+  /** 正在点完成（transition 在飞，期间 [完成] 与确认条按钮禁用，防止重复发请求）；v0.38 起不再含「审核中」 */
   reviewingIds: ReadonlySet<string>
   occurrences: Occurrence[]
   /** 父任务 id → 子步骤（展开详情用） */
@@ -275,27 +277,27 @@ export function useTasksData(): TasksData {
   }, [])
 
   /**
-   * 提交 + 完成（02 §3.2 / 01 §3 / v0.34 审核闸门）。
+   * 提交完成（02 §3.2 / 01 §3 / v0.38）。
    *
-   * 计分路径：先 `transition('reviewing')`（同态是幂等 no-op，不会 409），再**送审**——
-   * 从 v0.34 起点完成不再直接计分，「必须过审才拿到积分」。分流（pass 计分 / partial、fail
-   * 回 doing 或判 missed / need_evidence 停在 reviewing / 任何失败回 doing）全在
-   * `reviewFlow.runReview` 里，这里只负责把错误原文塞进行内红字。
+   * **计分路径只做一步**：`transition({to:'pending_review'})`。任务进「待提交」，会话末尾
+   * 出现待提交卡，等用户交材料再点提交才送审（送审与分流在 `reviewFlow.submitForReview`）。
+   * v0.34~v0.36 的「点完成立即 `runReview`」在这里删掉了——那条路没有让用户交材料的窗口，
+   * 而且手动建的限时任务 `requires_evidence` 恒 false，等于什么都不交就能拿满分。
    *
-   * 不计分直通（确认条上的「直接标记完成（不计分）」）**不送审**：免分数逃生口，
-   * 直接 `task.complete({ noPoints: true })`，不加分、不调 ai.review。
+   * 不计分直通（确认条上的「直接标记完成（不计分）」）**不送审也不待提交**：免分数逃生口，
+   * `transition('reviewing')` 后直接 `task.complete({ noPoints: true })`，不加分、不调 ai.review。
    */
   const submitAndComplete = useCallback((task: Task, noPoints: boolean): void => {
-    void window.api.task
-      .transition({ id: task.id, to: 'reviewing' })
-      .then(res => {
-        if (!res.ok) {
-          console.error('[tasks] 提交完成失败', res.error)
-          // 行内红字用主进程文案原样（04 §4① v0.24），不在这里另写句子
-          setNotice({ taskId: task.id, message: res.error.message })
-          return
-        }
-        if (noPoints) {
+    if (noPoints) {
+      void window.api.task
+        .transition({ id: task.id, to: 'reviewing' })
+        .then(res => {
+          if (!res.ok) {
+            console.error('[tasks] 提交完成失败', res.error)
+            // 行内红字用主进程文案原样（04 §4① v0.24），不在这里另写句子
+            setNotice({ taskId: task.id, message: res.error.message })
+            return
+          }
           void window.api.task
             .complete({ id: task.id, noPoints: true })
             .then(done => {
@@ -306,31 +308,36 @@ export function useTasksData(): TasksData {
               // 成功后的刷新走 task.updated / points.changed 事件
             })
             .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
-          return
-        }
-        // 送审期间禁用 [完成]，一次只允许一份请求（同任务的重复提交也会被并发闸挡掉）
-        setReviewingIds(prev => {
-          const next = new Set(prev)
-          next.add(task.id)
-          return next
         })
-        void runReview(task.id)
-          .then(result => {
-            // skipped = 上一次还在飞，什么都不做（不该重复弹错）
-            if (result.kind === 'error') setNotice({ taskId: task.id, message: result.message })
-            // 成功后的刷新走 task.updated / points.changed / 消息事件
-          })
-          .catch((e: unknown) => console.error('[tasks] runReview 调用失败', e))
-          .finally(() => {
-            setReviewingIds(prev => {
-              if (!prev.has(task.id)) return prev
-              const next = new Set(prev)
-              next.delete(task.id)
-              return next
-            })
-          })
+        .catch((e: unknown) => console.error('[tasks] task.transition 调用失败', e))
+      return
+    }
+
+    // 送审前的落点在 transition 那一瞬：先占住按钮，成功后释放（状态已变成 pending_review，
+    // [完成] 也随之消失；失败则把错误原文塞进行内红字）。
+    setReviewingIds(prev => {
+      const next = new Set(prev)
+      next.add(task.id)
+      return next
+    })
+    void window.api.task
+      .transition({ id: task.id, to: 'pending_review' })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] 提交完成失败', res.error)
+          setNotice({ taskId: task.id, message: res.error.message })
+        }
+        // 成功后的刷新走 task.updated 事件（列表 + 会话区的待提交卡都靠它）
       })
       .catch((e: unknown) => console.error('[tasks] task.transition 调用失败', e))
+      .finally(() => {
+        setReviewingIds(prev => {
+          if (!prev.has(task.id)) return prev
+          const next = new Set(prev)
+          next.delete(task.id)
+          return next
+        })
+      })
   }, [])
 
   const completeTask = useCallback(

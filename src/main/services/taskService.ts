@@ -582,11 +582,13 @@ function completeWithPoints(
     assertCompletable(task)
 
     // 证据闸门（01 §3）：任务上已存的证据也算，缺了停在原地，不靠 UI 拦。
-    // 错误码是 EVIDENCE_REQUIRED（02 §1/§3.2、04 §1.1）：状态与入参都合法，只是缺资料
+    // 错误码是 EVIDENCE_REQUIRED（02 §1/§3.2、04 §1.1）：状态与入参都合法，只是缺资料。
+    // v0.38：**无条件判**——限时/活动一律要证据（`requires_evidence` 不再参与；
+    // 能走到这里的只有 deadline / event，daily 早被状态机拦在外面）。
     const provided = evidence ?? []
-    if (task.requiresEvidence && task.evidence.length === 0 && provided.length === 0) {
+    if (task.evidence.length === 0 && provided.length === 0) {
       throw appError('EVIDENCE_REQUIRED', '证据不能为空', {
-        detail: 'requiresEvidence=true 且任务与入参都没有证据'
+        detail: '任务与入参都没有证据'
       })
     }
     for (const item of provided) addEvidence(id, item)

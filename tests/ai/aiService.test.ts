@@ -302,6 +302,12 @@ describe('aiService', () => {
       title: '参加英语六级考试',
       requiresEvidence: false
     })
+    // v0.38 起证据无条件必填：没有证据连模型都不会被调用（与 requiresEvidence 无关）
+    taskService.addEvidence(task.id, {
+      kind: 'text',
+      text: '成绩单：六级 520 分',
+      addedAt: new Date().toISOString()
+    })
 
     const verdict = await aiService.review({ taskId: task.id })
     expect(verdict.verdict).toBe('pass')

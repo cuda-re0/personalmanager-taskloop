@@ -62,11 +62,12 @@ describe('task.undo 通道', () => {
     closeTestDb()
   })
 
-  /** 待确认的限时任务（done 只能从 reviewing 进入，01 §3） */
+  /** 待确认的限时任务（done 只能从 reviewing 进入，01 §3）；v0.38 起完成必须带证据 */
   function reviewing(): string {
     const task = taskService.createTask({ type: 'deadline', title: '交作业' })
     taskService.transitionTask(task.id, 'doing')
-    return taskService.transitionTask(task.id, 'reviewing').id
+    taskService.transitionTask(task.id, 'reviewing')
+    return taskService.addEvidence(task.id, { kind: 'text', text: '已交作业', addedAt: nowIso() }).id
   }
 
   it('撤销 → 余额回落、明细出 -20、状态回 doing，广播 task.updated + points.changed + daystats', () => {

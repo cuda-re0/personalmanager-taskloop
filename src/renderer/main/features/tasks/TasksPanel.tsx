@@ -164,7 +164,11 @@ function TaskGroup({
             onDrop={dropBefore(task.id)}
             role="presentation"
           >
-            <span aria-hidden className={`task-dot task-dot--${task.status}`} />
+            {/* v0.38：pending_review 复用 reviewing 的圆点样式（只是一个「在等结果」的标记，不新增视觉） */}
+            <span
+              aria-hidden
+              className={`task-dot task-dot--${task.status === 'pending_review' ? 'reviewing' : task.status}`}
+            />
             <span className="task-title">{task.title}</span>
             {/* 今日已完成 / 今日判失败（v0.27 / v0.34）：右列留空，不显示「逾期」之类的剩余时间 */}
             <span className="task-remaining">
@@ -245,9 +249,13 @@ function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps):
         </ul>
       ) : null}
       {offsets ? <div className="task-offsets">{offsets}</div> : null}
-      {/* 今日已完成 / 今日判失败的任务没有 [完成] 入口（v0.27 / v0.34）：
+      {/* 今日已完成 / 今日判失败的任务没有 [完成] 入口（v0.27 / v0.34）；
+          v0.38：pending_review（待提交）也没有——已经提交过一次，等的是交材料不是再点完成。
           detail_md / 步骤 / 偏移照常展示 */}
-      {task.type !== 'daily' && task.status !== 'done' && task.status !== 'missed' ? (
+      {task.type !== 'daily' &&
+      task.status !== 'done' &&
+      task.status !== 'missed' &&
+      task.status !== 'pending_review' ? (
         confirming ? (
           <div className="task-confirm-bar">
             <button

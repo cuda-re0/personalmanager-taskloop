@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { isTransitionAllowed } from '../../src/main/db/stateMachine'
+import { nowIso } from '../../src/main/db/localDay'
 import * as ledgerRepo from '../../src/main/db/repositories/ledgerRepo'
 import * as pointsService from '../../src/main/services/pointsService'
 import * as taskService from '../../src/main/services/taskService'
@@ -62,6 +63,8 @@ describe('todo → reviewing（v0.25 合法边）', () => {
   it('端到端：新建 todo 限时任务 → reviewing → 完成 → done 并入账', () => {
     const task = taskService.createTask({ type: 'deadline', title: '写周报' })
     taskService.transitionTask(task.id, 'reviewing')
+    // v0.38 起限时/活动一律要证据，没证据完成会撞 EVIDENCE_REQUIRED
+    taskService.addEvidence(task.id, { kind: 'text', text: '周报链接', addedAt: nowIso() })
 
     const { task: done, entry } = taskService.completeTask({ id: task.id, quality: 'met' })
 
@@ -73,5 +76,49 @@ describe('todo → reviewing（v0.25 合法边）', () => {
     expect(ledgerRepo.countAll()).toBe(1)
     expect(ledgerRepo.listByTask(task.id)).toHaveLength(1)
     expect(pointsService.balance()).toBe(20)
+  })
+})
+
+/**
+ * v0.38：新增 `pending_review`（待提交）。点完成先落到这里，用户交材料后才进 reviewing。
+ *
+ * 这条状态的意义是把「等自己交材料」和「等 AI 看材料」分开：10 分钟超时扫描只看
+ * `pending_review`，`reviewing` 一条都不动（否则正在审核的任务会被打回原形）。
+ */
+describe('pending_review（v0.38 待提交）', () => {
+  it('todo → pending_review、doing → pending_review 允许', () => {
+    expect(isTransitionAllowed('deadline', 'todo', 'pending_review')).toBe(true)
+    expect(isTransitionAllowed('deadline', 'doing', 'pending_review')).toBe(true)
+
+    const fromTodo = taskService.createTask({ type: 'deadline', title: '写周报' })
+    expect(taskService.transitionTask(fromTodo.id, 'pending_review').status).toBe('pending_review')
+
+    const fromDoing = taskService.createTask({ type: 'deadline', title: '交作业' })
+    taskService.transitionTask(fromDoing.id, 'doing')
+    expect(taskService.transitionTask(fromDoing.id, 'pending_review').status).toBe('pending_review')
+  })
+
+  it('pending_review → reviewing / doing 允许（提交与取消/超时）', () => {
+    expect(isTransitionAllowed('deadline', 'pending_review', 'reviewing')).toBe(true)
+    expect(isTransitionAllowed('deadline', 'pending_review', 'doing')).toBe(true)
+
+    const task = taskService.createTask({ type: 'deadline', title: '交作业' })
+    taskService.transitionTask(task.id, 'pending_review')
+    expect(taskService.transitionTask(task.id, 'reviewing').status).toBe('reviewing')
+    expect(taskService.transitionTask(task.id, 'doing').status).toBe('doing')
+  })
+
+  it('pending_review → done 拒绝（完成必须过审，01 §3）', () => {
+    expect(isTransitionAllowed('deadline', 'pending_review', 'done')).toBe(false)
+    const task = taskService.createTask({ type: 'deadline', title: '交作业' })
+    taskService.transitionTask(task.id, 'pending_review')
+    expectErrorCode(() => taskService.transitionTask(task.id, 'done'), 'CONFLICT')
+  })
+
+  it('每日任务不能进 pending_review（与 reviewing / done 同一条禁令）', () => {
+    expect(isTransitionAllowed('daily', 'todo', 'pending_review')).toBe(false)
+    const daily = taskService.createTask({ type: 'daily', title: '喝水' })
+    expectErrorCode(() => taskService.transitionTask(daily.id, 'pending_review'), 'CONFLICT')
+    expect(taskService.requireTask(daily.id).status).toBe('todo')
   })
 })

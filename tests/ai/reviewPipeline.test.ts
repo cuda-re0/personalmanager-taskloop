@@ -55,7 +55,7 @@ function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
 }
 
 describe('hardGateOf：硬闸门（03 §4.2 判定标准第 2 条）', () => {
-  it('要求证据但一条都没有 → need_evidence，且带追问', () => {
+  it('一条证据都没有 → need_evidence，且带追问', () => {
     const verdict = hardGateOf(makeTask(), 0)
     expect(verdict).not.toBeNull()
     expect(verdict?.verdict).toBe('need_evidence')
@@ -69,8 +69,11 @@ describe('hardGateOf：硬闸门（03 §4.2 判定标准第 2 条）', () => {
     expect(hardGateOf(makeTask(), 1)).toBeNull()
   })
 
-  it('不要求证据的任务 → 放行（跑步、背单词这类按用户陈述判）', () => {
-    expect(hardGateOf(makeTask({ requiresEvidence: false }), 0)).toBeNull()
+  // v0.38 修的 bug：手动建的限时任务 requiresEvidence 恒 false，旧闸门于是直接放给模型，
+  // 模型只能凭一句"我做完了"给 pass——什么都不交就能拿满分。
+  it('requiresEvidence=false 且证据 0 条 → 仍然 need_evidence（不再看 requiresEvidence）', () => {
+    const verdict = hardGateOf(makeTask({ requiresEvidence: false }), 0)
+    expect(verdict?.verdict).toBe('need_evidence')
   })
 })
 
@@ -125,12 +128,13 @@ describe('buildReviewRequest', () => {
     expect(text).toContain('证据共 3 条')
   })
 
-  it('system 里说明任务类型与是否要求证据（模型据此选判定分支）', () => {
+  // v0.38：任务摘要里不再写「是否要求证据」——模型看到这一行会以为存在"不需要证据"的例外
+  it('system 里说明任务类型，且不出现「是否要求证据」这一行', () => {
     const messages = buildReviewRequest({ task: makeTask(), evidence: [] })
     expect(String(messages[0].content)).toContain('【当前时间】')
     const user = messages[1].content as Array<{ text?: string }>
     const text = user.map(p => p.text ?? '').join('\n')
     expect(text).toContain('任务类型：限时')
-    expect(text).toContain('是否要求证据：是')
+    expect(text).not.toContain('是否要求证据')
   })
 })
