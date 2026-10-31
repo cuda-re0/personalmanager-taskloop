@@ -270,3 +270,24 @@ describe('全项目只有一份 toLocalDay（口径 4）', () => {
     expect(hits).toEqual(['src/shared/localDay.ts'])
   })
 })
+
+/**
+ * 待提交卡的禁用态（40 §2/§3）。
+ *
+ * 只补 `.submit-card` 这一处，不铺全局：04 §3.2b 要求「证据数为 0 时灰、点不动」，
+ * 而 `.btn` 基础的 `color: var(--text)` 把 UA 的 GrayText 盖掉了，灰不起来。
+ * 匹配「选择器 + 花括号」而不是裸选择器字符串——名字在注释里也出现过，只 toContain 会假绿。
+ */
+describe('提交卡禁用态只补这一处（40）', () => {
+  it('`.submit-card .btn--primary:disabled` 的值与 .ci-send:disabled 一致，且没有铺成全局', () => {
+    const block = CHAT_CSS.match(/\.submit-card \.btn--primary:disabled\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(block).not.toBe('')
+    expect(block).toContain('--bg-hover')
+    expect(block).toContain('--text-faint')
+    expect(block).toContain('cursor: default')
+    expect(block).toContain('opacity: 1')
+    // 反向守卫：行首直接写这两个选择器就是全局规则，用户明确否掉了
+    expect(CHAT_CSS).not.toMatch(/^\s*\.btn:disabled/m)
+    expect(CHAT_CSS).not.toMatch(/^\s*\.btn--primary:disabled/m)
+  })
+})
