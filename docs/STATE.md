@@ -15,6 +15,7 @@
 > **v0.42（`ab114cc`）**：**W12 交付并过用户手点**。双模式会话落地：`chat` 走独立纯文本管线（`glm-4.7-flashx`、30s 超时、system 五段拼装），`task` 原样走 parse；新增 `personas`/`memories`/`chat_state` 三表（迁移 003）、`ai.chat.model`（第 18 个 key）、`persona`/`memory` 六条 IPC（WIRED **45→51**）、`AiProvider.chatText`。渲染层**真接** `msg.send`（不再插乐观气泡），并补了原来根本没有的 `message.patch` / `ai.status` / `message.appended` 三条订阅 + 逐字显现（40/80 字每秒）。
 > 同日补丁（`kickoff/42`）：模式按钮文字**随状态切换**「任务模式」/「聊天模式」，两模式配色统一为淡蓝（`--accent-weak` 底 + `--accent` 字），宽度随文字；`[+]` 保持 28×28 独立规则。04 §3.4.1 与 05 W12 第 5 问同步改写，v0.37 的「文字恒为 `模式`、状态看底色」**作废**。
 > 留一笔账：逐字显现的触发点在 `setMessages` 的 updater 内、靠同步读闭包变量取结果，依赖 React 的 eagerState 优化（手点正常，但非契约保证）——改到 updater 外只要 5 行，另立单。
+> **v0.42 第三笔（`kickoff/43`）**：清两笔小账。① `.btn--ghost:disabled`（`chat.css`）——v0.40 只补了 primary 的禁用态，ghost 漏了，导致提交中「`[提交]` 灰、`[取消]` 亮但点不动」；现在四个值与 `.ci-send:disabled` 同源。② 待提交卡补 `gaps` 清单——v0.41 把审核卡整条隐藏改由待提交卡占位时，只搬了 `followup` 没搬 `verdict.gaps`，导致"上次说要补什么"恰好在最需要时消失；新增 `latestReviewGaps`（倒序取每任务最近一张卡，空则不记 key）、`ChatData.reviewGaps`、`SubmitCard` 透传，复用 `.review-gaps` 不新增样式。基线 708 → **711**。两条真机未点（提交中双按钮同灰、待提交卡清单与审核卡一字不差），静态已核（`disabled` 真挂、类无父级限定）。
 
 ## 一、进度
 
@@ -44,7 +45,7 @@
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 57 文件 / 708 条（架构方在 `ab114cc` 上实跑；W12 前是 53/681）
+npm test            # 57 文件 / 711 条（架构方在 43 补丁工作区实跑；W12 前是 53/681，W12 后 57/708）
 npm run build
 ```
 

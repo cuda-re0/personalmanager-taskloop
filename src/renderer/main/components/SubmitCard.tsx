@@ -16,6 +16,11 @@ interface Props {
    * 旧审核卡被隐藏后，那句话就搬到这里，不丢。
    */
   hint: string | null
+  /**
+   * 未完成项清单（v0.42）：来源是 `ChatData.reviewGaps[task.id]`，即该任务**最近一条**审核消息
+   * 的 `verdict.gaps`。空数组 = 没有清单，整块不进 DOM。
+   */
+  gaps: string[]
   /** 提交中（父层的 `submittingIds`）：两颗按钮与证据区一并禁用，不新增任何文字 */
   busy: boolean
   onPick(file: File): Promise<string | null>
@@ -46,6 +51,7 @@ export function SubmitCard({
   task,
   evidence,
   hint,
+  gaps,
   busy,
   onPick,
   onCancel,
@@ -84,6 +90,14 @@ export function SubmitCard({
       </div>
 
       {hint ? <p className="review-reason">{hint}</p> : null}
+
+      {gaps.length > 0 ? (
+        <ul className="review-gaps">
+          {gaps.map(item => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
 
       <EvidencePanel
         busy={disabled}

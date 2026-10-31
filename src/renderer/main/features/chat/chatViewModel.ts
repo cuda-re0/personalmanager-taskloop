@@ -224,6 +224,30 @@ export function latestNeedEvidenceHint(messages: Message[]): Record<string, stri
 }
 
 /**
+ * 每个任务「最近一次审核列出的未完成项」（v0.42）：`taskId → verdict.gaps`。
+ *
+ * 待提交卡要显示的那张列表就取这里。与 `latestNeedEvidenceHint` 同一个扫法、同一条时间线：
+ * - 倒序扫，每个 taskId 第一次遇到的就是最新那张卡，看完就 `seen` 掉（旧的 gaps 不参与）；
+ * - 只看 `gaps.length > 0`，不看 verdict 类型——`partial` 自然命中，`need_evidence` 的 gaps
+ *   一般为空自然不命中；
+ * - 最新的那张 gaps 为空 → **不记这个 key**（不是记空数组），调用方拿 `?? []`。
+ *   于是"旧卡有、新卡没有"时结果是没有 key，而不是把旧卡的清单顶上来。
+ * - 不合并历史、不去重、不截断、不排序：顺序就是 AI 给的原顺序。
+ */
+export function latestReviewGaps(messages: Message[]): Record<string, string[]> {
+  const gaps: Record<string, string[]> = {}
+  const seen = new Set<string>()
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const meta = messages[i].meta
+    if (meta.kind !== 'task_review') continue
+    if (seen.has(meta.taskId)) continue
+    seen.add(meta.taskId)
+    if (meta.verdict.gaps.length > 0) gaps[meta.taskId] = meta.verdict.gaps
+  }
+  return gaps
+}
+
+/**
  * Evidence[] → 卡片渲染数据（v0.36）。
  *
  * 放在这个纯函数模块里而不是 `useChatData`：它要能被 node 环境的测试直接引入

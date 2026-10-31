@@ -101,6 +101,11 @@ export interface ChatData {
    * 不存空串——待提交卡按「有没有 key」决定那一行进不进 DOM。
    */
   needEvidenceHint: Record<string, string>
+  /**
+   * taskId → 该任务**最近一张**审核卡上的 `verdict.gaps`（v0.42）。待提交卡把这清单显示出来，
+   * 免得"上次说要补什么"在这个最需要的时刻消失。取不到 key 即没有列表（调用方 `?? []`）。
+   */
+  reviewGaps: Record<string, string[]>
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
   /**

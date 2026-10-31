@@ -27,6 +27,7 @@ export function ChatPanel(): ReactElement {
           <SubmitCard
             busy={data.submittingIds.has(task.id)}
             evidence={toEvidenceViews(task.evidence, data.attachmentById)}
+            gaps={data.reviewGaps[task.id] ?? []}
             hint={data.needEvidenceHint[task.id] ?? null}
             key={task.id}
             onCancel={() => data.actions.cancelSubmit(task.id)}

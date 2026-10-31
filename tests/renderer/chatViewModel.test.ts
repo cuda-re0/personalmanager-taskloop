@@ -6,6 +6,7 @@ import {
   draftPointsOf,
   dueHintToLocal,
   latestNeedEvidenceHint,
+  latestReviewGaps,
   localToDueHint,
   visibleChatMessages
 } from '../../src/renderer/main/features/chat/chatViewModel'
@@ -82,6 +83,15 @@ const NEED_EVIDENCE = (followup: string | null): ReviewVerdict => ({
   reason: '看不到结果',
   followup,
   gaps: []
+})
+
+const PARTIAL = (gaps: string[]): ReviewVerdict => ({
+  verdict: 'partial',
+  quality: 'partial',
+  result: null,
+  reason: '只交了一部分',
+  followup: null,
+  gaps
 })
 
 function msgOf(id: string, meta: MessageMeta, role: Message['role'] = 'assistant'): Message {
@@ -183,5 +193,31 @@ describe('latestNeedEvidenceHint：待提交卡的理由行（41 §2.2）', () =
       reviewOf('a2', 't1', VERDICT)
     ]
     expect(latestNeedEvidenceHint(list)).toEqual({ t2: 'B 的理由' })
+  })
+})
+
+describe('latestReviewGaps：待提交卡的未完成项清单（42 §3）', () => {
+  it('最新一张 gaps 为空 → 没有这个 key，旧卡的清单不顶上来', () => {
+    const list = [
+      reviewOf('r1', 't1', PARTIAL(['还差第一家'])),
+      reviewOf('r2', 't1', NEED_EVIDENCE('补一张截图')),
+      reviewOf('r3', 't1', NEED_EVIDENCE('再补一张'))
+    ]
+    expect(latestReviewGaps(list)).toEqual({})
+  })
+
+  it('最新一张有两项 → 原样两条，顺序与输入一致', () => {
+    const list = [
+      reviewOf('r1', 't1', VERDICT),
+      reviewOf('r2', 't1', PARTIAL(['第三家客户的回访记录', '每家客户的回访日期']))
+    ]
+    expect(latestReviewGaps(list)).toEqual({
+      t1: ['第三家客户的回访记录', '每家客户的回访日期']
+    })
+  })
+
+  it('两个任务各一张卡 → 各自独立，互不覆盖', () => {
+    const list = [reviewOf('a1', 't1', PARTIAL(['A 的一条'])), reviewOf('b1', 't2', PARTIAL(['B 的一条']))]
+    expect(latestReviewGaps(list)).toEqual({ t1: ['A 的一条'], t2: ['B 的一条'] })
   })
 })

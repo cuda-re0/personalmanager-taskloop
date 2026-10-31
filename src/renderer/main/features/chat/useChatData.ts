@@ -19,6 +19,7 @@ import {
   draftPointsOf,
   dueHintToLocal,
   latestNeedEvidenceHint,
+  latestReviewGaps,
   leadLabel,
   normalizeDraft,
   pointsConfigOf,
@@ -845,10 +846,14 @@ export function useChatData(): ChatData {
   /** 待提交卡的理由行（v0.41 §2.2）：taskId → 最近一次驳回要求补什么 */
   const needEvidenceHint = useMemo(() => latestNeedEvidenceHint(messages), [messages])
 
+  /** 待提交卡的未完成项清单（v0.42）：taskId → 最近一张审核卡列的 gaps */
+  const reviewGaps = useMemo(() => latestReviewGaps(messages), [messages])
+
   return {
     messages,
     visibleMessages,
     needEvidenceHint,
+    reviewGaps,
     draftViews,
     reviewViews,
     pendingSubmit,
