@@ -128,7 +128,10 @@ npm run build
 | 29 | 主窗顶栏 HUD 开关与主进程不同步 | — | ⤵️ **已并入 `kickoff/30`**，勿单独派发 | 单独派发会与 30 同时改 `hudService.ts` |
 | 27 | 生产构建产物 `connection` 双副本 → IPC 全瘫 | 构建链 | ✅ `c586411` 审核 PASS，**根因未定位** | 本机 5 次构建 + dev + 并发写全单副本，不可复现。改为构建期守卫 `assertSingleModuleInstance`（`generateBundle` 里按 `realpathSync.native` 归一，同文件两个 id 直接 `this.error` 并打印）；入口 input 改相对路径；产物 `getDb`=1、`$1`=0；四命令 47/562 绿 |
 
-**派单顺序（v0.43）**：`kickoff/41`（一任务一卡位 + 迟到的审核结果不落卡不流转 + 驳回理由搬进待提交卡）已合入 `7b34276`，代码 HEAD 即它，四命令 **53 文件 / 681 条**绿。起因是用户手点发现同一任务在流里出现「旧驳回卡 + 待提交卡」两张；库里另有实证——一张审核卡的时间戳晚于该任务最后一次流转，而 `need_evidence` 不流转、`reviewing` 无通往 `pending_review` 的边，说明落卡时不校验任务状态。这条已由 `appendReviewIfReviewing` 堵住。
+**派单顺序（v0.44）**：`kickoff/34`（W12 生活助手：双模式 + 人物卡 + 记忆 + 逐字显现）**已发**，代码基线 `7b34276`，四命令 **53 / 681**。发单前我把 34 的原文与现状逐条对了一遍，改了四处事实错误：①「主进程收不到消息」不成立——`msg.send` 早在 W4 就接通了，本单只差渲染层调用与 `mode` 分派；②原文让人把 `send` 加进 `ChatActions`，实际它是 `ChatData` 的顶层方法；③`messageService.recentChatMessages` 不存在，已补进白名单；④`04 §3.4.2` 的「点气泡全显 / 打字期纯文本」要铺四个渲染文件，按「小事粗做」撤销这两条。
+**34 单独跑，不能与任何会话并行**（改 `useChatData` / `chatTypes` / `aiService` / `glmClient`）。
+
+**派单顺序（v0.43，已过时，留作历史）**：`kickoff/41`（一任务一卡位 + 迟到的审核结果不落卡不流转 + 驳回理由搬进待提交卡）已合入 `7b34276`。起因是用户手点发现同一任务在流里出现「旧驳回卡 + 待提交卡」两张；库里另有实证——一张审核卡的时间戳晚于该任务最后一次流转，而 `need_evidence` 不流转、`reviewing` 无通往 `pending_review` 的边，说明落卡时不校验任务状态。这条已由 `appendReviewIfReviewing` 堵住。
 
 **派单顺序（v0.42，已过时，留作历史）**：`kickoff/41` 待发，代码基线 `9d219b2`。
 
