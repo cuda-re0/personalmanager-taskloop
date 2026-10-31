@@ -3,6 +3,7 @@ import type {
   DayStat,
   Difficulty,
   Evidence,
+  FxRate,
   Message,
   MessageKind,
   MessageMeta,
@@ -365,6 +366,10 @@ export interface PointEntryRow {
   created_at: string
   /** 被冲销的时刻（002 迁移）。NULL = 这条发分仍然有效 */
   reversed_at: string | null
+  /** v0.45：仅 kind='spend' 的行有值 */
+  amount_cents: number | null
+  /** v0.45：仅 kind='spend' 的行有值，记账当时的汇率快照 */
+  fx_rate: number | null
 }
 
 export const LEDGER_COLUMNS = [
@@ -377,7 +382,9 @@ export const LEDGER_COLUMNS = [
   'reason_text',
   'day',
   'created_at',
-  'reversed_at'
+  'reversed_at',
+  'amount_cents',
+  'fx_rate'
 ] as const
 
 export interface PointEntryInsert {
@@ -392,6 +399,9 @@ export interface PointEntryInsert {
   createdAt: string
   /** 新写入的流水一律有效（NULL）；只有冲销时由 markReversed 事后补时间戳 */
   reversedAt?: string | null
+  /** v0.45：仅支出行填，其它行省略即 NULL */
+  amountCents?: number | null
+  fxRate?: number | null
 }
 
 export function ledgerInsertParams(e: PointEntryInsert): SqlValue[] {
@@ -405,7 +415,9 @@ export function ledgerInsertParams(e: PointEntryInsert): SqlValue[] {
     e.reasonText ?? '',
     e.day,
     e.createdAt,
-    e.reversedAt ?? null
+    e.reversedAt ?? null,
+    e.amountCents ?? null,
+    e.fxRate ?? null
   ]
 }
 
@@ -420,7 +432,55 @@ export function mapPointEntry(row: PointEntryRow): PointEntry {
     reasonText: row.reason_text,
     day: row.day,
     createdAt: row.created_at,
-    reversedAt: row.reversed_at
+    reversedAt: row.reversed_at,
+    amountCents: row.amount_cents,
+    fxRate: row.fx_rate
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * fx_rates（v0.45）
+ * ------------------------------------------------------------------ */
+
+export interface FxRateRow {
+  id: string
+  week_start: string
+  rate: number
+  basis: string
+  source: string
+  created_at: string
+}
+
+export const FX_RATE_COLUMNS = [
+  'id',
+  'week_start',
+  'rate',
+  'basis',
+  'source',
+  'created_at'
+] as const
+
+export interface FxRateInsert {
+  id: string
+  weekStart: string
+  rate: number
+  /** AI 的评估依据；fallback 写空串 */
+  basis?: string
+  source: FxRate['source']
+  createdAt: string
+}
+
+export function fxRateInsertParams(r: FxRateInsert): SqlValue[] {
+  return [r.id, r.weekStart, r.rate, r.basis ?? '', r.source, r.createdAt]
+}
+
+/** `basis` 不进领域类型：渲染层不需要看评估依据（45 §4.2） */
+export function mapFxRate(row: FxRateRow): FxRate {
+  return {
+    weekStart: row.week_start,
+    rate: row.rate,
+    source: row.source as FxRate['source'],
+    createdAt: row.created_at
   }
 }
 

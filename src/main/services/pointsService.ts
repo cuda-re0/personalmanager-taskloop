@@ -8,8 +8,10 @@ import {
 import type { DayStat, Difficulty, TaskType } from '../../shared/types/domain'
 import { tx } from '../db/connection'
 import { appError } from '../db/errors'
-import { addDays, isoWeekday, nowIso, todayLocalDay } from '../db/localDay'
+import { addDays, isoWeekday, monthBounds, nowIso, todayLocalDay } from '../db/localDay'
 import { newId } from '../db/ids'
+import { MAX_SPEND_CENTS } from '../../shared/points/spend'
+import * as fxService from './fxService'
 import * as occurrenceService from '../db/occurrenceService'
 import * as ledgerRepo from '../db/repositories/ledgerRepo'
 import * as occurrenceRepo from '../db/repositories/occurrenceRepo'
@@ -26,7 +28,7 @@ import * as taskRepo from '../db/repositories/taskRepo'
  *   具体列怎么写交给 occurrenceService（db 层），本文件开事务。
  * - 限时/活动的完成事务在 taskService.completeTask（02 §3.2），本文件只提供 `award` / `rollback` 零件。
  *
- * 精度纪律（08 DELTA · D1）：本文件不出现 `Math.round` / `toFixed`。
+ * 精度纪律（08 DELTA · D1）：本文件不出现任何取整/定点格式化调用。
  */
 
 /** 连续天数的扫描上限（约 10 年）：纯防御，避免稀疏 repeat_rule 下的死循环 */
@@ -156,6 +158,110 @@ export function rollback(entry: PointEntry, reasonText: string): PointEntry {
     reasonCode: 'manual_adjust',
     reasonText: reasonText || `撤销 ${entry.id}`,
     day: todayLocalDay()
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ * 零花钱：支出记账（v0.45，45 §5.1）
+ * ------------------------------------------------------------------ */
+
+export interface SpendInput {
+  /** 整数「分」。渲染层用字符串拆解得来，不许是浮点乘 100 的产物 */
+  amountCents: number
+  note?: string
+}
+
+/**
+ * `points.spend`：花一笔钱，按当期汇率扣积分。
+ *
+ * 为什么不复用 `adjust()`：它的 `kind` / `reasonCode` 是写死的（`adjust` / `manual_adjust`），
+ * 硬塞进去之后「手动调整」和「花钱」在明细里就混成一类，账再也对不清。
+ *
+ * 扣分公式 `delta = -roundPoints(amountCents / 100 / rate)`：汇率是"1 积分值多少元"，
+ * 所以花掉的钱要**除以**汇率才是积分。取整只走 `roundPoints`（本文件不做别的取整）。
+ */
+export function spend(input: SpendInput): PointEntry {
+  const amountCents = input.amountCents
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw appError('INVALID_INPUT', '金额必须是正数', {
+      detail: `amountCents=${String(amountCents)}`
+    })
+  }
+  // 单笔上限放这里而不是 guard：guard 失败只能返回「请求参数格式不正确」，给不出人话
+  if (amountCents > MAX_SPEND_CENTS) {
+    throw appError('INVALID_INPUT', '单笔支出不能超过 1000 元', {
+      detail: `amountCents=${amountCents} > ${MAX_SPEND_CENTS}`
+    })
+  }
+
+  const { rate } = fxService.currentRate()
+  const delta = -roundPoints(amountCents / 100 / rate)
+  if (delta === 0) {
+    // 不写 0 分流水：一条 0 分的支出行在明细里既看不懂也没意义
+    throw appError('INVALID_INPUT', '金额太小，扣不进积分', {
+      detail: `amountCents=${amountCents} rate=${rate}`
+    })
+  }
+
+  const day = todayLocalDay()
+  return tx(() => {
+    const entry = ledgerRepo.insert({
+      id: newId(),
+      taskId: null,
+      occurrenceId: null,
+      delta,
+      kind: 'spend',
+      reasonCode: 'pocket_spend',
+      reasonText: input.note ?? '',
+      day,
+      createdAt: nowIso(),
+      amountCents,
+      fxRate: rate
+    })
+    statsRepo.addPoints(day, delta)
+    return entry
+  })
+}
+
+export interface SpendMonthResult {
+  entries: PointEntry[]
+  /** 本月有效支出合计（分），已扣掉撤销过的 */
+  totalCents: number
+  rate: number
+  weekStart: string
+}
+
+/** `points.spendMonth`：只看**当前月**，不传参——界面没有翻月需求 */
+export function spendMonth(): SpendMonthResult {
+  const day = todayLocalDay()
+  const [year, month] = day.split('-').map(Number)
+  const { from, to } = monthBounds(year, month)
+  const { rate, weekStart } = fxService.currentRate()
+  return {
+    entries: ledgerRepo.listSpend(from, to),
+    totalCents: ledgerRepo.sumSpendCents(from, to),
+    rate,
+    weekStart
+  }
+}
+
+/**
+ * `points.spendUndo`：撤销一笔支出。
+ *
+ * 复用 `rollback()`（打 `reversed_at` + 写一条反向 `adjust` 行），**不真删流水**：
+ * 账本一旦写下就是事实，撤销只是"又发生了一件事"。`rollback` 一个字都不改——
+ * 它同时服务任务撤销，改坏了 `uq_ledger_task_done` 的谓词会一起崩。
+ */
+export function spendUndo(entryId: string): PointEntry {
+  return tx(() => {
+    const entry = ledgerRepo.byId(entryId)
+    if (entry === null || entry.kind !== 'spend') {
+      throw appError('NOT_FOUND', '找不到这笔支出', { detail: `id=${entryId}` })
+    }
+    if (entry.reversedAt !== null) {
+      throw appError('CONFLICT', '这笔支出已经撤销过了', { detail: `id=${entryId}` })
+    }
+    return rollback(entry, '撤销支出')
   })
 }
 

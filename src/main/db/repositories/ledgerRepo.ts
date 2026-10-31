@@ -99,6 +99,39 @@ export function listByTask(taskId: string): PointEntry[] {
     .all(taskId) as PointEntryRow[]).map(mapPointEntry)
 }
 
+/** 按 id 取一条（v0.45）：撤销支出要先拿到原行，不能靠区间反查（跨月就找不到了） */
+export function byId(id: string): PointEntry | null {
+  const row = getDb().prepare(`${SELECT_LEDGER} WHERE id = ?`).get(id) as PointEntryRow | undefined
+  return row === undefined ? null : mapPointEntry(row)
+}
+
+/**
+ * 区间内**有效**支出合计（v0.45，45 §4.3）。
+ *
+ * 只算 `kind='spend'` 且未被冲销的行：撤销之后再统计，这笔钱就不该还占着额度。
+ * 冲销行本身是 `kind='adjust'` 的负流水，天然不在这个口径里。
+ */
+export function sumSpendCents(from: string, to: string): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM point_ledger
+       WHERE kind = 'spend' AND reversed_at IS NULL AND day >= ? AND day <= ?`
+    )
+    .get(from, to) as { total: number }
+  return row.total
+}
+
+/** 区间内的有效支出行（v0.45）：支出页按 createdAt 倒序渲染 */
+export function listSpend(from: string, to: string): PointEntry[] {
+  return (getDb()
+    .prepare(
+      `${SELECT_LEDGER}
+       WHERE kind = 'spend' AND reversed_at IS NULL AND day >= ? AND day <= ?
+       ORDER BY created_at DESC, id DESC`
+    )
+    .all(from, to) as PointEntryRow[]).map(mapPointEntry)
+}
+
 /** 限时/活动是否已经发过完成分（业务层判重也能靠唯一索引，这个只是给 UI 提前判断用） */
 export function hasTaskDoneEntry(taskId: string): boolean {
   const row = getDb()

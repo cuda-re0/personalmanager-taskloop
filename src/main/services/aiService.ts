@@ -134,6 +134,20 @@ function currentProvider(): AiProvider {
   return parseProvider()
 }
 
+/**
+ * 后台任务（v0.45 汇率评估）的 provider 入口。
+ *
+ * 为什么单独开一个导出：`fxService` 需要 provider，但它**不能顶层 import 本文件**——
+ * `aiService → pointsService → fxService` 已经是一条单向链，再加一条反向 import 就成环，
+ * 测试里的模块初始化顺序会变得不可预期。所以由 `fxService` 在函数内部动态拿。
+ *
+ * 没配 key 时这里会抛 `AI_NOT_CONFIGURED`（与其它调用点一致）；调用方先问 `keyStatus()`
+ * 再决定要不要走 AI，避免把"没配 key"当成"评估失败"。
+ */
+export function backgroundProvider(): AiProvider {
+  return chatProvider()
+}
+
 /* ------------------------------------------------------------------ *
  * 小工具
  * ------------------------------------------------------------------ */

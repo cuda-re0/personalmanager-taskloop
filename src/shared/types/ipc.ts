@@ -157,6 +157,17 @@ export type CompleteTaskInput =
  * §4 preload 暴露形状：window.api 的类型
  * ------------------------------------------------------------------ */
 
+/** `points.spendMonth` 的返回（v0.45）：本月支出页一次拿全，不在渲染层拼汇率 */
+export interface SpendMonth {
+  entries: PointEntry[]
+  /** 本月有效支出合计（分） */
+  totalCents: number
+  /** 当期汇率：1 积分值多少元 */
+  rate: number
+  /** 该汇率生效的周一（本地日） */
+  weekStart: string
+}
+
 export interface Api {
   app: {
     getBootstrap(): Promise<IpcResult<Bootstrap>>
@@ -265,6 +276,10 @@ export interface Api {
       difficulty: Difficulty
     }): Promise<IpcResult<number>>
     streakPreview(input: { current: number; nextDayWillReach: number }): Promise<IpcResult<number>>
+    /** v0.45：记账（金额以「分」为单位，汇率由主进程按当期取） */
+    spend(input: { amountCents: number; note?: string }): Promise<IpcResult<PointEntry>>
+    spendUndo(input: { entryId: string }): Promise<IpcResult<PointEntry>>
+    spendMonth(): Promise<IpcResult<SpendMonth>>
   }
 
   reminder: {

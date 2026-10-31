@@ -196,14 +196,25 @@ describe('整窗明细页机制已彻底删除（口径 1）', () => {
     }
   })
 
-  it('src/renderer 全树不含 task.undo / canUndoEntry / 撤销 任何一个字样（口径 2）', () => {
-    const hits = walk(resolve(ROOT, 'src/renderer'))
-      .filter(file => {
-        const text = readFileSync(file, 'utf8')
-        return /task\.undo|canUndoEntry|撤销/.test(text)
-      })
-      .map(file => relative(ROOT, file).replace(/\\/g, '/'))
-    expect(hits).toEqual([])
+  it('src/renderer 全树不含 task.undo / canUndoEntry；「撤销」只允许出现在 v0.45 支出视图（口径 2）', () => {
+    // v0.45 起支出行有了「撤销」（45 §7.2 明写的文字），这条守卫收窄成：
+    // 旧的明细页/流水撤销入口仍然不许回来，撤销字样只准出现在支出这一块。
+    const SPEND_FILES = new Set([
+      'src/renderer/main/features/points/SpendView.tsx',
+      'src/renderer/main/features/points/useSpendData.ts',
+      'src/renderer/main/features/points/spendModel.ts',
+      'src/renderer/main/features/points/points.css'
+    ])
+    const oldUndoHits: string[] = []
+    const strayUndoHits: string[] = []
+    for (const file of walk(resolve(ROOT, 'src/renderer'))) {
+      const rel = relative(ROOT, file).replace(/\\/g, '/')
+      const text = readFileSync(file, 'utf8')
+      if (/task\.undo|canUndoEntry/.test(text)) oldUndoHits.push(rel)
+      if (/撤销/.test(text) && !SPEND_FILES.has(rel)) strayUndoHits.push(rel)
+    }
+    expect(oldUndoHits).toEqual([])
+    expect(strayUndoHits).toEqual([])
   })
 
   it('④ 的数据 hook 不再有撤销动作与错误提示（悬念都随入口一起删）', () => {

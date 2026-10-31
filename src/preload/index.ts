@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CH } from '@shared/channels'
-import type { Api, AppSettings, Bootstrap, IpcResult } from '@shared/types/ipc'
+import type { Api, AppSettings, Bootstrap, IpcResult, SpendMonth } from '@shared/types/ipc'
 import type {
   Attachment,
   DayIndexEntry,
@@ -96,7 +96,10 @@ const api: Api = {
     monthStats: input => invoke<DayStat[]>(CH.points.monthStats, input),
     adjust: input => invoke<PointEntry>(CH.points.adjust, input),
     preview: input => invoke<number>(CH.points.preview, input),
-    streakPreview: input => invoke<number>(CH.points.streakPreview, input)
+    streakPreview: input => invoke<number>(CH.points.streakPreview, input),
+    spend: input => invoke<PointEntry>(CH.points.spend, input),
+    spendUndo: input => invoke<PointEntry>(CH.points.spendUndo, input),
+    spendMonth: () => invoke<SpendMonth>(CH.points.spendMonth)
   },
 
   reminder: {

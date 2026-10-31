@@ -6,6 +6,7 @@ import parseSystem from './parse.system.md?raw'
 import memorySystem from './memory.system.md?raw'
 import reviewSystem from './review.system.md?raw'
 import summarizeSystem from './summarize.system.md?raw'
+import fxSystem from './fx.system.md?raw'
 import systemBase from './system.base.md?raw'
 
 /**
@@ -37,6 +38,8 @@ export const CHAT_RULES = bodyOf(chatSystem)
 export const MEMORY_SYSTEM = bodyOf(memorySystem)
 /** v0.37：摘要压缩的 system（01 §2.10） */
 export const SUMMARIZE_SYSTEM = bodyOf(summarizeSystem)
+/** v0.45：零花钱汇率评估的 system（45 §5.3）；后台任务，不拼人格 */
+export const FX_SYSTEM = bodyOf(fxSystem)
 
 /** 每组 prompt 的首行有版本注释，这里再导出一份便于埋点/日志核对 */
 export const PROMPT_VERSION = 'v1 2026-10-29'

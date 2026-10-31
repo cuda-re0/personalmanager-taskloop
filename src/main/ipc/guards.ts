@@ -311,6 +311,11 @@ export const g = {
   adjust: z.object({ delta: z.number(), reason: z.string() }),
   preview: z.object({ type: taskTypeSchema, difficulty: difficultySchema }),
   streakPreview: z.object({ current: z.number(), nextDayWillReach: z.number() }),
+  // 零花钱（v0.45）：单笔上限**不放这里**——guard 失败只会返回「请求参数格式不正确」，
+  // 而「单笔支出不能超过 1000 元」这句人话只有 service 层给得出来
+  spend: z.object({ amountCents: z.number().int().positive(), note: z.string().max(40).optional() }),
+  spendUndo: z.object({ entryId: z.string().min(1) }),
+  spendMonth: z.undefined(),
   // hud（W9 · v0.30）：坐标必须有限值——NaN/Infinity 会让 setBounds 抛出，且会写进 hud.position
   hudSetMode: z.object({ mode: hudModeSchema }),
   hudMoveTo: z.object({ x: z.number().finite(), y: z.number().finite() }),
@@ -380,6 +385,9 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.points.adjust]: g.adjust,
   [CH.points.preview]: g.preview,
   [CH.points.streakPreview]: g.streakPreview,
+  [CH.points.spend]: g.spend,
+  [CH.points.spendUndo]: g.spendUndo,
+  [CH.points.spendMonth]: g.spendMonth,
   [CH.hud.setMode]: g.hudSetMode,
   [CH.hud.moveTo]: g.hudMoveTo,
   [CH.hud.dragBegin]: g.hudDragBegin,

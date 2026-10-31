@@ -37,6 +37,9 @@ function entry(patch: Partial<PointEntry> & { id: string }): PointEntry {
     day: '2026-10-28',
     createdAt: '2026-10-28T02:18:00.000Z',
     reversedAt: null,
+    // v0.45：流水多了两列（只有支出行有值），夹具按"不是支出"填 null
+    amountCents: null,
+    fxRate: null,
     ...patch
   }
 }

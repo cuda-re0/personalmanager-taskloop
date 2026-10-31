@@ -189,8 +189,18 @@ export interface PointEntry {
   taskId: string | null
   occurrenceId: string | null
   delta: number
-  kind: 'award' | 'penalty' | 'adjust'
-  reasonCode: 'task_done' | 'quality_bonus' | 'overdue_penalty' | 'manual_adjust' | 'streak_bonus'
+  /**
+   * v0.45 起多一个 `spend`：零花钱支出。
+   * 不复用 `adjust`——「手动调整」与「花钱」在明细里必须能分开看，混成一类就查不出账。
+   */
+  kind: 'award' | 'penalty' | 'adjust' | 'spend'
+  reasonCode:
+    | 'task_done'
+    | 'quality_bonus'
+    | 'overdue_penalty'
+    | 'manual_adjust'
+    | 'streak_bonus'
+    | 'pocket_spend'
   reasonText: string
   day: string // YYYY-MM-DD 本地
   createdAt: string
@@ -199,6 +209,25 @@ export interface PointEntry {
    * 撤销不删流水：原行打上时间戳、另写一条负流水，余额仍是 SUM(delta)。
    */
   reversedAt: string | null
+  /**
+   * 只有 `kind='spend'` 的行有值（v0.45）：这笔花了多少分（整数「分」）。
+   * 其余行一律 NULL，**不许塞 0**——0 分支出和"不是支出"是两件事。
+   */
+  amountCents: number | null
+  /** 只有 `kind='spend'` 的行有值：记账当时的汇率快照。改汇率永不重算历史 */
+  fxRate: number | null
+}
+
+/**
+ * 当周汇率（v0.45）。`basis` 是 AI 的评估依据，只进库不进渲染层，故不进这个类型。
+ */
+export interface FxRate {
+  /** 该汇率生效的周一（本地日 YYYY-MM-DD） */
+  weekStart: string
+  /** 1 积分值多少元 */
+  rate: number
+  source: 'ai' | 'fallback'
+  createdAt: string
 }
 
 export interface Reminder {

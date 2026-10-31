@@ -39,6 +39,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 余额被花成负数（v0.45）：只换颜色，不改字号，也不弹任何提示 */
+.points-total--neg {
+  color: var(--danger);
+}
+
 .points-deltas {
   display: flex;
   flex-direction: column;
@@ -267,4 +272,170 @@
   margin: 0;
   padding: 0 12px 0 8px;
   list-style: none;
+}
+
+/* ---------- 支出视图（v0.45 · ④ 第五个标签）---------- */
+
+.spend-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 顶部一行：`10 月 · 1 分 = 1.08 元 · 已花 128 / 500`，超预算时只有后半段变红 */
+.spend-head {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  padding: 4px 20px 8px 16px;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-head-spent {
+  color: var(--text-sub);
+}
+
+.spend-head-spent--over {
+  color: var(--danger);
+}
+
+/* 只有这一块滚；头部与输入行固定 */
+.spend-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px 8px 8px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* 行高 32px，与流水行同口径；行本身不是按钮（里面有撤销按钮） */
+.spend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.spend-time {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.spend-amount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-undo {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spend-undo:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.spend-undo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 后端 message 原文，紧贴输入行上方 */
+.spend-error {
+  flex: 0 0 auto;
+  padding: 4px 20px 0 16px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.spend-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 20px 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.spend-amount-input,
+.spend-note-input {
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.spend-amount-input {
+  flex: 0 0 72px;
+  width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-unit {
+  flex: 0 0 auto;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.spend-note-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.spend-submit {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spend-submit:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.spend-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

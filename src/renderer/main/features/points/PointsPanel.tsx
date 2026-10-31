@@ -4,6 +4,8 @@ import { emitFocusTask } from '../tasks/focusTask'
 import type { LedgerRange } from './pointsModel'
 import { LEDGER_VIEW_LABEL, RANGE_LABEL, formatSigned, timeLabel } from './pointsModel'
 import { LedgerView } from './LedgerView'
+import { SpendView } from './SpendView'
+import { SPEND_VIEW_LABEL } from './spendModel'
 import { usePointsData } from './usePointsData'
 import './points.css'
 
@@ -22,8 +24,8 @@ import './points.css'
 
 const RANGES = ['today', 'week', 'month'] as const
 
-/** ④ 的两种内容：平铺流水（`list`）与按月的明细（`ledger`） */
-type PointsView = 'list' | 'ledger'
+/** ④ 的三种内容：平铺流水（`list`）、按月的明细（`ledger`）、零花钱支出（`spend`，v0.45） */
+type PointsView = 'list' | 'ledger' | 'spend'
 
 export function PointsPanel(): ReactElement {
   const { balance, todayPoints, weekPoints, bars, entries, range, setRange } = usePointsData()
@@ -39,7 +41,9 @@ export function PointsPanel(): ReactElement {
     <div className="points-panel">
       <section className="points-summary">
         <div className="points-head">
-          <span className="points-total">{fmtPoints(balance)}</span>
+          <span className={balance < 0 ? 'points-total points-total--neg' : 'points-total'}>
+            {fmtPoints(balance)}
+          </span>
           <div className="points-deltas">
             <span className="points-delta-line">{`${RANGE_LABEL.today} ${formatSigned(todayPoints)}`}</span>
             <span className="points-delta-line">{`${RANGE_LABEL.week} ${formatSigned(weekPoints)}`}</span>
@@ -75,9 +79,19 @@ export function PointsPanel(): ReactElement {
           >
             {LEDGER_VIEW_LABEL}
           </button>
+          <button
+            aria-pressed={view === 'spend'}
+            className={view === 'spend' ? 'points-tab points-tab--on' : 'points-tab'}
+            onClick={() => setView('spend')}
+            type="button"
+          >
+            {SPEND_VIEW_LABEL}
+          </button>
         </div>
         {view === 'ledger' ? (
           <LedgerView onOpenTask={emitFocusTask} />
+        ) : view === 'spend' ? (
+          <SpendView />
         ) : (
           <ul className="ledger-list">
             {entries.map(entry => (

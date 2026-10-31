@@ -19,6 +19,11 @@ export type DomainEvent =
   | { type: 'message.patch'; messageId: string; patch: Partial<Message> }
   | { type: 'ai.status'; phase: 'thinking' | 'streaming' | 'idle'; messageId?: string }
   | { type: 'points.changed'; balance: number; entry: PointEntry | null; today: DayStat }
+  /**
+   * 周一评估在后台写库之后发（v0.45）：开着的支出页据此重拉汇率。
+   * 不广播「评估失败」——失败也落了一行 fallback，对界面而言同样是"汇率变了"。
+   */
+  | { type: 'fx.changed'; rate: number; weekStart: string }
   | {
       type: 'reminder.fired'
       reminderId: string

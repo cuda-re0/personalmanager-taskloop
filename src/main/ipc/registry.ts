@@ -28,11 +28,12 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 52 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 55 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
  * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**、
- * **v0.37 起 persona 两条 + memory 四条**、**v0.44 起 ai.keyStatus**，
- * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34）；
+ * **v0.37 起 persona 两条 + memory 四条**、**v0.44 起 ai.keyStatus**、
+ * **v0.45 起 points.spend / spendUndo / spendMonth 三条**，
+ * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34、kickoff/45）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -102,7 +103,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 52 条
+ * WIRED：本轮接通的 55 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -424,6 +425,31 @@ const TABLE: Row[] = [
   row(CH.points.streakPreview, g.streakPreview, input =>
     pointsService.streakBonusAt(input.nextDayWillReach)
   ),
+
+  /* ---------------- 零花钱（3，v0.45 · W13） ---------------- */
+  // 支出改余额与今日聚合，两条写入都推 `points.changed`（与 points.adjust 同一口径）；
+  // `spendMonth` 是纯读，不广播。撤销时冲销行落在今天，balance 必须在广播前重新算。
+  row(CH.points.spend, g.spend, input => {
+    const entry = pointsService.spend(input)
+    broadcast({
+      type: 'points.changed',
+      balance: pointsService.balance(),
+      entry,
+      today: pointsService.todayStat()
+    })
+    return entry
+  }),
+  row(CH.points.spendUndo, g.spendUndo, input => {
+    const entry = pointsService.spendUndo(input.entryId)
+    broadcast({
+      type: 'points.changed',
+      balance: pointsService.balance(),
+      entry,
+      today: pointsService.todayStat()
+    })
+    return entry
+  }),
+  row(CH.points.spendMonth, g.spendMonth, () => pointsService.spendMonth()),
 
   /* ---------------- hud（6：W9 四条 + v0.32 dragBegin / dragTo） ---------------- */
   // 状态与坐标全在 hudService：handler 只做入参校验 + 转发，不在这里算 bounds。

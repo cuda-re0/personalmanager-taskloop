@@ -60,7 +60,11 @@ export const CH = {
     monthStats: 'points:monthStats',
     adjust: 'points:adjust',
     preview: 'points:preview',
-    streakPreview: 'points:streakPreview'
+    streakPreview: 'points:streakPreview',
+    /** v0.45 零花钱：记账 / 撤销 / 本月支出 */
+    spend: 'points:spend',
+    spendUndo: 'points:spendUndo',
+    spendMonth: 'points:spendMonth'
   },
   reminder: {
     listByTask: 'reminder:listByTask',
