@@ -179,6 +179,24 @@ export async function runReview(taskId: string, now: Date = new Date()): Promise
     }
 
     const verdict = reviewed.data
+
+    /**
+     * 迟到的审核结果不执行流转（v0.41 §5）。
+     *
+     * 调 AI 是一个 5–30s 的窗口，这期间任务可能已经被取消、被 sweeper 退回、或者被别的
+     * 窗口改走。`loaded.data` 是**调 AI 之前**的快照，拿它决定 complete/revive 会让一个
+     * 迟到的 `pass` 给已经不在 `reviewing` 的任务发分。所以这里必须重读一次。
+     */
+    const after = await api().task.get({ id: taskId })
+    if (!after.ok) {
+      console.warn('[review] AI 返回后重读任务失败，本次不流转', taskId, after.error)
+      return { kind: 'skipped' }
+    }
+    if (after.data.status !== 'reviewing') {
+      console.warn('[review] AI 返回时任务已不在待确认，本次不流转', taskId, after.data.status)
+      return { kind: 'skipped' }
+    }
+
     const decision = decideReview(verdict, loaded.data, now)
 
     if (decision === 'complete') {

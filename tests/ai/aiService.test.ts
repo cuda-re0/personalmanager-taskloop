@@ -270,6 +270,9 @@ describe('aiService', () => {
       title: '交物理作业',
       requiresEvidence: true
     })
+    // v0.41 §4：落卡前要重读状态，只有 reviewing 才落。这里把任务推进到待确认，
+    // 保持本用例原本的语义（硬闸门命中 → 返回 need_evidence 且落一张卡）。
+    taskService.transitionTask(task.id, 'reviewing')
 
     const verdict = await aiService.review({ taskId: task.id })
     expect(verdict.verdict).toBe('need_evidence')
@@ -282,6 +285,27 @@ describe('aiService', () => {
       expect(reviewMessage.meta.taskId).toBe(task.id)
       expect(reviewMessage.meta.verdict.verdict).toBe('need_evidence')
     }
+  })
+
+  it('review 时任务已不在 reviewing → verdict 照常返回，但不落卡（v0.41 §4）', async () => {
+    aiService.setProvider(
+      scriptedProvider([
+        () => {
+          throw new Error('硬闸门不该发请求')
+        }
+      ])
+    )
+
+    // 新建就是 todo：还没点「完成」，此刻的任务不该被写进一张审核卡
+    const task = taskService.createTask({
+      type: 'deadline',
+      title: '交物理作业',
+      requiresEvidence: true
+    })
+
+    const verdict = await aiService.review({ taskId: task.id })
+    expect(verdict.verdict).toBe('need_evidence')
+    expect(messageService.listMessages({ limit: 10 }).some(m => m.kind === 'task_review')).toBe(false)
   })
 
   it('review 有证据：走模型，event 的 quality 恒 met、result 保留', async () => {

@@ -89,6 +89,11 @@ export interface ChatData {
    * `messages` 保留全量——翻页拼接、`reviewViews` 的 `isLatest` 都还按全量算。
    */
   visibleMessages: Message[]
+  /**
+   * taskId → 最近一次驳回要求补什么（v0.41 §2.2）。**没有这个 key 就不显示理由行**，
+   * 不存空串——待提交卡按「有没有 key」决定那一行进不进 DOM。
+   */
+  needEvidenceHint: Record<string, string>
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
   /**

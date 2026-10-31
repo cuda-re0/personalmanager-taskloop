@@ -159,3 +159,25 @@ describe('SubmitCard 的无证据提示（39 §4）', () => {
     expect(SUBMIT_CARD_SOURCE).toContain('disabled={disabled || evidence.length === 0}')
   })
 })
+
+/**
+ * 待提交卡的驳回理由行（41 §3）。
+ *
+ * 旧审核卡被隐藏后，它那行「AI 要你补什么」搬到这张卡上——同一句话换个位置，
+ * 所以复用 `.review-reason`，不新增任何样式。`hint` 为 null 时整行不进 DOM。
+ */
+describe('SubmitCard 的理由行（41 §3）', () => {
+  /** 承载理由行的那一行源码 */
+  const reasonLine = SUBMIT_CARD_SOURCE.split('\n').find(line => line.includes('className="review-reason"'))
+
+  it('hint 条件渲染在同一行，另一支是 null（没有理由就不进 DOM）', () => {
+    expect(reasonLine).toBeDefined()
+    expect(reasonLine).toContain('hint ?')
+    expect(reasonLine).toMatch(/: null/)
+  })
+
+  it('复用 .review-reason，没有为它新造类名', () => {
+    expect(SUBMIT_CARD_SOURCE.match(/review-reason/g)).toHaveLength(1)
+    expect(SUBMIT_CARD_SOURCE).not.toContain('submit-reason')
+  })
+})

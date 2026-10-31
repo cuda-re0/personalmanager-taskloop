@@ -16,11 +16,12 @@ import {
   TYPE_DEFAULT_OFFSETS,
   draftPointsOf,
   dueHintToLocal,
-  latestReviewOnly,
+  latestNeedEvidenceHint,
   leadLabel,
   normalizeDraft,
   pointsConfigOf,
-  toEvidenceViews
+  toEvidenceViews,
+  visibleChatMessages
 } from './chatViewModel'
 import { countNeedEvidence, mergePendingSubmit, runReview, submitForReview } from '../tasks/reviewFlow'
 import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtures__/messages'
@@ -681,14 +682,32 @@ export function useChatData(): ChatData {
   const submittingIds = useMemo(() => new Set(Object.keys(submittingTasks)), [submittingTasks])
 
   /**
-   * 渲染用消息（v0.39 §3）：同一任务只留最新一张审核卡。
+   * 已有待提交卡占位的任务（v0.41 §2.3）。
+   * `pendingSubmit` 本身就是「主进程真值 ∪ 提交中快照」，所以点提交之后的那几秒
+   * 任务虽然已变 `reviewing`，这个集合里仍然有它 → 旧审核卡不会闪回来。
+   */
+  const submitTaskIds = useMemo(
+    () => new Set(pendingSubmit.map(task => task.id)),
+    [pendingSubmit]
+  )
+
+  /**
+   * 渲染用消息（v0.39 §3 去重 + v0.41 §2.1 一任务一卡位）：
+   * 同一任务只留最新一张审核卡；已经有待提交卡的任务，审核卡整条不渲染。
    * 只过滤渲染数组——`messages` 与 `reviewViews`（按全量算 isLatest）都不动。
    */
-  const visibleMessages = useMemo(() => latestReviewOnly(messages), [messages])
+  const visibleMessages = useMemo(
+    () => visibleChatMessages(messages, submitTaskIds),
+    [messages, submitTaskIds]
+  )
+
+  /** 待提交卡的理由行（v0.41 §2.2）：taskId → 最近一次驳回要求补什么 */
+  const needEvidenceHint = useMemo(() => latestNeedEvidenceHint(messages), [messages])
 
   return {
     messages,
     visibleMessages,
+    needEvidenceHint,
     draftViews,
     reviewViews,
     pendingSubmit,

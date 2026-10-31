@@ -493,6 +493,35 @@ function appendReviewMessage(task: Task, verdict: ReviewVerdict): void {
 }
 
 /**
+ * 落审核卡前重读任务状态（v0.41 §4）。
+ *
+ * `review()` 开头那次 `requireTask` 是**调 AI 之前**的快照；AI 是一个 5–30s 的窗口，
+ * 期间任务可能已经离开 `reviewing`（用户点取消、sweeper 10 分钟退回、另一个窗口改走）。
+ * 那时再落卡，历史里就多出一张「不该存在的审核卡」——用户看到同一个任务两张卡。
+ *
+ * 两个落卡点（硬闸门、模型结论）**都必须走这里**，不许只在其中一处加校验。
+ * 不落卡时**仍然把 verdict 正常返回**：`ai.review` 的返回类型是冻结契约，不动；
+ * 要不要执行流转由渲染层重读后自己判断（reviewFlow §5）。
+ */
+function appendReviewIfReviewing(task: Task, verdict: ReviewVerdict): void {
+  let fresh: Task
+  try {
+    fresh = taskService.requireTask(task.id)
+  } catch (e) {
+    // 任务已经被删：没有可落的卡，但这不影响调用方拿到 verdict
+    console.warn('[ai] review 结果无法落卡（任务读不到）', task.id, e instanceof Error ? e.message : e)
+    return
+  }
+  if (fresh.status !== 'reviewing') {
+    console.warn(
+      `[ai] review 结果作废：任务已不在待确认（status=${fresh.status}），不落卡 task=${task.id}`
+    )
+    return
+  }
+  appendReviewMessage(task, verdict)
+}
+
+/**
  * `ai.review`：读任务 + 证据 → 硬闸门 → 模型 → 落一条 `task_review` 消息 → 返回 verdict。
  *
  * AI 只管判，不管钱：`pass → 入账` 是业务层拿到 verdict 之后的事（03 §4.2 那张表）。
@@ -505,7 +534,8 @@ export async function review(input: { taskId: string; userText?: string }): Prom
   if (gate !== null) {
     // 日志要能看出"这次没发请求"：这行就是判据
     console.log(`[ai] review 硬闸门命中，未发请求 task=${task.id}`)
-    appendReviewMessage(task, gate)
+    // 硬闸门也落卡，所以同样要过状态校验（v0.41 §4：两个落卡点不许只改一处）
+    appendReviewIfReviewing(task, gate)
     return gate
   }
 
@@ -516,7 +546,7 @@ export async function review(input: { taskId: string; userText?: string }): Prom
   })
 
   const verdict = toVerdict(data, task.type)
-  appendReviewMessage(task, verdict)
+  appendReviewIfReviewing(task, verdict)
   return verdict
 }
 

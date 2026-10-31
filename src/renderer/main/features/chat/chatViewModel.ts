@@ -166,16 +166,26 @@ export function localToDueHint(value: string): string {
 }
 
 /**
- * 同一任务只留**最新**一张审核卡（v0.39 §3）。
+ * 会话流里**该渲染**的消息（v0.39 §3 去重 + v0.41 §2.1 一任务一卡位）。
  *
- * 补证据后重审会为同一任务再落一条 `task_review` 消息，旧的不会消失——不滤就是上下
- * 两张卡（老卡的 `isLatest=false` 只是不显示按钮，卡还在）。规则：倒序扫出每个
- * `taskId` 最后一条审核消息的 id；正序输出时审核消息只保留命中的，非审核消息全留。
+ * 两条丢弃规则，按顺序：
+ * 1. 该 taskId 已被 `hiddenTaskIds` 命中 → 丢。待提交卡不是消息（它是 `pending_review`
+ *    派生的 `SubmitCard`，走 `MessageList` 的 tail），不拦的话同一个任务会同时占两个卡位：
+ *    一张旧审核卡 + 一张待提交卡。
+ * 2. 同一 taskId 不是**最后一条**审核消息 → 丢（v0.39 原规则，老卡的 `isLatest=false`
+ *    只是不显示按钮，卡本身还在）。
+ * 非审核消息一律保留。
+ *
+ * 第二个参数**必填、不给默认值**：给了默认值，下一个人忘了传就静默退回「一任务两卡」。
+ * 隐藏是按 `taskId` 判的，不是按消息 id——待提交卡根本没有消息 id。
  *
  * 放在纯函数模块里、入参出参都不可变：`tsconfig.test.json` 没有 DOM，hook 测不了。
- * 只过滤渲染数组，`useChatData.messages` 本身不动（翻页拼接还靠它）。
+ * 只过滤渲染数组，`useChatData.messages` 全量不动（翻页拼接与 `reviewViews.isLatest` 还靠它）。
  */
-export function latestReviewOnly(messages: Message[]): Message[] {
+export function visibleChatMessages(
+  messages: Message[],
+  hiddenTaskIds: ReadonlySet<string>
+): Message[] {
   const latestByTask = new Map<string, string>()
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const meta = messages[i].meta
@@ -185,8 +195,32 @@ export function latestReviewOnly(messages: Message[]): Message[] {
   return messages.filter(message => {
     const meta = message.meta
     if (meta.kind !== 'task_review') return true
+    if (hiddenTaskIds.has(meta.taskId)) return false
     return latestByTask.get(meta.taskId) === message.id
   })
+}
+
+/**
+ * 每个任务「最近一次驳回要求补什么」（v0.41 §2.2）：`taskId → followup`。
+ *
+ * 待提交卡要显示的理由行就取这里。只认**最新那条**审核消息：
+ * - 倒序扫，每个 taskId 第一次遇到的就是最新的，看完就 `seen` 掉；
+ * - 最新的不是 `need_evidence`（pass / partial / fail），或 `followup` 为空 → **不记这个 key**，
+ *   不记空串。调用方按「有没有 key」决定渲不渲染那一行，空串会让它渲染一个空 `<p>`。
+ */
+export function latestNeedEvidenceHint(messages: Message[]): Record<string, string> {
+  const hints: Record<string, string> = {}
+  const seen = new Set<string>()
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const meta = messages[i].meta
+    if (meta.kind !== 'task_review') continue
+    if (seen.has(meta.taskId)) continue
+    seen.add(meta.taskId)
+    if (meta.verdict.verdict !== 'need_evidence') continue
+    const followup = meta.verdict.followup
+    if (typeof followup === 'string' && followup.trim().length > 0) hints[meta.taskId] = followup
+  }
+  return hints
 }
 
 /**

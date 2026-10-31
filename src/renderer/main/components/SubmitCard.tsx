@@ -10,6 +10,12 @@ interface Props {
   task: Task
   /** 已转好的证据视图（附件元数据在 `useChatData` 的缓存里） */
   evidence: EvidenceView[]
+  /**
+   * 驳回理由（v0.41 §3）：来源是 `ChatData.needEvidenceHint[task.id]`，即该任务
+   * **最近一次** `need_evidence` 审核的 `followup`。null = 没有可显示的理由，整行不进 DOM。
+   * 旧审核卡被隐藏后，那句话就搬到这里，不丢。
+   */
+  hint: string | null
   /** 提交中（父层的 `submittingIds`）：两颗按钮与证据区一并禁用，不新增任何文字 */
   busy: boolean
   onPick(file: File): Promise<string | null>
@@ -29,7 +35,8 @@ const ERROR_MS = 2600
  * 之后卡片自然消失，历史里不留痕。
  *
  * 三条写死的规则：
- * - 没有 `reason` 行：此刻还没有 AI 结论，也不写"请提交证据""提交后由 AI 审核"这类说明。
+ * - `reason` 行只在**有驳回理由**时出现（v0.41 §3：`hint` 非空才进 DOM）。没有 AI 结论时
+ *   整行不存在，也不写"请提交证据""提交后由 AI 审核"这类说明。
  * - `[提交]` 在证据数为 0 时 `disabled`（灰、点不动）。v0.39 §4：此时按钮组最左多一行
  *   无证据小字（文案见下面 `.review-actions` 里的常量分支），证据数 ≥ 1 时**不进 DOM**
  *   （不是隐藏）。禁用逻辑本身不受影响。
@@ -38,6 +45,7 @@ const ERROR_MS = 2600
 export function SubmitCard({
   task,
   evidence,
+  hint,
   busy,
   onPick,
   onCancel,
@@ -74,6 +82,8 @@ export function SubmitCard({
           {TYPE_LABEL[task.type]} · {fmtPoints(task.pointsPlanned)}分
         </span>
       </div>
+
+      {hint ? <p className="review-reason">{hint}</p> : null}
 
       <EvidencePanel
         busy={disabled}
