@@ -1,4 +1,11 @@
-import type { Attachment, EventResult, Message, Task, TaskDraft } from '@shared/types/domain'
+import type {
+  Attachment,
+  ChatMode,
+  EventResult,
+  Message,
+  Task,
+  TaskDraft
+} from '@shared/types/domain'
 
 /** 草稿卡片里可就地修改的字段（04 §3.2：标题、类型、难度、时长、时间、每日结束日期） */
 export type DraftPatch = Partial<
@@ -110,6 +117,17 @@ export interface ChatData {
   hasMore: boolean
   loadingMore: boolean
   actions: ChatActions
-  send(text: string, attachments: Attachment[]): void
+  /**
+   * 当前模式（v0.37）：`task` 建任务（默认）/ `chat` 闲聊。
+   * **不持久化**——重启回 `task`；切换不清空输入框内容。
+   */
+  mode: ChatMode
+  /** 模式按钮点击：`task` ↔ `chat` */
+  toggleMode(): void
+  /**
+   * 发一条消息。`mode` 由调用方从 `mode` 状态透传（主进程不猜内容）；
+   * 省略时按 `'chat'`（02 §3.3）。
+   */
+  send(text: string, attachments: Attachment[], mode?: ChatMode): void
   loadMore(): void
 }

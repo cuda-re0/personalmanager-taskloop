@@ -1,8 +1,11 @@
 import type { ChatMessage } from '../provider'
 import { nowHint } from '../timeHint'
+import chatSystem from './chat.system.md?raw'
 import fewshot from './parse.fewshot.json'
 import parseSystem from './parse.system.md?raw'
+import memorySystem from './memory.system.md?raw'
 import reviewSystem from './review.system.md?raw'
+import summarizeSystem from './summarize.system.md?raw'
 import systemBase from './system.base.md?raw'
 
 /**
@@ -17,9 +20,23 @@ import systemBase from './system.base.md?raw'
  * 好处是这四个文件还能被架构方逐句审，不用在 TS 字符串里读 prompt。
  */
 
+/**
+ * 去掉文件头那条 `<!-- v1 … -->` 版本注释：它是给人看的，不该进 prompt。
+ * 只用于 v0.37 的三份新 prompt——`parse` / `review` 的现有文本一个字不动。
+ */
+function bodyOf(raw: string): string {
+  return raw.replace(/^\s*<!--[\s\S]*?-->\s*/, '').trim()
+}
+
 export const SYSTEM_BASE = systemBase
 export const PARSE_SYSTEM = parseSystem
 export const REVIEW_SYSTEM = reviewSystem
+/** v0.37：chat 管线的第五段（铁律），逐字来自 03 §4.3.1 */
+export const CHAT_RULES = bodyOf(chatSystem)
+/** v0.37：记忆自动提取的 system（03 §4.4） */
+export const MEMORY_SYSTEM = bodyOf(memorySystem)
+/** v0.37：摘要压缩的 system（01 §2.10） */
+export const SUMMARIZE_SYSTEM = bodyOf(summarizeSystem)
 
 /** 每组 prompt 的首行有版本注释，这里再导出一份便于埋点/日志核对 */
 export const PROMPT_VERSION = 'v1 2026-10-29'

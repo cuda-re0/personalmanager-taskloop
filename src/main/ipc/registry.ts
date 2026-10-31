@@ -11,6 +11,8 @@ import * as attachmentRepo from '../db/repositories/attachmentRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as messageService from '../services/messageService'
+import * as memoryService from '../services/memoryService'
+import * as personaService from '../services/personaService'
 import * as attachmentService from '../services/attachmentService'
 import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
@@ -26,10 +28,11 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 45 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 51 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
- * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**，
- * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33）；
+ * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**、
+ * **v0.37 起 persona 两条 + memory 四条**，
+ * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -99,7 +102,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 45 条
+ * WIRED：本轮接通的 51 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -441,7 +444,19 @@ const TABLE: Row[] = [
     const found = attachmentRepo.attachmentById(input.id)
     if (found === null) throw appError('NOT_FOUND', '附件不存在', { detail: input.id })
     return found
-  })
+  }),
+
+  /* ---------------- persona / memory（6，v0.37 · W12） ---------------- */
+  // 六条都**不广播域事件**：Persona 不是 settings，改动下一轮聊天自然生效（02 §3.8）；
+  // 记忆没有跨窗口消费者，界面入口要等 W12B。
+  row(CH.persona.get, g.personaGet, () => personaService.get()),
+  row(CH.persona.update, g.personaUpdate, input => personaService.update(input)),
+  row(CH.memory.list, g.memoryList, input => memoryService.list(input ?? {})),
+  row(CH.memory.add, g.memoryAdd, input => memoryService.addManual(input)),
+  row(CH.memory.update, g.memoryUpdate, input =>
+    memoryService.update(input.id, { contentMd: input.contentMd, kind: input.kind })
+  ),
+  row(CH.memory.remove, g.memoryRemove, input => memoryService.remove(input.id))
 ]
 
 /** 已接通的通道名（代码里的数据，供覆盖测试用） */

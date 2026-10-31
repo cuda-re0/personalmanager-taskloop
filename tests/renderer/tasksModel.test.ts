@@ -188,6 +188,7 @@ describe('pointsConfigOf（02 §5.2b：settings 的 points.* → 完整 PointsCo
   it('四个字段全部取自 settings，不许只传 dailyBase', () => {
     const cfg = pointsConfigOf({
       'ai.provider': { name: 'zhipu', model: 'glm-5.3-flash' },
+      'ai.chat.model': 'glm-4.7-flashx',
       'hud.mode': 'ball',
       'hud.displayId': null,
       'hud.position': { x: null, y: null },

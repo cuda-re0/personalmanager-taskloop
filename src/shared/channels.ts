@@ -85,6 +85,18 @@ export const CH = {
   /** 主进程 → 渲染进程的单向事件通道（DomainEvent） */
   bus: {
     event: 'bus:event'
+  },
+  /** 人物卡（v0.37）：v1 只有一张，读 + 局部改 */
+  persona: {
+    get: 'persona:get',
+    update: 'persona:update'
+  },
+  /** 长期记忆（v0.37）：增删改查，均不广播域事件 */
+  memory: {
+    list: 'memory:list',
+    add: 'memory:add',
+    update: 'memory:update',
+    remove: 'memory:remove'
   }
 } as const
 

@@ -21,7 +21,7 @@ describe('connection / 迁移', () => {
     openMemoryDb()
     try {
       const db = getDb()
-      expect(getUserVersion(db)).toBe(2)
+      expect(getUserVersion(db)).toBe(3)
 
       for (const name of ['migration.001_init', 'migration.002_ledger_reversed']) {
         const row = db.prepare('SELECT value FROM schema_meta WHERE key = ?').get(name) as
@@ -40,8 +40,8 @@ describe('connection / 迁移', () => {
     try {
       const db = getDb()
       // 再次跑一遍迁移等价于生产重启路径：已应用的版本必须跳过
-      expect(migrate(db)).toBe(2)
-      expect(getUserVersion(db)).toBe(2)
+      expect(migrate(db)).toBe(3)
+      expect(getUserVersion(db)).toBe(3)
     } finally {
       closeTestDb()
     }

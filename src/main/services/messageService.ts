@@ -74,6 +74,24 @@ export function listMessages(input: { before?: string; limit?: number } = {}): M
   return input.before ? messageRepo.listBefore(input.before, limit) : messageRepo.listRecent(limit)
 }
 
+/**
+ * 最近 N 条 `kind='text'`，时间升序（03 §4.3.1 的 chat 历史上下文）。
+ *
+ * `excludeId` 传本轮用户消息的 id：`msg.send` 是**先落 user 消息再跑 runTurn**，
+ * 不排掉它，同一句话会既在历史尾部、又作为本轮 user 再进一次 prompt。
+ */
+export function recentChatMessages(
+  limit = 20,
+  options: { excludeId?: string } = {}
+): Message[] {
+  return messageRepo.listRecentText(limit, options.excludeId)
+}
+
+/** 摘要窗口：`afterId` 之后的纯文本消息，时间升序（01 §2.10） */
+export function textMessagesAfter(afterId: string | null, limit = 200): Message[] {
+  return messageRepo.listTextAfter(afterId, limit)
+}
+
 export function attachFiles(messageId: string, attachmentIds: string[]): void {
   messageRepo.attachToMessage(messageId, attachmentIds)
 }

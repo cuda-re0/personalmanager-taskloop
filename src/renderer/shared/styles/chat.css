@@ -860,6 +860,7 @@
   gap: 8px;
 }
 
+/* [+] 保持 28×28 方形（v0.42：[模式] 要装四个字，宽度不再共用，故两条各写一套） */
 .ci-plus {
   flex: 0 0 auto;
   width: 28px;
@@ -875,6 +876,27 @@
 
 .ci-plus:hover {
   background: var(--bg-hover);
+}
+
+/* 模式按钮（v0.42）：宽度随文字，高度与 [+] 齐平；状态只由文字表达，两模式配色一致 */
+.ci-mode {
+  flex: 0 0 auto;
+  width: auto;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #c9dcfb;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.ci-mode:hover {
+  background: #dce9fd;
 }
 
 .ci-file-input {

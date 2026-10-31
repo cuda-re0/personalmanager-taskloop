@@ -84,6 +84,16 @@ const monthInput = { year: yearSchema, month: monthSchema }
 const qualitySchema = z.enum(['partial', 'met', 'exceeded'])
 
 /**
+ * 聊天模式（domain.ts 的 `ChatMode`）。**省略按 `'chat'`**（02 §3.3），
+ * 由 schema 的 `.default('chat')` 在这里落定——`aiService` 只认已经填好的值，
+ * 不在业务代码里再写一次 `?? 'chat'`（两处默认值迟早会分叉）。
+ */
+const chatModeSchema = z.enum(['chat', 'task']).default('chat')
+const personaToneSchema = z.enum(['warm', 'plain', 'playful'])
+const memoryKindSchema = z.enum(['profile', 'preference', 'fact'])
+const memorySourceSchema = z.enum(['auto', 'manual'])
+
+/**
  * 活动结果档（domain.ts 的 `EventResult`，02 §5）。zod 要的是运行期数组、无法从类型派生，
  * 所以在这里复写一份——`satisfies` 保证每个值都是合法的 `EventResult`（拼错即编译失败，
  * 例如写成 `'exceed'` 就不会被静默放行）。domain.ts 增删档位时两处同改。
@@ -245,9 +255,11 @@ export const g = {
     limit: z.number().int().min(1).optional()
   }),
   // msg.send / msg.retry（W4）：单条输入上限 4000 字、附件最多 4 张（03 §5）
+  // v0.37：加 `mode`，省略按 'chat'；主进程不从文本推断模式
   msgSend: z.object({
     text: z.string().min(1).max(4000),
-    attachmentIds: z.array(z.string()).max(4).optional()
+    attachmentIds: z.array(z.string()).max(4).optional(),
+    mode: chatModeSchema
   }),
   msgRetry: z.object({ messageId: z.string().min(1) }),
   // ai.*（W4，02 §3.4）
@@ -268,6 +280,24 @@ export const g = {
     sourcePath: z.string().optional()
   }),
   attachmentGet: z.object(idInput),
+  // 人物卡 / 记忆（v0.37）：**只拦类型与枚举，长度归 service**
+  // ——02 §3.8 的长度错误有面向用户的原句（「助手名字最多 20 个字」），
+  // 守卫拦出来的只有通用句「请求参数格式不正确」，会把可读的提示换掉。
+  personaGet: z.undefined(),
+  personaUpdate: z.object({
+    name: z.string().optional(),
+    userCall: z.string().optional(),
+    personaMd: z.string().optional(),
+    tone: personaToneSchema.optional()
+  }),
+  memoryList: z.object({ source: memorySourceSchema.optional() }).optional(),
+  memoryAdd: z.object({ contentMd: z.string(), kind: memoryKindSchema }),
+  memoryUpdate: z.object({
+    id: z.string(),
+    contentMd: z.string().optional(),
+    kind: memoryKindSchema.optional()
+  }),
+  memoryRemove: z.object(idInput),
   // points
   balance: z.undefined(),
   ledger: z.object({
@@ -335,6 +365,12 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.ai.health]: g.aiHealth,
   [CH.attachment.add]: g.attachmentAdd,
   [CH.attachment.get]: g.attachmentGet,
+  [CH.persona.get]: g.personaGet,
+  [CH.persona.update]: g.personaUpdate,
+  [CH.memory.list]: g.memoryList,
+  [CH.memory.add]: g.memoryAdd,
+  [CH.memory.update]: g.memoryUpdate,
+  [CH.memory.remove]: g.memoryRemove,
   [CH.points.balance]: g.balance,
   [CH.points.ledger]: g.ledger,
   [CH.points.monthStats]: g.monthStats,

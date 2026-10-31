@@ -4,6 +4,7 @@ import type { PointsConfig } from '@shared/points/rubric'
 import { snapDifficulty } from '@shared/taskRules'
 import type {
   Attachment,
+  ChatMode,
   EventResult,
   Message,
   ReviewVerdict,
@@ -12,6 +13,7 @@ import type {
   TaskDraft
 } from '@shared/types/domain'
 import type { ChatActions, ChatData, DraftPatch, DraftView, ReviewView } from './chatTypes'
+import { createTyper, type Typer } from './typewriter'
 import {
   TYPE_DEFAULT_OFFSETS,
   draftPointsOf,
@@ -35,7 +37,6 @@ import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtu
  * 拿到真消息后关闭 loadMore。
  */
 const PAGE = 20
-const THREAD = 'thread-demo'
 
 /**
  * 压测入口：?bulk=1000（03 验收：1000 条滚动 60fps）。仅开发构建生效，
@@ -196,7 +197,83 @@ export function useChatData(): ChatData {
   const [hasMore, setHasMore] = useState(() => bulkCount() === 0)
   const olderPool = useRef<Message[]>(bulkCount() === 0 ? makeOlderMessages(60) : [])
   const seq = useRef(0)
-  const ackTimer = useRef<number | null>(null)
+
+  /**
+   * 模式（v0.37）：`task` 建任务（默认）/ `chat` 闲聊。**不持久化**，重启回 `task`
+   * （04 §3.4.1：建任务是主行为，反过来会让用户第二天发一句话就被当闲聊）。
+   */
+  const [mode, setMode] = useState<ChatMode>('task')
+
+  const toggleMode = useCallback(() => {
+    setMode(prev => (prev === 'task' ? 'chat' : 'task'))
+  }, [])
+
+  /**
+   * 逐字显现的中间态（04 §3.4.2）：`messageId → 当前已显示的前缀`。
+   * **只改这里，不动 `messages`**——打完删 key，气泡自然回到完整 `contentMd`。
+   */
+  const [displayText, setDisplayText] = useState<Record<string, string>>({})
+  const typers = useRef<Record<string, Typer>>({})
+  const rafId = useRef<number | null>(null)
+  /**
+   * 本次会话内收到过 `ai.status` 的消息 id：只有它们才打字。
+   * `msg.list` / bootstrap 拉回的历史消息不在这个集合里，所以**一律不重放**。
+   */
+  const liveTurnIds = useRef<Set<string>>(new Set())
+
+  /** 停掉全部打字器（卸载 / 切换会话）。04 §3.4.2：切走再回来**不重放**，直接以完整文本渲染 */
+  const stopTyping = useCallback(() => {
+    for (const typer of Object.values(typers.current)) typer.stop()
+    typers.current = {}
+    if (rafId.current !== null) {
+      window.cancelAnimationFrame(rafId.current)
+      rafId.current = null
+    }
+    setDisplayText(prev => (Object.keys(prev).length === 0 ? prev : {}))
+  }, [])
+
+  /**
+   * 一个共享的 rAF 循环推进所有打字器。
+   * 不用"每条消息一个 `setInterval`"：多个气泡同时打字时它们的节拍会互相错开，
+   * 而且卸载时要逐个清。这里由 `typewriter.tick(now)` 自己按时间算字数。
+   */
+  const pumpTyping = useCallback(() => {
+    if (rafId.current !== null) return
+    const step = (): void => {
+      const now = performance.now()
+      const finished: string[] = []
+      for (const [id, typer] of Object.entries(typers.current)) {
+        typer.tick(now)
+        if (typer.done()) finished.push(id)
+      }
+      if (finished.length > 0) {
+        for (const id of finished) delete typers.current[id]
+        setDisplayText(prev => {
+          if (finished.every(id => prev[id] === undefined)) return prev
+          const next = { ...prev }
+          for (const id of finished) delete next[id]
+          return next
+        })
+      }
+      rafId.current =
+        Object.keys(typers.current).length > 0 ? window.requestAnimationFrame(step) : null
+    }
+    rafId.current = window.requestAnimationFrame(step)
+  }, [])
+
+  const startTyping = useCallback(
+    (id: string, text: string) => {
+      // 同一条消息只打一次：React 18 的严格模式会重复调用 updater，重复起会从头再来一遍
+      if (typers.current[id] !== undefined) return
+      typers.current[id] = createTyper({
+        text,
+        now: () => performance.now(),
+        onUpdate: partial => setDisplayText(prev => ({ ...prev, [id]: partial }))
+      })
+      pumpTyping()
+    },
+    [pumpTyping]
+  )
 
   /**
    * 拉一个任务进缓存（施工词 33 §2(a) 的三个刷新入口都走它）。
@@ -287,10 +364,8 @@ export function useChatData(): ChatData {
   }, [taskById, pendingList, attachmentById, fetchAttachment])
 
   useEffect(() => {
-    return () => {
-      if (ackTimer.current !== null) window.clearTimeout(ackTimer.current)
-    }
-  }, [])
+    return stopTyping
+  }, [stopTyping])
 
   // W5 接线①：分值配置换 bootstrap.settings 的完整 PointsConfig（v0.12 第 4 条），
   // 同时把真消息整体换进来（fixture 只在 IPC 不可用时保留）
@@ -335,11 +410,15 @@ export function useChatData(): ChatData {
   }, [fetchReviewTasks])
 
   /**
-   * 审核消息实时化（施工词 33 §2(c)）。
+   * 会话区的实时化（v0.37）：本单起 `msg.send` 是真调用、**不插乐观消息**，
+   * 用户气泡、占位气泡、草稿卡、错误消息全部靠事件进来。
    *
-   * **只处理** `message.appended` 且 `meta.kind === 'task_review'`：主进程每次 `ai.review`
-   * 都会落一条这样的消息，不订阅就得重启才看得见。其它事件类型一律忽略——发送链路的
-   * 实时化不在本单范围（乐观消息与 message.appended 会撞出两个气泡）。
+   * 三条订阅：
+   * - `message.appended`：按 id 去重后进列表；`task_review` 拉任务、`task_draft` 归一草稿；
+   * - `message.patch`：同 id 原地合入（`contentMd` / `status` / `meta`），
+   *   若是**本轮** assistant 从空变有内容 → 起打字器（历史消息不在 `liveTurnIds` 里，不重放）；
+   * - `ai.status`：thinking 记下这条 id 并置 `sending`，idle 收起（失败也发 idle）。
+   *
    * `task.created` / `task.updated` 只用来**原地替换缓存**（不额外打 IPC）。
    */
   useEffect(() => {
@@ -360,15 +439,63 @@ export function useChatData(): ChatData {
         setPendingList(prev => prev.filter(t => t.id !== e.taskId))
         return
       }
+      if (e.type === 'ai.status') {
+        if (e.phase === 'thinking' && e.messageId !== undefined) {
+          liveTurnIds.current.add(e.messageId)
+        }
+        setSending(e.phase !== 'idle')
+        return
+      }
+      if (e.type === 'message.patch') {
+        const messageId = e.messageId
+        const patch = e.patch
+        const nextContent = patch.contentMd
+        let typing: string | null = null
+        setMessages(prev =>
+          prev.map(message => {
+            if (message.id !== messageId) return message
+            const wasEmpty = message.contentMd.trim().length === 0
+            if (
+              message.role === 'assistant' &&
+              wasEmpty &&
+              typeof nextContent === 'string' &&
+              nextContent.trim().length > 0 &&
+              liveTurnIds.current.has(messageId)
+            ) {
+              typing = nextContent
+            }
+            return { ...message, ...patch }
+          })
+        )
+        if (typing !== null) {
+          // 一轮只打一次：从集合里摘掉，后续 patch（例如 meta 更新）不会再触发
+          liveTurnIds.current.delete(messageId)
+          startTyping(messageId, typing)
+        }
+        return
+      }
       if (e.type !== 'message.appended') return
       const message = e.message
-      if (message.meta.kind !== 'task_review') return
       setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]))
-      // 刷新时机④：新审核消息 → 拉它指向的任务
-      void fetchTask(message.meta.taskId)
+      if (message.meta.kind === 'task_review') {
+        // 刷新时机④：新审核消息 → 拉它指向的任务
+        void fetchTask(message.meta.taskId)
+      }
+      if (message.meta.kind === 'task_draft' && cfg !== null) {
+        // 建任务模式下主进程补的草稿卡：与 bootstrap 同一套归一（分值按 settings 重算）
+        const raw = message.meta.drafts
+        setDrafts(prev => {
+          const next = { ...prev }
+          for (const draft of raw) {
+            const normalized = normalizeDraft(draft, cfg)
+            next[normalized.localId] = normalized
+          }
+          return next
+        })
+      }
     })
     return off
-  }, [fetchTask])
+  }, [cfg, fetchTask, startTyping])
 
   const draftViews = useMemo(() => {
     const views: Record<string, DraftView> = {}
@@ -634,31 +761,35 @@ export function useChatData(): ChatData {
     ]
   )
 
-  const send = useCallback((text: string, attachments: Attachment[]) => {
-    const body = text.trim()
-    if (!body && attachments.length === 0) return
-    seq.current += 1
-    const id = `m-local-${seq.current}`
-    const userMessage: Message = {
-      id,
-      threadId: THREAD,
-      role: 'user',
-      kind: 'text',
-      contentMd: body,
-      meta: { kind: 'none' },
-      linkedTaskId: null,
-      status: 'sent',
-      attachments,
-      createdAt: new Date().toISOString()
-    }
-    setMessages(prev => [...prev, userMessage])
-    setSending(true)
-    // TODO(W2): 换成 api.msg.send({ threadId, contentMd, attachmentIds })，assistant 消息走事件流
-    ackTimer.current = window.setTimeout(() => {
-      setSending(false)
-      ackTimer.current = null
-    }, 600)
-  }, [])
+  /**
+   * 真发一条消息（v0.37）：只打 `msg.send`，**不插乐观气泡**——
+   * user / assistant 两条消息都由主进程 `message.appended` 推回来，插一份本地副本
+   * 就会变成两个气泡（v0.39 踩过一次）。
+   *
+   * `sending` 由 `ai.status` 收口：`thinking` 置真、`idle` 置假（失败也发 idle）。
+   * 附件本单不做上传，所以 `attachmentIds` 恒不传；只有附件没有文字的消息直接不发，
+   * 免得主进程吃一个 `INVALID_INPUT` 让用户看到一个空转的细环。
+   */
+  const send = useCallback(
+    (text: string, _attachments: Attachment[], nextMode: ChatMode = mode) => {
+      const body = text.trim()
+      if (body.length === 0) return
+      setSending(true)
+      void window.api.msg
+        .send({ text: body, mode: nextMode })
+        .then(res => {
+          if (!res.ok) {
+            setSending(false)
+            console.error('[chat] msg.send 失败', res.error)
+          }
+        })
+        .catch((e: unknown) => {
+          setSending(false)
+          console.error('[chat] msg.send 调用失败', e)
+        })
+    },
+    [mode]
+  )
 
   const loadMore = useCallback(() => {
     const pool = olderPool.current
@@ -692,14 +823,24 @@ export function useChatData(): ChatData {
   )
 
   /**
-   * 渲染用消息（v0.39 §3 去重 + v0.41 §2.1 一任务一卡位）：
+   * 渲染用消息（v0.39 §3 去重 + v0.41 §2.1 一任务一卡位 + v0.37 逐字显现）：
    * 同一任务只留最新一张审核卡；已经有待提交卡的任务，审核卡整条不渲染。
    * 只过滤渲染数组——`messages` 与 `reviewViews`（按全量算 isLatest）都不动。
+   *
+   * **顺序写死**：先 `visibleChatMessages` 过滤，再做打字替换。
+   * 反过来会让被隐藏的审核卡借着 `displayText` 溜回渲染数组。
+   * 替换时**只有正在打字那一条**造新对象，其余原样返回原引用——
+   * `MessageItem` 是 `memo`，`{...m}` 会让 20 条全部重渲染并重新测量，打字时整列会抖。
    */
-  const visibleMessages = useMemo(
-    () => visibleChatMessages(messages, submitTaskIds),
-    [messages, submitTaskIds]
-  )
+  const visibleMessages = useMemo(() => {
+    const base = visibleChatMessages(messages, submitTaskIds)
+    if (Object.keys(displayText).length === 0) return base
+    return base.map(message =>
+      displayText[message.id] === undefined
+        ? message
+        : { ...message, contentMd: displayText[message.id] }
+    )
+  }, [messages, submitTaskIds, displayText])
 
   /** 待提交卡的理由行（v0.41 §2.2）：taskId → 最近一次驳回要求补什么 */
   const needEvidenceHint = useMemo(() => latestNeedEvidenceHint(messages), [messages])
@@ -718,6 +859,8 @@ export function useChatData(): ChatData {
     // 本地 mock 是同步的；W2 换成真接口后这里接 loading 态
     loadingMore: false,
     actions,
+    mode,
+    toggleMode,
     send,
     loadMore
   }

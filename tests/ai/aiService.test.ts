@@ -103,7 +103,7 @@ describe('aiService', () => {
     aiService.setKeyProbe(() => true)
 
     const started = Date.now()
-    const result = aiService.send({ text: '明天下午三点前把季度报告初稿写完' })
+    const result = aiService.send({ mode: 'task', text: '明天下午三点前把季度报告初稿写完' })
     const elapsed = Date.now() - started
 
     expect(elapsed).toBeLessThan(100)
@@ -119,7 +119,7 @@ describe('aiService', () => {
   it('成功一轮：一句回复 + 一条草稿卡消息 + tokens 落到 messages + idle 收尾', async () => {
     aiService.setProvider(scriptedProvider([() => PARSE_OK]))
 
-    const { assistantMessageId } = aiService.send({ text: '明天下午三点前把季度报告初稿写完' })
+    const { assistantMessageId } = aiService.send({ mode: 'task', text: '明天下午三点前把季度报告初稿写完' })
     await waitFor(() => phases(events).includes('idle'))
 
     // 占位消息原地 patch 成回复（kind 列是 text，改不了，所以草稿卡是另一条消息）
@@ -162,7 +162,7 @@ describe('aiService', () => {
       ])
     )
 
-    const { assistantMessageId } = aiService.send({ text: '明天下午三点前把季度报告初稿写完' })
+    const { assistantMessageId } = aiService.send({ mode: 'task', text: '明天下午三点前把季度报告初稿写完' })
     await waitFor(() => phases(events).includes('idle'))
 
     const all = messageService.listMessages({ limit: 10 })
@@ -194,7 +194,7 @@ describe('aiService', () => {
       ])
     )
 
-    const { assistantMessageId } = aiService.send({ text: '明天下午三点前把季度报告初稿写完' })
+    const { assistantMessageId } = aiService.send({ mode: 'task', text: '明天下午三点前把季度报告初稿写完' })
     await waitFor(() => phases(events).includes('idle'))
 
     const errorMessage = messageService.listMessages({ limit: 10 }).find(m => m.kind === 'error')

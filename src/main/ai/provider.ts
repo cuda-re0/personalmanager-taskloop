@@ -43,8 +43,30 @@ export interface ChatJsonResult<T> {
   latencyMs: number
 }
 
+/**
+ * `chatText` 的入参（03 §3.1，v0.37）。
+ *
+ * **没有 `model`**：模型是 client 构造时的属性（`aiService` 按用途各缓存一个 client），
+ * 放到每次调用里等于把配置读取散到每个调用点，也就没法保证"聊天永远用 ai.chat.model"。
+ */
+export interface ChatTextOptions {
+  messages: ChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  signal?: AbortSignal
+}
+
+export interface ChatTextResult {
+  /** 已 trim；空字符串视为失败（03 §4.3.2），不许拿空串去 patch 消息 */
+  text: string
+  usage: ChatUsage
+  latencyMs: number
+}
+
 export interface AiProvider {
   chatJson<T>(opts: ChatJsonOptions<T>): Promise<ChatJsonResult<T>>
+  /** 纯文本回复（v0.37）：不套 JSON、不做 zod 校验，只剥围栏 + trim + 空串报 AI_PARSE_FAILED */
+  chatText(opts: ChatTextOptions): Promise<ChatTextResult>
 }
 
 /**

@@ -294,3 +294,44 @@ export interface ReminderPayload {
   offsetLabel: string // '前 1 天' / '前 1 小时' / '每日 21:00'
   level: ReminderLevel
 }
+
+/* ------------------------------------------------------------------ *
+ * §2.11 聊天侧实体（v0.37 · 02 §2）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 聊天模式（v0.37）：**只由输入区的模式按钮决定**，禁止从文本内容推断。
+ * 省略按 `'chat'`（02 §3.3）。
+ */
+export type ChatMode = 'chat' | 'task'
+
+/** 人物卡语气档（v0.37）。只影响 03 §4.3 里的一句语气指令，不参与任何业务判断 */
+export type PersonaTone = 'warm' | 'plain' | 'playful'
+
+/** 人物卡（v0.37）。表支持多张，v1 只有一行 `isActive: true` */
+export interface Persona {
+  id: string
+  name: string // 助手名字，1~20 字
+  userCall: string // 怎么称呼用户，空串 = 用「你」
+  personaMd: string // 用户自己写的人设正文，≤ 800 字，原样进 prompt
+  tone: PersonaTone
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** 记忆分类（v0.37）：profile=我是谁 / preference=我怎么被对待 / fact=可核对的事实 */
+export type MemoryKind = 'profile' | 'preference' | 'fact'
+
+/** 记忆来源（v0.37）：auto=模型自动提取，manual=用户手写。存储上完全平等，只用于区分与筛除 */
+export type MemorySource = 'auto' | 'manual'
+
+export interface Memory {
+  id: string
+  contentMd: string // 一条一句话，≤ 120 字，**全局唯一**
+  kind: MemoryKind
+  source: MemorySource
+  hits: number // 被带进 system prompt 的次数，淘汰依据
+  createdAt: string
+  updatedAt: string
+}

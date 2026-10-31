@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, ReactElement } from 'react'
-import type { Attachment } from '@shared/types/domain'
+import type { Attachment, ChatMode } from '@shared/types/domain'
 import { mimeExt } from '../features/chat/chatViewModel'
 
 const MAX_LINES = 6
@@ -9,7 +9,10 @@ const MAX_HEIGHT = MAX_LINES * LINE_HEIGHT
 
 interface Props {
   sending: boolean
+  /** 双模式开关（v0.42）：只决定按钮上的文字，不改输入行为 */
+  mode: ChatMode
   onSend(text: string, attachments: Attachment[]): void
+  onToggleMode(): void
 }
 
 let localSeq = 0
@@ -28,7 +31,7 @@ function toAttachment(file: File): Attachment {
 }
 
 /** 04 §3.4 输入区：1~6 行自适应、Enter 发送 / Shift+Enter 换行、粘贴与拖入图、发送中禁用 */
-export function ChatInput({ sending, onSend }: Props): ReactElement {
+export function ChatInput({ sending, mode, onSend, onToggleMode }: Props): ReactElement {
   const [value, setValue] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
   const areaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -141,6 +144,16 @@ export function ChatInput({ sending, onSend }: Props): ReactElement {
           ref={fileRef}
           type="file"
         />
+        {/* v0.42 模式按钮：状态只由按钮文字表达，两种模式配色一致。
+            点击只切状态——输入框文字与已选附件都在本组件的 state 里，不会被它重置 */}
+        <button
+          aria-pressed={mode === 'chat'}
+          className={`ci-mode ${mode === 'chat' ? 'ci-mode--chat' : 'ci-mode--task'}`}
+          onClick={onToggleMode}
+          type="button"
+        >
+          {mode === 'chat' ? '聊天模式' : '任务模式'}
+        </button>
         <textarea
           aria-label="消息"
           className="ci-textarea"

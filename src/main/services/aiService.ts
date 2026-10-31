@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type {
+  ChatMode,
   Evidence,
   Message,
   MessageMeta,
@@ -31,6 +32,7 @@ import {
   toVerdict,
   type ReviewEvidencePart
 } from '../ai/pipelines/review'
+import { runChat } from '../ai/pipelines/chat'
 import { isAbortError, type AiProvider } from '../ai/provider'
 import { ParseResultSchema, reviewResultSchema } from '../ai/schema'
 import * as attachmentService from './attachmentService'
@@ -75,13 +77,61 @@ function isConfigured(): boolean {
   return readKey() !== null
 }
 
-function currentProvider(): AiProvider {
-  if (injectedProvider !== null) return injectedProvider
+/** chat 的重量级参数（03 §4.3.2）：非推理模型，比 chatJson 的 60s 短 */
+const CHAT_TIMEOUT_MS = 30_000
+
+interface CachedClient {
+  /** `apiKey|model|timeout` —— 任何一项变了就重建，配置改完下一轮就生效 */
+  key: string
+  client: AiProvider
+}
+
+let parseClient: CachedClient | null = null
+let chatClient: CachedClient | null = null
+
+function requireApiKey(): string {
   const apiKey = readKey()
   if (apiKey === null) {
     throw appError('AI_NOT_CONFIGURED', AI_COPY.notConfigured, { retryable: false })
   }
-  return new GlmClient({ apiKey, model: settingRepo.get('ai.provider').model })
+  return apiKey
+}
+
+/**
+ * 按用途取 client（03 §3.1）：`parse` / `review` 用 `ai.provider.model`（要推理、要识图），
+ * `chat` / 记忆 / 摘要用 `ai.chat.model`（纯文本、便宜）。
+ *
+ * **模块级缓存**：每轮 `new GlmClient` 会让 20 条消息的会话反复重建连接池，
+ * 也会让"配置改了什么时候生效"变得不可预期。key 里带上模型名，改了自然重建。
+ * 渲染层永远不传模型名——它连这个字段都拿不到。
+ */
+function parseProvider(): AiProvider {
+  if (injectedProvider !== null) return injectedProvider
+  const apiKey = requireApiKey()
+  const model = settingRepo.get('ai.provider').model
+  const key = `${apiKey}|${model}|parse`
+  if (parseClient === null || parseClient.key !== key) {
+    parseClient = { key, client: new GlmClient({ apiKey, model }) }
+  }
+  return parseClient.client
+}
+
+function chatProvider(): AiProvider {
+  if (injectedProvider !== null) return injectedProvider
+  const apiKey = requireApiKey()
+  const model = settingRepo.get('ai.chat.model')
+  const key = `${apiKey}|${model}|chat`
+  if (chatClient === null || chatClient.key !== key) {
+    chatClient = {
+      key,
+      client: new GlmClient({ apiKey, model, timeoutMs: CHAT_TIMEOUT_MS })
+    }
+  }
+  return chatClient.client
+}
+
+function currentProvider(): AiProvider {
+  return parseProvider()
 }
 
 /* ------------------------------------------------------------------ *
@@ -163,6 +213,8 @@ function contextBefore(userMessageId: string): Message[] {
 export interface SendInput {
   text: string
   attachmentIds?: string[]
+  /** 省略按 `'chat'`（02 §3.3）：模式只由输入区按钮决定，主进程不看文本内容 */
+  mode?: ChatMode
 }
 
 export interface SendResult {
@@ -175,6 +227,7 @@ interface TurnInput {
   assistantMessageId: string
   text: string
   attachmentIds: string[]
+  mode: ChatMode
 }
 
 /**
@@ -210,7 +263,9 @@ export function send(input: SendInput): SendResult {
     userMessageId: userMessage.id,
     assistantMessageId: assistant.id,
     text,
-    attachmentIds
+    attachmentIds,
+    // 守卫已把缺省值落成 'chat'（`chatModeSchema.default('chat')`），这里不再写第二遍默认真值
+    mode: input.mode ?? 'chat'
   }).catch(e => {
     // runTurn 内部已收口；这里只兜"连 thinking 都发不出去"的极端情况
     console.error('[ai] 后台轮次异常逃逸', e)
@@ -279,7 +334,11 @@ function locateTurn(messageId: string): TurnInput {
     userMessageId: userMessage.id,
     assistantMessageId,
     text: userMessage.contentMd,
-    attachmentIds: messageService.listAttachments(userMessage.id).map(item => item.id)
+    attachmentIds: messageService.listAttachments(userMessage.id).map(item => item.id),
+    // `retry` 没有 mode 入参（02 §3.3 只给 send 加了 mode），历史行为就是重建任务，
+    // 所以这里固定 'task'。要按轮次记住模式得给 messages 表加列——那是另一张单的事；
+    // 反过来写成 'chat' 会让「重试失败的建任务」静默失去草稿卡，比"重试拿到任务回复"更糟。
+    mode: 'task'
   }
 }
 
@@ -313,6 +372,18 @@ function appendDraftMessage(drafts: TaskDraft[]): void {
 async function runTurn(input: TurnInput): Promise<void> {
   broadcast({ type: 'ai.status', phase: 'thinking', messageId: input.assistantMessageId })
   try {
+    // 分派只看 `mode`：**不许**在这里或任何上游看用户说了什么（v0.37 §2 第 4 条）
+    if (input.mode === 'chat') {
+      await runChat({
+        userMessageId: input.userMessageId,
+        assistantMessageId: input.assistantMessageId,
+        text: input.text,
+        provider: chatProvider(),
+        patchAssistant
+      })
+      return
+    }
+
     const provider = currentProvider()
     const cfg = pointsService.pointsConfig()
     const request = buildParseRequest({

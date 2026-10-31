@@ -54,7 +54,12 @@ export function ChatPanel(): ReactElement {
           tail={tail}
         />
       )}
-      <ChatInput onSend={data.send} sending={data.sending} />
+      <ChatInput
+        mode={data.mode}
+        onSend={(text, attachments) => data.send(text, attachments, data.mode)}
+        onToggleMode={data.toggleMode}
+        sending={data.sending}
+      />
     </section>
   )
 }

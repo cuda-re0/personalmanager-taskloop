@@ -1,7 +1,14 @@
 import type { ZodType } from 'zod'
 import { appError } from '../db/errors'
 import { AI_COPY } from './copy'
-import type { AiProvider, ChatJsonOptions, ChatJsonResult, ChatMessage } from './provider'
+import type {
+  AiProvider,
+  ChatJsonOptions,
+  ChatJsonResult,
+  ChatMessage,
+  ChatTextOptions,
+  ChatTextResult
+} from './provider'
 import { AiAbortedError } from './provider'
 
 /**
@@ -186,6 +193,90 @@ export class GlmClient implements AiProvider {
         this.apiKey
       )
     })
+  }
+
+  /**
+   * `chatText`：纯文本回复（03 §3.1 v0.37）。
+   *
+   * 与 `chatJson` 只差三处：body 不带 `response_format`、结果不解析 JSON、
+   * 只做「剥围栏 → trim → 空串报 AI_PARSE_FAILED」。**`chatJson` 的实现一个字没动。**
+   */
+  async chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
+    const started = Date.now()
+    const outcome = await this.requestText(opts.messages, opts)
+    const text = stripFence(outcome.content).trim()
+    if (text.length === 0) {
+      throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
+        retryable: true,
+        detail: `chatText 输出为空（finish_reason=${outcome.finishReason}，out=${outcome.usage.out} tokens）`
+      })
+    }
+    return { text, usage: outcome.usage, latencyMs: Date.now() - started }
+  }
+
+  /** 一次 HTTP 往返（纯文本）。超时/鉴权/状态码映射与 `request` 同一套口径 */
+  private async requestText(
+    messages: ChatMessage[],
+    opts: ChatTextOptions
+  ): Promise<RequestOutcome> {
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, this.timeoutMs)
+    const onOuterAbort = (): void => controller.abort()
+    if (opts.signal?.aborted) controller.abort()
+    opts.signal?.addEventListener('abort', onOuterAbort, { once: true })
+
+    const body = {
+      model: this.model,
+      messages,
+      temperature: opts.temperature ?? 0.8,
+      max_tokens: opts.maxTokens ?? this.maxTokens
+    }
+
+    let response: Response
+    try {
+      response = await this.fetchImpl(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+    } catch (e) {
+      if (opts.signal?.aborted && !timedOut) throw new AiAbortedError()
+      if (timedOut) {
+        throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+          retryable: true,
+          detail: `请求超时（${this.timeoutMs}ms）`
+        })
+      }
+      throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+        retryable: true,
+        detail: scrub(e instanceof Error ? e.message : String(e), this.apiKey)
+      })
+    } finally {
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onOuterAbort)
+    }
+
+    if (!response.ok) throw await this.httpError(response)
+
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch (e) {
+      throw appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, {
+        retryable: true,
+        detail: `响应体不是 JSON（${e instanceof Error ? e.message : String(e)}）`
+      })
+    }
+
+    return this.readOutcome(payload)
   }
 
   /** 一次 HTTP 往返。鉴权、超时、状态码映射都在这里，失败一律抛 AppErrorException */

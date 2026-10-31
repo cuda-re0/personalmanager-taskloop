@@ -11,9 +11,9 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 45 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(45)
-    expect(new Set(WIRED_CHANNELS).size).toBe(45)
+  it('WIRED 有 51 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条）', () => {
+    expect(WIRED_CHANNELS.length).toBe(51)
+    expect(new Set(WIRED_CHANNELS).size).toBe(51)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
@@ -31,6 +31,17 @@ describe('registry 通道覆盖', () => {
       CH.ai.rejectDrafts,
       CH.ai.review,
       CH.ai.health
+    ]) {
+      expect(WIRED_CHANNELS).toContain(ch)
+    }
+    // v0.37：人物卡两条 + 记忆四条
+    for (const ch of [
+      CH.persona.get,
+      CH.persona.update,
+      CH.memory.list,
+      CH.memory.add,
+      CH.memory.update,
+      CH.memory.remove
     ]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }

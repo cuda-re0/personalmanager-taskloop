@@ -6,9 +6,11 @@ import type {
   DayIndexEntry,
   DayStat,
   DayTaskItem,
+  Memory,
   Message,
   NotifyChannel,
   Occurrence,
+  Persona,
   PointEntry,
   Reminder,
   ReviewVerdict,
@@ -123,6 +125,19 @@ const api: Api = {
         displayId: number
         visible: boolean
       }>(CH.hud.getState)
+  },
+
+  /** 人物卡 / 长期记忆（v0.37）：本单只交付数据与 IPC，界面入口在 W12B */
+  persona: {
+    get: () => invoke<Persona>(CH.persona.get),
+    update: input => invoke<Persona>(CH.persona.update, input)
+  },
+
+  memory: {
+    list: input => invoke<Memory[]>(CH.memory.list, input),
+    add: input => invoke<Memory>(CH.memory.add, input),
+    update: input => invoke<Memory>(CH.memory.update, input),
+    remove: input => invoke<void>(CH.memory.remove, input)
   },
 
   onEvent: cb => {

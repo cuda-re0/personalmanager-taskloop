@@ -1,14 +1,20 @@
 import type {
   Attachment,
+  ChatMode,
   DayIndexEntry,
   DayStat,
   DayTaskItem,
   Difficulty,
   EventResult,
   Evidence,
+  Memory,
+  MemoryKind,
+  MemorySource,
   Message,
   NotifyChannel,
   Occurrence,
+  Persona,
+  PersonaTone,
   PointEntry,
   Quality,
   Reminder,
@@ -101,6 +107,11 @@ export interface WebhookConfig {
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string }
+  /**
+   * 聊天模型（v0.37，第 18 个 key）：`chat` 管线与记忆提取用它，与上面那个**分开**。
+   * 默认 `glm-4.7-flashx`（纯文本、非推理、便宜）；`chatJson` 仍走 `ai.provider.model`。
+   */
+  'ai.chat.model': string
   'hud.mode': HudMode
   'hud.displayId': number | null
   'hud.position': { x: number | null; y: number | null }
@@ -206,9 +217,14 @@ export interface Api {
   }
 
   msg: {
+    /**
+     * `mode` 省略按 `'chat'`（02 §3.3）：模式只由输入区按钮决定，
+     * 主进程**不从文本内容推断**。`task` 走 parse 管线出草稿卡，`chat` 走纯文本管线。
+     */
     send(input: {
       text: string
       attachmentIds?: string[]
+      mode?: ChatMode
     }): Promise<IpcResult<{ userMessage: Message; assistantMessageId: string }>>
     retry(input: { messageId: string }): Promise<IpcResult<void>>
     list(input: { before?: string; limit?: number }): Promise<IpcResult<Message[]>>
@@ -279,6 +295,31 @@ export interface Api {
     dragTo(input: { x: number; y: number; end: boolean }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
     getState(): Promise<IpcResult<{ mode: HudMode; displayId: number; visible: boolean }>>
+  }
+
+  /**
+   * 人物卡（v0.37）。`get` 在表空时**就地建默认行**再返回，不报错；
+   * `update` 是局部更新，只写传了的字段，长度校验在主进程。
+   */
+  persona: {
+    get(): Promise<IpcResult<Persona>>
+    update(input: {
+      name?: string
+      userCall?: string
+      personaMd?: string
+      tone?: PersonaTone
+    }): Promise<IpcResult<Persona>>
+  }
+
+  /**
+   * 长期记忆（v0.37）。`list` 按 `updatedAt` 降序，不传 `source` = 全部；
+   * `add` 的 `source` 恒为 `'manual'`（主进程写死，渲染层传了也忽略）。
+   */
+  memory: {
+    list(input: { source?: MemorySource }): Promise<IpcResult<Memory[]>>
+    add(input: { contentMd: string; kind: MemoryKind }): Promise<IpcResult<Memory>>
+    update(input: { id: string; contentMd?: string; kind?: MemoryKind }): Promise<IpcResult<Memory>>
+    remove(input: { id: string }): Promise<IpcResult<void>>
   }
 
   /** 唯一事件入口，返回取消订阅函数 */

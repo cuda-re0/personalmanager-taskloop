@@ -84,7 +84,12 @@ describe('guards（zod 形状校验）', () => {
       expect(guards[ch], `${ch} 缺守卫`).toBeDefined()
     }
     // 附件最多 4 张（03 §5）、正文 4000 字上限
-    expect(parseInput(g.msgSend, { text: '写周报' })).toEqual({ text: '写周报' })
+    // v0.37：`mode` 省略时由守卫落成 'chat'（02 §3.3），业务代码不再写第二遍默认值
+    expect(parseInput(g.msgSend, { text: '写周报' })).toEqual({ text: '写周报', mode: 'chat' })
+    expect(parseInput(g.msgSend, { text: '写周报', mode: 'task' })).toEqual({
+      text: '写周报',
+      mode: 'task'
+    })
     expectErrorCode(() => parseInput(g.msgSend, { text: '' }), 'INVALID_INPUT')
     expectErrorCode(() => parseInput(g.msgSend, { text: 'x', attachmentIds: ['a', 'b', 'c', 'd', 'e'] }), 'INVALID_INPUT')
     // rejectDrafts 至少给一个 localId

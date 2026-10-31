@@ -1,4 +1,10 @@
-import type { ChatJsonOptions, ChatJsonResult, AiProvider } from '../../src/main/ai/provider'
+import type {
+  ChatJsonOptions,
+  ChatJsonResult,
+  ChatTextOptions,
+  ChatTextResult,
+  AiProvider
+} from '../../src/main/ai/provider'
 
 /**
  * 测试用的假 provider 与假 fetch。
@@ -70,23 +76,32 @@ export function fakeFetch(responses: ResponseFactory[]): FakeFetch {
 /** 一个永远不 resolve 的 provider：用来验"send 不等 AI" */
 export function hangingProvider(): AiProvider {
   return {
-    chatJson: <T>() => new Promise<ChatJsonResult<T>>(() => undefined)
+    chatJson: <T>() => new Promise<ChatJsonResult<T>>(() => undefined),
+    chatText: () => new Promise<ChatTextResult>(() => undefined)
   }
 }
 
 export interface ScriptedProvider extends AiProvider {
   calls: number
   options: Array<ChatJsonOptions<never>>
+  /** `chatText` 的入参（验证 system 五段拼装用） */
+  textOptions: ChatTextOptions[]
+  /** 逐条消费；用完后重复最后一条。默认 `'好的。'` */
+  replies: string[]
 }
 
 /**
  * 按脚本返回的 provider：脚本项是 `(opts) => data`，抛异常就当作 provider 失败。
  * 返回值由调用方保证符合 schema——这一层模拟的是"已经过 zod 的 provider"。
+ *
+ * v0.37：`chatText` 也在这里给一份，否则 `AiProvider` 少方法、`chat` 管线测不了。
  */
 export function scriptedProvider(script: Array<(opts: ChatJsonOptions<never>) => unknown>): ScriptedProvider {
   const provider = {
     calls: 0,
     options: [] as Array<ChatJsonOptions<never>>,
+    textOptions: [] as ChatTextOptions[],
+    replies: ['好的。'] as string[],
     chatJson: async <T>(opts: ChatJsonOptions<T>): Promise<ChatJsonResult<T>> => {
       const index = Math.min(provider.calls, script.length - 1)
       provider.calls += 1
@@ -94,6 +109,11 @@ export function scriptedProvider(script: Array<(opts: ChatJsonOptions<never>) =>
       const step = script[index]
       const data = step(opts as ChatJsonOptions<never>)
       return { data: data as T, usage: { in: 42, out: 128 }, latencyMs: 12 }
+    },
+    chatText: async (opts: ChatTextOptions): Promise<ChatTextResult> => {
+      provider.textOptions.push(opts)
+      const index = Math.min(provider.textOptions.length - 1, provider.replies.length - 1)
+      return { text: provider.replies[index], usage: { in: 42, out: 128 }, latencyMs: 12 }
     }
   }
   return provider as ScriptedProvider

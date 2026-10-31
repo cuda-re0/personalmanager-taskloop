@@ -121,9 +121,57 @@ export function listByThread(threadId: string, limit = 30): Message[] {
   return hydrate(rows.reverse())
 }
 
+/**
+ * 最近 N 条**纯文本**消息，按时间升序返回（chat 管线的历史上下文）。
+ *
+ * `task_draft` / `task_review` / `reminder` / `error` 全部排除：它们不是"说过的话"，
+ * 拼进 messages 数组会让模型以为自己在输出 JSON。
+ * `excludeId` 用于踢掉本轮刚落的 user 消息——否则同一句会在历史与本轮里各出现一次。
+ */
+export function listRecentText(limit = 20, excludeId?: string): Message[] {
+  const rows = (
+    excludeId === undefined
+      ? getDb()
+          .prepare(
+            `${SELECT_MESSAGE} WHERE kind = 'text' ORDER BY created_at DESC, rowid DESC LIMIT ?`
+          )
+          .all(limit)
+      : getDb()
+          .prepare(
+            `${SELECT_MESSAGE} WHERE kind = 'text' AND id <> ?
+             ORDER BY created_at DESC, rowid DESC LIMIT ?`
+          )
+          .all(excludeId, limit)
+  ) as MessageRow[]
+  return hydrate(rows.reverse())
+}
+
 export function countAll(): number {
   const row = getDb().prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }
   return row.n
+}
+
+/**
+ * 摘要窗口：`afterId` 之后的**纯文本**消息，时间升序（01 §2.10）。
+ *
+ * `afterId === null` 表示还没摘要过，从头取。锚点用 rowid 而不是 id：
+ * `created_at` 只有毫秒精度，同毫秒的两条按 id 比是随机的。
+ */
+export function listTextAfter(afterId: string | null, limit = 200): Message[] {
+  if (afterId === null) {
+    const rows = getDb()
+      .prepare(`${SELECT_MESSAGE} WHERE kind = 'text' ORDER BY created_at ASC, rowid ASC LIMIT ?`)
+      .all(limit) as MessageRow[]
+    return hydrate(rows)
+  }
+  const anchor = getDb().prepare('SELECT rowid AS rid FROM messages WHERE id = ?').get(afterId) as
+    | { rid: number }
+    | undefined
+  if (!anchor) return []
+  const rows = getDb()
+    .prepare(`${SELECT_MESSAGE} WHERE kind = 'text' AND rowid > ? ORDER BY rowid ASC LIMIT ?`)
+    .all(anchor.rid, limit) as MessageRow[]
+  return hydrate(rows)
 }
 
 /* attachments 的数据访问已迁到 `attachmentRepo.ts`（W11），见文件头的转出说明 */
