@@ -427,7 +427,7 @@ export type PublicSettings = AppSettings;
 
 **关于 `AppSettings` 的 key 数量**：01 §2.7 列出 18 条，本节定型 **18 条**（v0.37 起；v0.30 时是 17 条，新增的一条是 `ai.chat.model`）。少的那条是 `ai.apiKey`——它存 `safeStorage`、不入 settings 表，因此不进类型，也不在 01 §2.7 的 key 表里。这不是漏写；反过来，密钥因此不可能出现在 IPC 载荷上。
 
-**`ai.apiKey` 的读取优先级（v0.22）**：`safeStorage` 文件 > `process.env.ZHIPU_API_KEY`（开发期由 `.env.local` 提供，该文件已被 gitignore）> 未配置（`ai.health` 返回 `configured: false`，`ai.*` 调用返回 `AI_NOT_CONFIGURED`）。v1 不提供"界面输入 key"的通道——设置页还不存在，加了没人调；`writeKey()` 写好导出留着即可，**不许注册成 IPC**。详见 `03-AI-CONTRACT.md` §9.7。
+**`ai.apiKey` 的读取优先级（v0.22）**：`safeStorage` 文件 > `process.env.ZHIPU_API_KEY`（开发期由 `.env.local` 提供，该文件已被 gitignore）> 未配置（`ai.health` 返回 `configured: false`，`ai.*` 调用返回 `AI_NOT_CONFIGURED`）。v1 不提供"界面输入 key"的通道——设置页还不存在，加了没人调；`writeKey()` 写好导出留着即可，**不许注册成 IPC**。v0.44 设置抽屉已落地，但这条**不变**：抽屉的 AI 块只读（`ai.keyStatus` 只答"配没配"），不给输入框。详见 `03-AI-CONTRACT.md` §9.7。
 
 **`Bootstrap.channels` 在 W9（外部通知渠道）落地前恒为 `[]`。** 不许为了凑形状返回一个 `available: true` 的假渠道——那会让设置页显示"可用"，用户配完发不出任何通知。
 
@@ -580,6 +580,7 @@ export type CompleteTaskInput =
 | `ai.rejectDrafts` | `{ messageId: string; localIds: string[] }` | `void` | 丢弃草稿卡片 |
 | `ai.review` | `{ taskId: string; userText?: string }` | `ReviewVerdict` | 用任务上已存的 `evidence` 审核；不传证据不算审核 |
 | `ai.health` | — | `{ configured: boolean; model: string; multimodal: boolean \| null }` | 设置页自检；`multimodal` 靠一次真实调用探测 |
+| `ai.keyStatus` | — | `{ configured: boolean }` | **v0.44 新增**。只要 key 在不在，**不发网络请求、不做多模态探测**。判据与 `ai.health().configured` 同源（`readKey()` 拿到值），设置抽屉那行状态用它，不用 `health`——为显示一行字去真发一次带图请求不划算，且 `health` 要等探测结果才返回 |
 
 ### 3.5 `api.points`
 
