@@ -161,17 +161,21 @@ describe('背景与透明度（04 §5.4）', () => {
     expect(ruleBody(CSS, '.hud-bar-track {')).toMatch(/stroke:\s*var\(--border\)/)
   })
 
-  it('容器上没有 opacity（文字不会跟着变淡）；唯一的 opacity 是已完成限时/活动行整行 .5', () => {
+  it('容器上没有 opacity（文字不会跟着变淡）；唯一的 opacity 是已结束行整行 .5', () => {
     const withoutComments = stripComments(CSS)
     // 面板与长条不许用 opacity 做透明度（04 §5.4：透明度只进 --hud-bg 的 alpha）
     for (const selector of ['.hud-panel {', '.hud-ball {']) {
       expect(ruleBody(withoutComments, selector)).not.toMatch(/opacity\s*:/)
     }
-    // v0.38：已完成的限时/活动行整行变淡是规格要求，全文件只此一处
+    // 全文件仍只有一处 opacity
     expect(withoutComments.match(/opacity\s*:/g)).toHaveLength(1)
-    expect(ruleBody(withoutComments, '.hud-row-item:has(.hud-row-title.is-done) .hud-row {')).toMatch(
-      /opacity:\s*0\.5/
-    )
+    // v0.39：已结束的行整行变淡，每日打卡行（.hud-row--daily）排除
+    expect(
+      ruleBody(
+        withoutComments,
+        '.hud-row-item:has(.hud-row-title.is-done) .hud-row:not(.hud-row--daily) {'
+      )
+    ).toMatch(/opacity:\s*0\.5/)
   })
 })
 
@@ -324,5 +328,16 @@ describe('完成与错误（04 §5.3 v0.38）', () => {
     expect(DATA).toMatch(/setRowError\(\{ rowId, message \}\)/)
     expect(PANEL).toMatch(/hud-row-error/)
     expect(ruleBody(CSS, '.hud-row-error {')).toMatch(/color:\s*var\(--danger\)/)
+  })
+
+  it('`hud-row--daily` 只挂在可完成（每日）分支上', () => {
+    expect(PANEL).toMatch(/className=\{row\.completable \? 'hud-row hud-row--daily' : 'hud-row'\}/)
+    expect(PANEL.match(/hud-row--daily/g)).toHaveLength(1)
+  })
+
+  it('N/M 与列表同源（v0.39）：done / total 从 rows 派生，不再单独数 occurrences', () => {
+    expect(DATA).toMatch(/const done = rows\.filter\(row => row\.done\)\.length/)
+    expect(DATA).toMatch(/const total = rows\.length/)
+    expect(DATA).not.toMatch(/snapshot\.occurrences\.(filter|length)/)
   })
 })

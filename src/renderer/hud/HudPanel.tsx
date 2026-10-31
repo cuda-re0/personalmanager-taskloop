@@ -21,11 +21,12 @@ import type { HudData } from './useHudData'
 type HudTab = 'today' | 'settings'
 
 /**
- * 一行（04 §5.3 v0.38）：
+ * 一行（04 §5.3 v0.39）：
  * - 每日打卡：`hud-check` 圆圈，点了走 `occurrence.complete`；
  * - 限时/活动：**不渲染圆圈**（不是隐藏也不是禁用，是根本不进 DOM），整行只起提醒作用，
  *   `onClick` 保留为空函数——不加 disabled、不加 aria-disabled、不变灰、不改光标。
- * 已完成的限时/活动行由 `.hud-row-title.is-done` 触发整行 `opacity: .5`（见 hud.css）。
+ * 已结束（`done` / `missed`）的行标题挂 `.is-done`（淡色）；整行 `opacity: .5` 只对
+ * 非每日行生效（`.hud-row--daily` 排除），每日打卡只淡标题、不淡整行。
  */
 function HudRowItem({
   row,
@@ -38,7 +39,10 @@ function HudRowItem({
 }): ReactElement {
   return (
     <li className="hud-row-item">
-      <div className="hud-row" onClick={row.completable ? undefined : () => undefined}>
+      <div
+        className={row.completable ? 'hud-row hud-row--daily' : 'hud-row'}
+        onClick={row.completable ? undefined : () => undefined}
+      >
         {row.completable ? (
           <button
             type="button"
@@ -49,9 +53,7 @@ function HudRowItem({
             aria-pressed={row.done}
           />
         ) : null}
-        <span className={row.done && !row.completable ? 'hud-row-title is-done' : 'hud-row-title'}>
-          {row.title}
-        </span>
+        <span className={row.done ? 'hud-row-title is-done' : 'hud-row-title'}>{row.title}</span>
       </div>
       {error ? <div className="hud-row-error">{error}</div> : null}
     </li>

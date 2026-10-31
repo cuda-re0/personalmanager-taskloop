@@ -18,6 +18,10 @@ export interface HudRow {
   kind: 'occurrence' | 'task'
   id: string
   title: string
+  /**
+   * 已结束（完成 `done` 或判失败 `missed`）——决定沉底与变淡（04 §5.3）。
+   * 每日行能不能勾由 `kind === 'occurrence'` 决定，与本字段无关。
+   */
   done: boolean
   type: HudRowType
   /** 只有每日打卡能在 HUD 里勾；限时/活动一律要过审，这里只起提醒作用（v0.38） */
@@ -33,7 +37,7 @@ const TYPE_RANK: Record<HudRowType, number> = { daily: 0, deadline: 1, event: 2 
  */
 export { toLocalDay as localDayOf } from '@shared/localDay'
 
-/** 完成率（球上的进度环）：今日已打卡 / 今日应打卡；没有每日任务时为 0，不除零 */
+/** 完成率（长条上的进度环）：已结束行 / 列表总行数（v0.39 与列表同源）；空列表为 0，不除零 */
 export function completionRatio(done: number, total: number): number {
   if (total <= 0) return 0
   return Math.min(1, Math.max(0, done / total))
@@ -108,7 +112,8 @@ export function buildRows(occurrences: Occurrence[], tasks: Task[]): HudRow[] {
           kind: 'task' as const,
           id: t.id,
           title: t.title,
-          done: t.status === 'done',
+          // `missed` 是失败终点态，与完成同属"已结束"（04 §5.3 v0.39）
+          done: t.status === 'done' || t.status === 'missed',
           type: t.type,
           completable: false
         },

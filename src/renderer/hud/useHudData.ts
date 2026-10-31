@@ -68,7 +68,7 @@ export interface HudActions {
 export interface HudData {
   ready: boolean
   mode: HudMode
-  /** 今日打卡完成数 / 应打卡数 */
+  /** 列表里已结束（done / missed）的行数 / 列表总行数（04 §5.3 v0.39，与列表同源） */
   done: number
   total: number
   points: number
@@ -348,8 +348,10 @@ export function useHudData(): HudData {
     () => buildRows(snapshot.occurrences, snapshot.tasks),
     [snapshot.occurrences, snapshot.tasks]
   )
-  const done = snapshot.occurrences.filter(o => o.status === 'done').length
-  const total = snapshot.occurrences.length
+  // N/M 与列表同源（04 §5.3 v0.39）：分母是列表行数（含限时/活动），分子是已结束（done / missed）行数。
+  // 不再单独数 occurrences——两套数各算各的必然对不上。
+  const done = rows.filter(row => row.done).length
+  const total = rows.length
   const hudBg = composeHudBg(snapshot.background, snapshot.opacity, themeBg)
 
   return {

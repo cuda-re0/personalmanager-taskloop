@@ -177,6 +177,27 @@ describe('列表拼装（完成沉底 → 每日 → 限时 → 活动，04 §5.
       ['event', false]
     ])
   })
+
+  it('missed 与已完成同档：沉底 + 变淡 + 不可完成（04 §5.3 v0.39）', () => {
+    const tasks = [
+      makeTask({ id: 'missed', title: '判失败', status: 'missed', dueAt: '2026-10-30T08:00:00' }),
+      makeTask({ id: 'open', title: '未完成', dueAt: '2026-10-31T08:00:00' })
+    ]
+    const rows = buildRows([], tasks)
+    expect(rows.map(r => r.id)).toEqual(['open', 'missed'])
+    expect(rows[1]).toMatchObject({ done: true, completable: false })
+  })
+
+  it('done 与 missed 同档：两者都排在未完成行之后', () => {
+    const tasks = [
+      makeTask({ id: 'done', title: '完成', status: 'done', dueAt: '2026-10-30T08:00:00' }),
+      makeTask({ id: 'missed', title: '失败', status: 'missed', dueAt: '2026-10-30T09:00:00' }),
+      makeTask({ id: 'open', title: '未完成', dueAt: '2026-10-30T10:00:00' })
+    ]
+    const ids = buildRows([], tasks).map(r => r.id)
+    expect(ids[0]).toBe('open')
+    expect(new Set(ids.slice(1))).toEqual(new Set(['done', 'missed']))
+  })
 })
 
 describe('长条上的星期（v0.31）', () => {

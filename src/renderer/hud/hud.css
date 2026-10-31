@@ -221,9 +221,9 @@
   color: var(--text-faint);
 }
 
-/* 已完成的限时/活动行整行变淡（04 §5.3 v0.38）：不加删除线、不加文字、不显示分值。
-   每日打卡不挂 `is-done`，打卡完成不是"失败"，不跟着变淡。 */
-.hud-row-item:has(.hud-row-title.is-done) .hud-row {
+/* 已结束（done / missed）的限时/活动行整行变淡（04 §5.3 v0.39）：不加删除线、不加文字、不显示分值。
+   每日打卡行排除在外（`.hud-row--daily`）：已打卡只淡标题，打卡完成不是"失败"。 */
+.hud-row-item:has(.hud-row-title.is-done) .hud-row:not(.hud-row--daily) {
   opacity: 0.5;
 }
 
