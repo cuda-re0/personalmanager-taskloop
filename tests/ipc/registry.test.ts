@@ -11,9 +11,9 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 51 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条）', () => {
-    expect(WIRED_CHANNELS.length).toBe(51)
-    expect(new Set(WIRED_CHANNELS).size).toBe(51)
+  it('WIRED 有 52 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus）', () => {
+    expect(WIRED_CHANNELS.length).toBe(52)
+    expect(new Set(WIRED_CHANNELS).size).toBe(52)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
@@ -45,6 +45,8 @@ describe('registry 通道覆盖', () => {
     ]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
+    // v0.44：设置抽屉的 key 状态（只读，不发探测请求）
+    expect(WIRED_CHANNELS).toContain(CH.ai.keyStatus)
   })
 
   it('WIRED ∪ NOT_WIRED == CH 的全部 api 叶子，且不交叠（新通道没人接必须红）', () => {

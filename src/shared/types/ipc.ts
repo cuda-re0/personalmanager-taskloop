@@ -247,6 +247,12 @@ export interface Api {
     rejectDrafts(input: { messageId: string; localIds: string[] }): Promise<IpcResult<void>>
     review(input: { taskId: string; userText?: string }): Promise<IpcResult<ReviewVerdict>>
     health(): Promise<IpcResult<{ configured: boolean; model: string; multimodal: boolean | null }>>
+    /**
+     * v0.44（设置抽屉）：`readKey()` 是否拿到 key（env / `userData/ai-key.bin` / 开发期 `.env`）。
+     * 与 `health().configured` 同一判据，但**不触发多模态探测**——设置里只是显示一行状态，
+     * 不该为此花一次带图请求，也不该让这一行挂在网络往返上。
+     */
+    keyStatus(): Promise<IpcResult<{ configured: boolean }>>
   }
 
   points: {

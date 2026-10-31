@@ -86,7 +86,8 @@ const api: Api = {
     rejectDrafts: input => invoke<void>(CH.ai.rejectDrafts, input),
     review: input => invoke<ReviewVerdict>(CH.ai.review, input),
     health: () =>
-      invoke<{ configured: boolean; model: string; multimodal: boolean | null }>(CH.ai.health)
+      invoke<{ configured: boolean; model: string; multimodal: boolean | null }>(CH.ai.health),
+    keyStatus: () => invoke<{ configured: boolean }>(CH.ai.keyStatus)
   },
 
   points: {

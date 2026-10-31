@@ -179,7 +179,8 @@ describe('整窗明细页机制已彻底删除（口径 1）', () => {
     expect(INDEX_CODE).not.toContain('visibility')
     expect(INDEX_CODE).not.toContain('pointerEvents')
     expect(INDEX_CODE).not.toContain('position: ')
-    const headerAt = INDEX_CODE.indexOf('<AppHeader />')
+    // v0.44 起顶栏多一个 onOpenSettings 回调，这里只认「AppHeader 在 app-shell 之前」这层意思
+    const headerAt = INDEX_CODE.indexOf('<AppHeader')
     const shellAt = INDEX_CODE.indexOf('<div className="app-shell"')
     const chatAt = INDEX_CODE.indexOf('<ChatPanel />')
     expect(headerAt).toBeGreaterThan(0)

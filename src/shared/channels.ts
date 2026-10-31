@@ -50,7 +50,9 @@ export const CH = {
     confirmDraft: 'ai:confirmDraft',
     rejectDrafts: 'ai:rejectDrafts',
     review: 'ai:review',
-    health: 'ai:health'
+    health: 'ai:health',
+    /** v0.44（设置抽屉）：只读「有没有 key」，**不发网络请求、不做多模态探测** */
+    keyStatus: 'ai:keyStatus'
   },
   points: {
     balance: 'points:balance',

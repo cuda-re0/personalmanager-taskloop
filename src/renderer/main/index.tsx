@@ -12,6 +12,7 @@ import { PointsPanel } from './features/points/PointsPanel'
 import { RightSplit } from './features/RightSplit'
 import { SPLIT_STORAGE_KEY, parseSplit, serializeSplit } from './features/splitModel'
 import { AppHeader } from './components/AppHeader'
+import { SettingsDrawer } from './features/settings/SettingsDrawer'
 
 /**
  * 类型探针：`@shared` 别名 + 领域类型在渲染进程必须可用。
@@ -41,6 +42,11 @@ if (!container) throw new Error('#root not found')
  */
 function App(): ReactElement {
   const [dayDetail, setDayDetail] = useState<string | null>(null)
+  /**
+   * 设置抽屉（v0.44）：**关闭即卸载**——不保住 DOM，每次打开重新拉一次数据，
+   * 免得抽屉里显示的是上一次打开时的旧快照。
+   */
+  const [settingsOpen, setSettingsOpen] = useState(false)
   /** 下半份额 r（0~1 小数）：非法存储值由 parseSplit 回落默认 0.71 */
   const [ratio, setRatio] = useState<number>(() =>
     parseSplit(window.localStorage.getItem(SPLIT_STORAGE_KEY))
@@ -57,7 +63,7 @@ function App(): ReactElement {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <AppHeader />
+      <AppHeader onOpenSettings={() => setSettingsOpen(true)} />
       <div className="app-shell" style={{ flex: '1 1 auto', minHeight: 0, height: 'auto' }}>
         <ChatPanel />
         <aside className="right-col">
@@ -71,6 +77,7 @@ function App(): ReactElement {
           </div>
         </aside>
       </div>
+      {settingsOpen && <SettingsDrawer onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

@@ -672,6 +672,17 @@ export interface HealthResult {
   multimodal: boolean | null
 }
 
+/**
+ * 只回答「有没有 key」，**不发网络请求、不做多模态探测**（v0.44 设置抽屉）。
+ *
+ * 判据与 `health().configured` 完全一致（同一个 `isConfigured()`），区别只在于
+ * 不像 `health()` 那样 `await` 探测结果：探测那笔钱只该在真要发图时花，
+ * 设置里显示一行状态不该等一次网络往返。
+ */
+export function keyStatus(): { configured: boolean } {
+  return { configured: isConfigured() }
+}
+
 export async function health(): Promise<HealthResult> {
   const model = settingRepo.get('ai.provider').model
   if (!isConfigured()) return { configured: false, model, multimodal: null }
