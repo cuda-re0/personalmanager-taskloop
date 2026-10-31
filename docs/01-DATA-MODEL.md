@@ -26,9 +26,11 @@ point_ledger # 积分唯一真相，余额 = SUM(delta)
 personas    # 人物卡（v0.37）：助手是谁，v1 只有一行
 memories    # 长期记忆（v0.37）：助手记住的「你是谁」，与 tasks 无关，也不挂在任何消息上
 chat_state  # 会话摘要（v0.37）：单行，早于滚动窗口的历史压缩
+
+fx_rates    # 零花钱汇率（v0.45）：一周一期，1 积分值多少元；与任何实体无外键
 ```
 
-三张新表与既有实体**没有外键关系**：记忆不是任务的子集，人物卡也不属于某条消息。`memories` 故意不挂 `task_id`——「我每天早上七点起」这种事实来自对话，不来自任何一个任务。
+三张新表与既有实体**没有外键关系**：记忆不是任务的子集，人物卡也不属于某条消息。`memories` 故意不挂 `task_id`——「我每天早上七点起」这种事实来自对话，不来自任何一个任务。`fx_rates` 同理：汇率按**周**生灭，跟任务/消息都无关；支出流水只是把当时那一期的 `rate` 快照抄进自己的行（§2.4 的 `fx_rate`），不引用 `fx_rates.id`。
 
 **为什么需要 `task_occurrences` 而不是让 tasks 一行记一次完成：**
 每日任务是"长期坚持"，同一个任务要完成 30 次。如果沿用 `tasks.completed_at` 单字段，第 2 天完成后就把第 1 天的记录覆盖了，日历、连续天数、每日积分全部无从谈起。所以把"发生"抽成独立实体：一条 occurrence = 这个任务在这一天的这一次。
@@ -226,12 +228,14 @@ CREATE TABLE point_ledger (
   task_id       TEXT REFERENCES tasks(id) ON DELETE SET NULL,
   occurrence_id TEXT REFERENCES task_occurrences(id) ON DELETE SET NULL,
   delta         REAL NOT NULL,              -- ★ 正为得，负为扣；2 位小数，不做整数化
-  kind          TEXT NOT NULL,              -- award|penalty|adjust
-  reason_code   TEXT NOT NULL,              -- task_done|quality_bonus|overdue_penalty|manual_adjust|streak_bonus
+  kind          TEXT NOT NULL,              -- award|penalty|adjust|spend（★ v0.45 加 spend）
+  reason_code   TEXT NOT NULL,              -- task_done|quality_bonus|overdue_penalty|manual_adjust|streak_bonus|pocket_spend
   reason_text   TEXT NOT NULL DEFAULT '',
   day           TEXT NOT NULL,              -- 本地日历日 YYYY-MM-DD，供聚合
   created_at    TEXT NOT NULL,
-  reversed_at   TEXT                        -- 被冲销的时刻；NULL = 这条发分仍然有效（002 迁移）
+  reversed_at   TEXT,                       -- 被冲销的时刻；NULL = 这条发分仍然有效（002 迁移）
+  amount_cents  INTEGER,                    -- ★ v0.45 支出金额（整数「分」）；只有 kind='spend' 有值
+  fx_rate       REAL                        -- ★ v0.45 记账当时的汇率快照；只有 kind='spend' 有值
 );
 
 CREATE INDEX idx_ledger_day  ON point_ledger(day);
@@ -253,6 +257,12 @@ CREATE UNIQUE INDEX uq_ledger_occurrence
 两条唯一索引的谓词都带 `reversed_at IS NULL` 是**必须的**：它们约束的是"同时最多一条有效发分行"，不是"历史上只许出现一条"。少了这个谓词，撤销后重做必然撞索引——限时任务报「这个任务已经发过完成分了」，每日任务报「这一天的打卡已经发过分了」（误点一次撤销，当天再也打不上卡）。冲销只允许一次：对已 `reversed_at` 的行再冲会多写一条负流水、把余额扣两次，所以 `markReversed` 在 `changes === 0` 时按内部故障 `DB_ERROR` 抛出（04 §1.2）。
 
 **同一天里"旧的已冲销行 + 新的有效行"会共存**，任何按任务/按天收集流水的逻辑（如 `entriesOfOccurrence`）都必须筛 `reversed_at IS NULL`，否则会把同一条历史发分重复冲销。
+
+**`amount_cents` / `fx_rate`（v0.45，迁移 004）两列都可空，且只对 `kind='spend'` 有值。** 其余行（发分、惩罚、冲销）一律 `NULL`，**不许给它们塞 0**——"0 分的支出"和"这不是支出"是两件事，塞 0 之后「本月已花」的求和与行数统计都会错。
+
+- `amount_cents` 是**整数「分」**，不是元。浮点元进库必然出现 `1250.0000000000002`，余额和「已花 / 500」再也对不平。解析与换算在渲染层/服务层完成（04 §1.4、02 §5.7），库里只存整数。
+- `fx_rate` 是**记账那一刻的快照**（1 积分值多少元）。汇率每周一会变，但**改汇率永不重算历史**：历史是事实，重算会让上个月的账今天变样。
+- **不给这两列加 CHECK 约束、不改既有索引**：`point_ledger` 上现在没有任何约束，加约束会让旧库迁移失败（004 只 `ALTER TABLE ... ADD COLUMN`，不带 `DEFAULT`）。
 
 ### 2.5 reminders — 提醒
 
@@ -400,6 +410,27 @@ CREATE TABLE chat_state (
 - **什么时候写**：`msg.list` 或 `msg.send` 取上下文时，若「`upto_message_id` 之后的原文条数 > 40」才触发一次摘要压缩——把「旧摘要 + 这 40 条里的前 20 条」交给模型压成新的 `summary_md`，`upto_message_id` 前移到第 20 条。**压缩在后台跑，不阻塞这一轮回复**；失败就保留旧摘要、下轮再试，不报错给用户。
 - 摘要只覆盖**对话内容**，不涵盖任务数据。任务摘要每轮由主进程现取现拼（03 §4.3），因为任务的「今天」天天在变，静态摘要第二天就是错的。
 
+### 2.11 fx_rates — 零花钱汇率（v0.45，迁移 004）
+
+```sql
+CREATE TABLE fx_rates (
+  id         TEXT PRIMARY KEY,
+  week_start TEXT NOT NULL UNIQUE,      -- 该汇率生效的周一（本地日 YYYY-MM-DD）
+  rate       REAL NOT NULL,             -- 1 积分值多少元
+  basis      TEXT NOT NULL DEFAULT '',  -- AI 的评估依据，只进库、不上界面
+  source     TEXT NOT NULL,             -- ai | fallback
+  created_at TEXT NOT NULL
+);
+```
+
+- **一周一期，`week_start` 唯一**：重复插入由库挡住（`fxService.ensureWeek` 因此天然幂等——本周已有记录就直接返回，什么都不做）。
+- **`rate` 合法区间 `[0.85, 1.15]`，两位小数，基准 1.0（1 积分 = 1 元）**。区间钳制与取整在写入前完成（02 §5.7、03 §4.5），库层不设 CHECK——与 `point_ledger` 同一口径，不给旧库添约束。
+- **`source='fallback'` 的行也是有效汇率**：AI 未配置、上周无数据、或评估失败时，沿用**上期** rate 写一行（无上期才用 1.0）。**失败不许回落 1.0**，那等于把攒下的升幅一次抹平。写 fallback 行还顺带保证「每期只尝试一次」，sweeper 不会每 30 分钟烧一次 token。
+- **`basis` 只进库**：它是模型的评估理由，用于排查「这周为什么升值/贬值」，不进 `FxRate` 类型、不进渲染层（02 §2.2）。
+- **`week_start` 是本地日**，不是 ISO 周号。取值走 `weekStartOf(day)`（`addDays(day, -(isoWeekday(day) - 1))`），与 `01 §2.6` 的 `daily_stats.day` 同一套本地日口径。
+- **历史汇率不删不改**：`currentRate()` 取「本周那一条；没有就取最近一条；一条都没有按 1.0」，永远不抛错——记账不该因为汇率表是空的而失败。
+
+
 ---
 
 ## 3. tasks 状态机（严丝合缝，实现方照做）
@@ -457,6 +488,12 @@ CREATE TABLE chat_state (
 | 当前任务 | 限时/活动：`status IN ('todo','doing','pending_review','reviewing')`；每日：当日 `occurrence.status='pending'` | 两表合并 |
 | **日历红点** | **只算 `deadline` / `event`**：`tasks(type IN ('deadline','event') AND date(due_at)=d AND status NOT IN ('discarded','archived'))`。**每日任务不参与红点**（Q2 已定） | 见 §4.1 |
 | 连续天数 streak | `COUNT` 从今天（或昨天）向前连续 `occurrence.status='done'` 的天数 | occurrences |
+| **本月已花**（v0.45） | `SUM(amount_cents) WHERE kind='spend' AND reversed_at IS NULL AND day BETWEEN 月初 AND 月末` | ledger |
+
+**「本月已花」只对 `kind='spend'` 求和，且必须筛 `reversed_at IS NULL`**：冲销后原行还在库里（只打了时间戳），不筛就会把已撤销的支出继续算进预算。单位是「分」，与 `MONTHLY_BUDGET_CENTS = 50000` 同单位比较，**不要换成元再比**。
+
+**支出行的 `delta` 与 `amount_cents` 是两件事**：`delta` 是扣掉的积分（`-roundPoints(amountCents / 100 / rate)`），`amount_cents` 是花掉的元。余额取 `SUM(delta)`，预算取 `SUM(amount_cents)`——拿 `SUM(delta)` 当金额用，汇率一浮就差出 15%。
+
 
 **积分是小数（2 位），不是整数。** 余额、今日积分、`daily_stats.points` 全部按 `REAL` 存、按小数算，展示层用 `fmtPoints()` 格式化（04 §4③）。任何一层做 `Math.round` / `INTEGER` 转换都会让余额与流水对不上，属于 P0 缺陷。
 
@@ -485,7 +522,7 @@ GROUP BY day;
 
 ## 5. 迁移规范
 
-- 文件：`src/main/db/migrations/001_init.sql`、`002_xxx.sql`，**只增不改**。
+- 文件：`src/main/db/migrations/001_init.sql`、`002_xxx.sql`，**只增不改**。当前清单（`migrations/index.ts` 的数组，顺序只增不改）：`001_init`、`002_ledger_reversed`、`003_chat`、`004_spend`（v0.45，`user_version = 4`）。
 - `connection.ts` 启动时以 `PRAGMA user_version` 为**权威版本号**，顺序执行 `user_version` 之后的迁移文件，整体包在一个事务里。
 - `schema_meta` **不参与版本判定**，只记迁移历史明细：`key = 'migration.001_init'`、`value = 应用时刻的 ISO 字符串`。版本号只认 `user_version`——它是整数、与 DDL 同事务原子提交，不会被业务代码误改；而 key/value 表要判断"已应用到第几号"得存数组再解析，多一层易错逻辑。两份记录不一致时以 `user_version` 为准。
 - 迁移内禁止写业务数据（除 `settings` 默认值）。

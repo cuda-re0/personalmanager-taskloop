@@ -47,6 +47,8 @@ messages(kind='task_draft')  ← 等用户确认
 
 意图判定放在同一次调用里（输出 JSON 的 `intent` 字段），不做独立分类模型：省一次往返、省一次钱，且 GLM 对"先分类再答"的合并式 prompt 响应稳定。代价是 prompt 变长，可接受。
 
+**这张图只画用户消息这一条链。**另有四条不经过用户输入的调用：`memory-extract`（4.4，聊天成功后异步）、`summarize`（01 §2.10，上下文超 40 条时后台压缩）、`fx-evaluate`（4.5，每周一由 sweeper 触发）、`ai.health` 的多模态探测（只手动触发）。它们的共同点是**失败静默、不阻塞界面**。
+
 ---
 
 ## 3. 客户端封装与模型接入方式
@@ -139,7 +141,7 @@ export interface AiProvider {
 
 ---
 
-## 4. 四个能力契约
+## 4. 能力契约（4.1–4.4 用户可见，4.5 后台评估）
 
 ### 4.1 `parse` — 识别 + 补全 + 分类（R1/R2）
 
@@ -382,6 +384,25 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 
 **不做的事**：不更新已有记忆（只增），不删，不做「这条记忆是不是过时了」的判断。过时由用户手动改——这是丙方案（自动 + 手动）里手动的意义。
 
+### 4.5 `fx-evaluate` — 汇率评估（v0.45 新增，**后台任务，用户看不见**）
+
+每周一由 `fxSweeper` 触发一次，决定「1 积分本周值多少元」。**没有任何界面入口**，模型说的话一个字都不上界面（`reason` 只进 `fx_rates.basis`）。
+
+| 项 | 规则 |
+|---|---|
+| 模型 | `settings['ai.chat.model']`（便宜纯文本），`temperature: 0`，走 `chatJson` |
+| 输入 | 上周一到周日的 `daily_stats`（`day` / `points` / `tasks_done` / `occurrences_done`）+ 上周 `status='missed'` 的限时/活动任务数 `missed`，拼成一段紧凑 JSON 放进 user 消息 |
+| 输出 schema | `{ "rate": number, "reason": string }`，`reason` 上限 200 字（zod `.max(200)`） |
+| 钳制 | 两步、顺序不能换：① 非法值（`NaN`/`Infinity`/负数）视为评估失败；② `clamp(rate, 0.85, 1.15)` 再 `roundPoints` 两位小数 |
+| 平滑 | **不做**。区间已收在 `[0.85, 1.15]`，AI 可以两期之间从 0.85 直接给到 1.15 |
+| 失败 | 沿用**上期** rate 写一行 `source='fallback'`（无上期才 1.0）。**不许回落 1.0** |
+| 呼叫时机 | 本周已有记录 → 不调；上周 `tasks_done + occurrences_done + missed` 三者合计为 0 → 不调（不为一片空白烧 token）；AI 未配置 → 不调 |
+
+**prompt 要写死的三件事**（`prompts/fx.system.md`）：① 说明 1 积分 = 1 元的基准与 `0.85 ~ 1.15` 区间；② 完成得多、遗漏少就升值，反之贬值，数据平平就贴近 1.0，**不许为了「看起来有变化」大幅摆动**；③ **只输出 JSON**，不要代码围栏、不要解释、不要对用户说话。方向语义见 02 §5.7。
+
+**不做的事**：不做手动改汇率的入口（05 W13「明确不做」）、不因评估结果发通知、不把 `reason` 展示给用户、不为一期失败重试（失败也落一行，保证每期只尝试一次）。
+
+
 ---
 
 ## 5. 图片处理管线
@@ -438,6 +459,7 @@ src/main/ai/prompts/
   chat.system.md        # 4.3 的五段模板（v0.37，带 {{PERSONA}} {{MEMORY}} {{BRIEF}} {{SUMMARY}} 占位符）
   memory.system.md      # 4.4 的提取规则与四条否定条件（v0.37）
   summarize.system.md   # 01 §2.10 的历史压缩（v0.37，≤600 字、只留事实不留寒暄）
+  fx.system.md          # 4.5 的汇率评估（v0.45，只输出 JSON：rate + reason）
 ```
 
 - 每个 prompt 带版本号注释（`<!-- v1 2026-10-27 -->`），改 prompt 要写变更记录，因为 prompt 改动对效果的影响不比代码小。

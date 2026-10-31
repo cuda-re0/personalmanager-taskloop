@@ -225,12 +225,22 @@ export interface PointEntry {
   taskId: string | null;
   occurrenceId: string | null;
   delta: number;
-  kind: 'award' | 'penalty' | 'adjust';
-  reasonCode: 'task_done' | 'quality_bonus' | 'overdue_penalty' | 'manual_adjust' | 'streak_bonus';
+  kind: 'award' | 'penalty' | 'adjust' | 'spend';   // v0.45 加 spend
+  reasonCode: 'task_done' | 'quality_bonus' | 'overdue_penalty' | 'manual_adjust' | 'streak_bonus' | 'pocket_spend';
   reasonText: string;
   day: string;          // YYYY-MM-DD 本地
   createdAt: string;
   reversedAt: string | null;  // 被冲销的时刻；NULL = 这条发分仍然有效（01 §2.4）
+  amountCents: number | null; // v0.45：只有 kind='spend' 有值（整数「分」），其余一律 null，不许塞 0
+  fxRate: number | null;      // v0.45：只有 kind='spend' 有值，记账当时的汇率快照
+}
+
+/** v0.45：当周汇率。`basis`（AI 评估理由）只进库，不进这个类型 */
+export interface FxRate {
+  weekStart: string;        // 该汇率生效的周一（本地日）
+  rate: number;             // 1 积分值多少元
+  source: 'ai' | 'fallback';
+  createdAt: string;
 }
 
 export interface Reminder {
@@ -592,6 +602,17 @@ export type CompleteTaskInput =
 | `points.adjust` | `{ delta: number; reason: string }` | `PointEntry` | 手动调整，`kind='adjust'` |
 | `points.preview` | `{ type: TaskType; difficulty: Difficulty }` | `number` | 纯计算，无副作用，UI 改难度/类型时实时显示；`type='daily'` 返回单日分值。**不传 `estimateMin`**——v0.7 起时长不进分值 |
 | `points.streakPreview` | `{ current: number; nextDayWillReach: number }` | `number` | 明天完成能拿到的里程碑奖励，0 表示无。**`current` 无语义**（奖励只由 `nextDayWillReach` 决定，service 不读它），保留只为兼容既有调用形状，下一版契约删除 |
+| `points.spend` | `{ amountCents: number; note?: string }` | `PointEntry` | **v0.45 新增**。记一笔零花钱支出，按当期汇率扣积分（公式见 §5.7）。`amountCents` 是**整数「分」**，不是元 |
+| `points.spendUndo` | `{ entryId: string }` | `PointEntry` | **v0.45 新增**。撤销一笔支出，返回**反向那条** `adjust` 行（原行只打 `reversed_at`，不删） |
+| `points.spendMonth` | —（`z.undefined()`） | `{ entries: PointEntry[]; totalCents: number; rate: number; weekStart: string }` | **v0.45 新增**。只看**当前月**，不传参——界面没有翻月需求。`totalCents` 只算未撤销的 `kind='spend'` 行 |
+
+**v0.45 三条通道的口径（三处都不是随手定的）：**
+
+- **单笔上限不放 guard**。guard 失败只能返回「请求参数格式不正确」，说不清是超了还是格式错；放 service 才能给出「单笔支出不能超过 1000 元」这句人话（04 §1.1）。guard 只管形状：`amountCents: z.number().int().positive()`、`note: z.string().max(40).optional()`、`entryId: z.string().min(1)`。
+- **三个 handler 成功后都广播 `points.changed`**（`{ balance, entry, today }`，照 `task.complete` 那段）。撤销尤其要在广播**前**重算 `balance`——`rollback` 的反向行落在今天，用旧值广播会让 ③ 的大数字停在错的位置。
+- **`spend` 不复用 `points.adjust`**：`adjust` 的 `kind`/`reasonCode` 写死成 `adjust`/`manual_adjust`，硬塞之后「手动调整」和「花钱」在明细里混成一类，账再也查不清。
+- **周一的汇率评估不占通道**：`fxService.ensureWeek()` 由 `fxSweeper` 在后台调，只广播 `fx.changed`（§3.9），没有 `points.fxRefresh` 之类的手动入口（明确不做，05 W13）。
+
 
 ### 3.6 `api.reminder`
 
@@ -659,6 +680,7 @@ export type DomainEvent =
   | { type: 'message.patch'; messageId: string; patch: Partial<Message> }
   | { type: 'ai.status';     phase: 'thinking' | 'streaming' | 'idle'; messageId?: string }
   | { type: 'points.changed'; balance: number; entry: PointEntry | null; today: DayStat }
+  | { type: 'fx.changed'; rate: number; weekStart: string }   // v0.45：周一评估写库后发出
   | { type: 'reminder.fired'; reminderId: string; taskId: string | null; title: string; level: ReminderLevel }
   | { type: 'reminder.failed'; reminderId: string; channel: NotifyChannel; reason: string }
   | { type: 'daystats.changed'; day: DayStat }   // day 是**整个 DayStat 对象**，不是日期字符串——字段名易误读，渲染层直接整体覆盖对应日
@@ -675,6 +697,8 @@ export type DomainEventType = DomainEvent['type'];
 - **`hud.visible.changed`（v0.31 新增）**：`hud.setVisible` 生效后广播，载荷是**目标值**（不是
   `win.isVisible()` 的回读）。用途：HUD 自己从设置页关掉自己时，主窗顶栏开关必须同步——它不能只靠
   挂载时那次 `hud.getState()`，否则开关会停在旧视觉、要连点两次才生效。
+
+- **`fx.changed`（v0.45 新增）**：`fxService.ensureWeek()` 写库成功后广播，用途是「开着的支出页自己刷新汇率」。**评估失败也广播**——失败同样落了一行 `source='fallback'`，对界面而言同样是"汇率变了"，不另造一个 `fx.failed`。不广播就只有一个后果：支出页把周一的旧汇率一直用到下次进页面（顶部那行和实际扣分对不上，用户会认为账算错了）。
 
 - 任何写操作**必须**至少广播一条事件；没广播 = 另一个窗口不会更新，等于 bug。
 - `message.patch` 只允许 patch `contentMd / status / meta`。
@@ -912,6 +936,35 @@ export function computeDailyPoints(
 - AI 只输出 `difficulty` 与 `estimateMin`，**不给分数**。分数由这里算，所以同一个任务无论在哪个窗口看、重算几次，结果一致。
 - 上限 100 防止 epic 叠系数失控；下限 1 保证完成即正反馈。
 - 历史流水不回算 —— 否则用户改一次配置，过去三个月的账单全部变动，信任直接崩。
+
+### 5.7 零花钱：汇率与扣分（v0.45）
+
+积分不只是分数，是**零花钱额度**。基准 1 积分 = 1 元，每周一由 AI 按上周表现小幅浮动。
+
+**扣分公式（唯一一处换算，别在别的层再写一遍）：**
+
+```
+delta = -roundPoints(amountCents / 100 / rate)
+```
+
+- `rate` 的定义是「**1 积分值多少元**」，所以花掉的钱要**除以** `rate` 才是积分。
+- `amountCents` 是整数「分」。`rate=1.08` 花 100.00 元 → `100 / 1.08 = 92.5925…` → **-92.59 分**（`roundPoints` 截两位，不四舍五入到 -92.6）。
+- `rate=0.85` 花 100.00 元 → **-117.65 分**；`rate=1` 花 12.50 元 → **-12.5 分**。
+- 算出 `delta === 0` 的金额一律**拒绝**（「金额太小，扣不进积分」），不写 0 分流水。
+- **取整只准走 `roundPoints`**（`shared/points/rubric.ts`）。这条在 v0.45 之后措辞收紧成「**本文件不出现任何取整/定点格式化调用**」——`Math.round` / `toFixed` 全项目只准活在 `roundPoints` 内部。
+
+**汇率区间与钳制（顺序不能换）：**
+
+1. 非法值（`NaN` / `Infinity` / 负数）→ 当作评估失败，走 fallback；
+2. `clamp(rate, 0.85, 1.15)`，再 `roundPoints` 到两位小数。
+
+**没有「相对上期最多变动 X」这一层**：区间已经收在 `[0.85, 1.15]`，AI 可以在两期之间从 `0.85` 直接给到 `1.15`，不许再叠一道平滑。
+
+**失败的降级是「沿用上期」，不是「回落 1.0」**：AI 未配置、上周无数据、输出不合法、超时——四种失败都写一行 `source='fallback'`，rate 取上期（无上期才 1.0）。回落 1.0 等于把攒下的升幅一次抹平，用户会认为"升值是假的"。写 fallback 行还顺带保证「每期只尝试一次」，`fxSweeper` 不会每 30 分钟烧一次 token。
+
+**支出可以扣成负数**（用户裁决，不拦截）。余额为负时 ③ 的大数字变 `--danger`（04 §4③），扣分流程本身没有任何"余额不足"分支——有余额检查就不是零花钱了。
+
+**改汇率永不重算历史**：每笔支出把当时的 `rate` 写进自己的 `fx_rate`（01 §2.4），历史是事实。
 
 ---
 
