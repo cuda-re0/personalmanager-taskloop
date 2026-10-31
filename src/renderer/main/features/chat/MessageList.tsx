@@ -11,6 +11,11 @@ const OVERSCAN = 4
 const BOTTOM_THRESHOLD = 24
 /** 距顶阈值：小于它且用户确实在上滚，才触发翻页 */
 const LOAD_MORE_THRESHOLD = 240
+/**
+ * 末尾附加行的固定 id（v0.39 §2）。**必须是常量**：跟着待提交条数变 id 的话，
+ * 每加一条就整行重测、heights 里留垃圾键，滚动位置还会抖。
+ */
+const TAIL_ID = '__tail__'
 
 interface Props {
   messages: Message[]
@@ -20,6 +25,8 @@ interface Props {
   hasMore: boolean
   loadingMore: boolean
   onLoadMore(): void
+  /** 消息流末尾的附加行（v0.39：待提交卡）。与消息行同一套测量，自己不开滚动 */
+  tail?: ReactNode
 }
 
 interface RowProps {
@@ -55,6 +62,10 @@ function Row({ id, top, onMeasure, children }: RowProps): ReactElement {
  * 「是否贴底」不看 scrollHeight —— 用 wheel / touchmove 维护 atBottom ref：
  * 用户主动上滚立刻置 false，距底回到阈值内才置 true。
  * 翻页时先记下插入前的 total 与 scrollTop，插入后按差值补 scrollTop，避免跳动。
+ *
+ * v0.39：新增 `tail` 附加行（待提交卡）。它不是"塞进滚动容器的另一块 div"，而是
+ * 与消息行同一个 `Row`——同一个 ResizeObserver、同一个 heights map、高度计入 total，
+ * 只是位置固定在所有消息之后、不参与 slice 窗口。
  */
 export function MessageList({
   messages,
@@ -63,7 +74,8 @@ export function MessageList({
   actions,
   hasMore,
   loadingMore,
-  onLoadMore
+  onLoadMore,
+  tail
 }: Props): ReactElement {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const heights = useRef(new Map<string, number>())
@@ -92,11 +104,15 @@ export function MessageList({
   }, [])
 
   const offsets = new Array<number>(messages.length)
-  let total = 0
+  let bodyTotal = 0
   for (let i = 0; i < messages.length; i++) {
-    offsets[i] = total
-    total += heights.current.get(messages[i].id) ?? EST
+    offsets[i] = bodyTotal
+    bodyTotal += heights.current.get(messages[i].id) ?? EST
   }
+  // tail 高度必须计入 total：否则 msg-spacer 撑不开、滚不到底、也不能触发贴底跟随
+  const tailTop = bodyTotal
+  const tailHeight = tail ? (heights.current.get(TAIL_ID) ?? EST) : 0
+  const total = bodyTotal + tailHeight
 
   const indexAt = (y: number): number => {
     if (messages.length === 0) return 0
@@ -195,6 +211,11 @@ export function MessageList({
             />
           </Row>
         ))}
+        {tail ? (
+          <Row id={TAIL_ID} key={TAIL_ID} onMeasure={measure} top={tailTop}>
+            {tail}
+          </Row>
+        ) : null}
       </div>
     </div>
   )

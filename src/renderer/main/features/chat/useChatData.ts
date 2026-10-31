@@ -16,6 +16,7 @@ import {
   TYPE_DEFAULT_OFFSETS,
   draftPointsOf,
   dueHintToLocal,
+  latestReviewOnly,
   leadLabel,
   normalizeDraft,
   pointsConfigOf,
@@ -679,8 +680,15 @@ export function useChatData(): ChatData {
 
   const submittingIds = useMemo(() => new Set(Object.keys(submittingTasks)), [submittingTasks])
 
+  /**
+   * 渲染用消息（v0.39 §3）：同一任务只留最新一张审核卡。
+   * 只过滤渲染数组——`messages` 与 `reviewViews`（按全量算 isLatest）都不动。
+   */
+  const visibleMessages = useMemo(() => latestReviewOnly(messages), [messages])
+
   return {
     messages,
+    visibleMessages,
     draftViews,
     reviewViews,
     pendingSubmit,

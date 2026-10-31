@@ -2,7 +2,14 @@ import { computePlannedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
 import type { PublicSettings } from '@shared/types/ipc'
 import { snapDifficulty } from '@shared/taskRules'
-import type { Attachment, Difficulty, Evidence, TaskDraft, TaskType } from '@shared/types/domain'
+import type {
+  Attachment,
+  Difficulty,
+  Evidence,
+  Message,
+  TaskDraft,
+  TaskType
+} from '@shared/types/domain'
 import type { EvidenceView } from './chatTypes'
 
 /** 类型标签。三个词来自 04 §4① 的分组标题，不是新文案。 */
@@ -156,6 +163,30 @@ export function localToDueHint(value: string): string {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return ''
   return d.toISOString()
+}
+
+/**
+ * 同一任务只留**最新**一张审核卡（v0.39 §3）。
+ *
+ * 补证据后重审会为同一任务再落一条 `task_review` 消息，旧的不会消失——不滤就是上下
+ * 两张卡（老卡的 `isLatest=false` 只是不显示按钮，卡还在）。规则：倒序扫出每个
+ * `taskId` 最后一条审核消息的 id；正序输出时审核消息只保留命中的，非审核消息全留。
+ *
+ * 放在纯函数模块里、入参出参都不可变：`tsconfig.test.json` 没有 DOM，hook 测不了。
+ * 只过滤渲染数组，`useChatData.messages` 本身不动（翻页拼接还靠它）。
+ */
+export function latestReviewOnly(messages: Message[]): Message[] {
+  const latestByTask = new Map<string, string>()
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const meta = messages[i].meta
+    if (meta.kind !== 'task_review') continue
+    if (!latestByTask.has(meta.taskId)) latestByTask.set(meta.taskId, messages[i].id)
+  }
+  return messages.filter(message => {
+    const meta = message.meta
+    if (meta.kind !== 'task_review') return true
+    return latestByTask.get(meta.taskId) === message.id
+  })
 }
 
 /**

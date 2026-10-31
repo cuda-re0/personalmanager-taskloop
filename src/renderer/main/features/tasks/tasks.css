@@ -52,6 +52,30 @@
   overflow-y: auto;
 }
 
+/* 滚动条（39 §5）：与消息流同一档——6px、透明轨道、无箭头按钮。不做全局规则 */
+.tasks-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tasks-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tasks-panel::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.tasks-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.tasks-panel::-webkit-scrollbar-button {
+  display: none;
+}
+
 .task-group {
   display: flex;
   flex-direction: column;

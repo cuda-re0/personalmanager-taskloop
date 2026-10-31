@@ -84,6 +84,11 @@ export interface ChatActions {
 
 export interface ChatData {
   messages: Message[]
+  /**
+   * 真正交给 `MessageList` 渲染的数组（v0.39 §3）：同一任务只留最新一张审核卡。
+   * `messages` 保留全量——翻页拼接、`reviewViews` 的 `isLatest` 都还按全量算。
+   */
+  visibleMessages: Message[]
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
   /**

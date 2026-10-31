@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '../../src/shared/types/domain'
 import {
@@ -120,5 +122,40 @@ describe('mergePendingSubmit：待提交列表（v0.38 §7）', () => {
     )
     expect(merged).toHaveLength(1)
     expect(merged[0].status).toBe('pending_review')
+  })
+})
+
+/**
+ * 无证据时的一行小字（39 §4）。
+ *
+ * 项目没有 DOM 测试栈，照 `tasksPanelWiring` 的惯例做源码断言：这条的本质是
+ * "证据数为 0 才渲染、有证据就不进 DOM"，和 CSS 隐藏是两件事，必须能从源码上区分。
+ */
+const SUBMIT_CARD_SOURCE = readFileSync(
+  resolve(process.cwd(), 'src/renderer/main/components/SubmitCard.tsx'),
+  'utf8'
+)
+
+describe('SubmitCard 的无证据提示（39 §4）', () => {
+  /** 承载「还没有证据」的那一行源码 */
+  const hintLine = SUBMIT_CARD_SOURCE.split('\n').find(line => line.includes('还没有证据'))
+
+  it('同一行里既是 evidence.length === 0 的条件分支，又只有这四个字', () => {
+    expect(hintLine).toBeDefined()
+    expect(hintLine).toContain('evidence.length === 0')
+    expect(hintLine).toContain('>还没有证据<')
+  })
+
+  it('证据数 ≥ 1 时不进 DOM：三元另一支是 null（不是隐藏、不是 opacity）', () => {
+    expect(hintLine).toMatch(/: null/)
+    expect(hintLine).not.toMatch(/opacity|visibility|display:\s*none/)
+  })
+
+  it('全文件只出现一次这四个字：不加标点、没有第二句', () => {
+    expect(SUBMIT_CARD_SOURCE.match(/还没有证据/g)).toHaveLength(1)
+  })
+
+  it('[提交] 的 disabled 逻辑没被这行小字改写', () => {
+    expect(SUBMIT_CARD_SOURCE).toContain('disabled={disabled || evidence.length === 0}')
   })
 })

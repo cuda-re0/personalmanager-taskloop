@@ -30,7 +30,9 @@ const ERROR_MS = 2600
  *
  * 三条写死的规则：
  * - 没有 `reason` 行：此刻还没有 AI 结论，也不写"请提交证据""提交后由 AI 审核"这类说明。
- * - `[提交]` 在证据数为 0 时 `disabled`（灰、点不动、不加提示文字）。
+ * - `[提交]` 在证据数为 0 时 `disabled`（灰、点不动）。v0.39 §4：此时按钮组最左多一行
+ *   无证据小字（文案见下面 `.review-actions` 里的常量分支），证据数 ≥ 1 时**不进 DOM**
+ *   （不是隐藏）。禁用逻辑本身不受影响。
  * - `[取消]` 没有任何二次确认。
  */
 export function SubmitCard({
@@ -83,6 +85,7 @@ export function SubmitCard({
       />
 
       <div className="review-actions">
+        {evidence.length === 0 ? <span className="submit-hint">还没有证据</span> : null}
         <button
           className="btn btn--ghost"
           disabled={disabled}

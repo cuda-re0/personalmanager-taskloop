@@ -7,15 +7,35 @@ import { toEvidenceViews } from './chatViewModel'
 import { useChatData } from './useChatData'
 
 /**
- * 会话区外壳：消息流（弹性）+ 待提交卡（可滚动，最多 42% 高）+ 输入区（固定）。
+ * 会话区外壳：消息流（弹性，含末尾待提交卡）+ 输入区（固定）。
  * 数据全部来自 useChatData。
  *
- * 待提交卡插在 `MessageList` 与 `ChatInput` 之间而不是消息流内部：`MessageList` 是
- * 绝对定位的虚拟滚动容器，塞非消息内容会把它的测量搞坏（36 §7）。
+ * v0.39 §2：待提交卡从"消息流与输入区之间的独立区"改成 `MessageList` 的 `tail` 行——
+ * 与消息同列、跟着消息一起滚，不再有分隔区。加的是**一行参与测量的内容**，
+ * 不是塞进滚动容器的一块固定 div（36 §7 的结论没被推翻）。
+ * 没有 tail 时 `MessageList` 的 total / 窗口 / 滚动行为与之前完全一致。
  */
 export function ChatPanel(): ReactElement {
   const data = useChatData()
-  const empty = data.messages.length === 0
+  // 有卡即使没有消息也要渲染消息流——否则空对话里待提交卡会整块消失
+  const empty = data.messages.length === 0 && data.pendingSubmit.length === 0
+
+  const tail =
+    data.pendingSubmit.length > 0 ? (
+      <div className="submit-tail">
+        {data.pendingSubmit.map(task => (
+          <SubmitCard
+            busy={data.submittingIds.has(task.id)}
+            evidence={toEvidenceViews(task.evidence, data.attachmentById)}
+            key={task.id}
+            onCancel={() => data.actions.cancelSubmit(task.id)}
+            onPick={file => data.actions.addEvidence(task.id, file)}
+            onSubmit={() => data.actions.submitReview(task.id)}
+            task={task}
+          />
+        ))}
+      </div>
+    ) : null
 
   return (
     <section className="chat-panel">
@@ -27,26 +47,12 @@ export function ChatPanel(): ReactElement {
           draftViews={data.draftViews}
           hasMore={data.hasMore}
           loadingMore={data.loadingMore}
-          messages={data.messages}
+          messages={data.visibleMessages}
           onLoadMore={data.loadMore}
           reviewViews={data.reviewViews}
+          tail={tail}
         />
       )}
-      {data.pendingSubmit.length > 0 ? (
-        <div className="submit-list">
-          {data.pendingSubmit.map(task => (
-            <SubmitCard
-              busy={data.submittingIds.has(task.id)}
-              evidence={toEvidenceViews(task.evidence, data.attachmentById)}
-              key={task.id}
-              onCancel={() => data.actions.cancelSubmit(task.id)}
-              onPick={file => data.actions.addEvidence(task.id, file)}
-              onSubmit={() => data.actions.submitReview(task.id)}
-              task={task}
-            />
-          ))}
-        </div>
-      ) : null}
       <ChatInput onSend={data.send} sending={data.sending} />
     </section>
   )

@@ -31,6 +31,30 @@
   overflow-anchor: none;
 }
 
+/* 滚动条（v0.39 §5）：6px、透明轨道、无箭头按钮。只作用于消息流，不做全局规则 */
+.msg-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.msg-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.msg-scroll::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.msg-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.msg-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+
 .msg-spacer {
   position: relative;
   width: 100%;
@@ -577,14 +601,8 @@
   font-size: 12px;
 }
 
-/* v0.38 待提交卡：容器（最多 42% 高、内部滚动）与它自己的错误行 */
-.submit-list {
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  max-height: 42%;
-  overflow-y: auto;
-  padding: 8px 24px 0;
-  border-top: 1px solid var(--border);
+/* v0.39 待提交卡：消息流末尾的附加行（`MessageList` 的 tail），自身不滚动 */
+.submit-tail {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -597,6 +615,14 @@
   border-radius: var(--r-md);
   background: var(--bg);
   padding: 10px 14px;
+}
+
+/* 无证据时按钮组最左的一行小字（v0.39 §4）：就这四个字，不加标点 */
+.submit-hint {
+  margin-right: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .submit-error {
