@@ -346,6 +346,10 @@ v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai
 
 1. `reminderService.syncForTask(taskId)`：按 `tasks.reminder_offsets_json` 生成 `reminders` 行，幂等（删未触发的旧行再建）。**必须在 W5 建任务时就能被调用**，本阶段补全实现。
 2. 偏移 → 触发时刻换算：`fire_at = due_at + offset`，落在 `quietHours` 内顺延到 `08:00`。
+   **注意（v0.53 新增前置）**：`due_at` 可能是 `YYYY-MM-DD` 或 `YYYY-MM` 两种无时刻形状，换算前必须先过
+   `@shared/due` 的 `dueInstant()`（日级 = 当天 23:59:59.999，月级 = 月末）。**否则日级任务的两条提醒
+   （-1440 / -60）会分别落在前一天 23:59 和当天 22:59，等于半夜叫人**。日/月级任务的提醒需要单独定一个
+   白天时刻（建议按 quietHours 结束时间 08:00 触发"今天到期"），这一条在 W8 开工时由架构方裁决。
 3. `daily` 分支：按 `daily_time` + `repeat_rule` 生成当天/下一触发点的 reminder，关联当天 occurrence。
 4. `reminderScheduler`：启动载入 active，`setTimeout` 到最近一条 + 30s 心跳兜底（防休眠唤醒丢失）；错过的提醒唤醒后补发**最多一条**。
 5. 触发链路：写 `messages(kind='reminder')` → 广播 `message.appended` + `reminder.fired` → 按 `channels` 逐渠道派发（`inapp` 永远先发）。

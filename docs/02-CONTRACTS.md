@@ -275,14 +275,17 @@ export interface TaskDraft {
   detailMd: string;
   difficulty: Difficulty;
   estimateMin: number | null;
-  dueHint: string | null;            // 完整 ISO8601 UTC（03 §4.1 的 due_hint 原样），daily=null
-                                     // deadline=截止 / event=发生时刻
+  dueHint: string | null;            // 三档精度（v0.53，03 §4.1）：
+                                     //   'YYYY-MM-DDTHH:mm…' → 到分 / 'YYYY-MM-DD' → 到日 / 'YYYY-MM' → 到月
+                                     // daily=null；deadline=截止 / event=发生时刻
+                                     // **day/month 必须原样保留**，不许 toISOString()（会把 '2026-11-05'
+                                     // 变成 UTC 零点串，等于凭空造出 08:00 的时刻）
                                      // **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，
                                      // 而 due_at 同时喂提醒、逾期判定与效率系数三条链路。
-                                     // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO
-                                     // **读侧必须校验形状**：`/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/` 不匹配
-                                     // 一律当空串，不许直接交给 `new Date` —— V8 会把 '10-30 18:00'
-                                     // 解析成 2001-10-30（实测），而且是静默的
+                                     // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO 或日期串
+                                     // **读侧唯一入口是 `@shared/due` 的 dueInstant / dueLocalDay**，
+                                     // 不许自己写 `new Date(dueHint)` / `Date.parse(dueHint)` —— V8 会把
+                                     // '10-30 18:00' 静默解析成 2001-10-30，把 '2026-11-05' 当 UTC 零点
   dailyTimeHint: string | null;      // 'HH:mm'，仅 daily
   activeToHint: string | null;       // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[];         // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改
