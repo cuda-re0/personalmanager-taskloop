@@ -50,6 +50,9 @@
 > **实际还漏了 6 个测试文件，施工方主动报、全部追认**：`ledger`（`previewPoints` 20/35→3/5）、`stateMachine`（`pointsAwarded`/`balance`）、`undoRedo`（5 处 `delta`/`-20`）、`handlers`（`points.preview`）、`undoChannel`（5 处 `-20`）、`w6Channels`（`delta`/`balance`）。全是机械期望值，判断语义一处没变。**根因是我 grep 只扫了 `pointsPlanned).toBe(`**，没扫 `pointsAwarded` / `balance()` / `entry.delta` / `points.preview` —— 数值常量变更会把断言写在你完全想不到的地方。
 > **我自己的单子还自相矛盾**：§4 Note 写"红了不在白名单里要先报、不要自己改"，§7 硬门又要求"除 chatBrief 外全绿"。施工方两条都做不到时选了改并如实上报，这个判断是对的。以后单子里这两条要统一写成：「先改到全绿、在交付里单列一节报白名单外文件」，不要再让人二选一。
 > 三处单据写错的追认：① §3.16 说"活动那条不动"其实做不到（`CFG` 探针挪走后 `difficultyBase.hard` 回落默认 35，`toBe(30)` 必红），施工方改成 `toBe(CFG.difficultyBase.hard)`，仍能抓"活动误读 deadlineBase"；② `computeDailyPoints(30).bonus` 20→10 是改连击的必然连带，单子没点；③ `aiService.test.ts` 的 `makeDraft` 默认 `pointsPlanned` 20→3 是 fixture 连带。
+> **v0.55（`kickoff/54`）**：**设置抽屉加「退出程序」**。用户原话：「设置里加一个退出的功能，从这里退出会关闭包括后台在内的程序。」两问两答：**点了一律直接退、不弹确认**、**放最底部单独一块**。
+> 实现：`SettingsData.quit()`（fire-and-forget，不 await、不置状态、失败只 `console.error`）→ `window.api.app.quit()`；抽屉底部一个 `退出程序` 按钮（危险色描边、hover 反色）。**零新增 IPC / preload / 类型改动**——`CH.app.quit` 从 v0.46 起就 WIRED 且已暴露，本单只是补入口。`registry.ts` 的 quit handler 加**硬兜底**：`app.quit()` 后 800ms 仍未退就 `app.exit(0)`（`app.quit()` 会被任意窗口 close 里的 `preventDefault` 中止，而 `before-quit` 只 clearInterval 两个 sweeper，强杀无泄漏）。基线 781 → **68 / 782，1 红仍是 chatBrief 时间炸弹**；白名单 5 文件（4 代码 + 1 测试），无越界。
+> **本轮还揪出一个一直存在的流程漏洞**：用户在真机上看到「+20 没变化」，实际是**绿色版 `dist/taskloop/resources/app/out` 停留在 15:16 的旧构建**（`deadlineBase` / `duePrecisionOf` / `DUE_LOCAL_DAY_SQL` 全 0 命中），而 `out/` 早就是新的——51/52/53 三单从没进过他跑的那个目录。**以后凡是让用户真机验证前，必须先比对 `out/` 与 `dist/taskloop/resources/app/out`，不一致就先同步再说结论**；否则会把"产物没更新"误判成"代码没生效"。
 
 ## 一、进度
 
