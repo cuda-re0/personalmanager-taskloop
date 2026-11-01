@@ -340,7 +340,7 @@ CREATE TABLE settings (
 | `channel.mail` | `{"to":""}` | ★ 收件邮箱。`to` 为空 = 未配置，渠道 `available()=false` 自动跳过，不报错 |
 | `channel.webhook` | `null` | ★ 结构见 02 §3.0 的 `WebhookConfig`。`null` = 未启用；密钥不在此，走 `safeStorage` |
 | `app.theme` | `"light"` | |
-| `ai.chat.model` | `"glm-4.7-flashx"` | **v0.37 新增**（第 18 个 key）：闲聊专用模型，纯文本、非推理、走 `/chat/completions` 但**不带图片**。任务侧仍用 `ai.provider.model`（`glm-5.3-flash`，要推理与识图）。两个模型名分开存，是因为 `ai.provider` 是对象、`settingRepo.getAll()` 做浅合并，往里塞字段会被整对象覆盖掉 |
+| `ai.chat.model` | `"glm-4.7-flashx"` | **v0.37 新增**（第 18 个 key）：闲聊专用模型，纯文本、**强制思考**、走 `/chat/completions` 但**不带图片**。任务侧仍用 `ai.provider.model`（`glm-5.3-flash`，要推理与识图）。两个模型名分开存，是因为 `ai.provider` 是对象、`settingRepo.getAll()` 做浅合并，往里塞字段会被整对象覆盖掉 |
 
 > **v0.37 为什么是两个 key 而不是一个对象**：`settings` 表只存用户真正改过的 key，读取时用 `DEFAULT_SETTINGS` 做底再**浅合并**。用户一旦改过 `ai.provider`（哪怕只改 model），库里那一行就是完整对象，任何新增子字段都会被覆盖成 `undefined`。所以聊天模型必须是顶层 key。
 

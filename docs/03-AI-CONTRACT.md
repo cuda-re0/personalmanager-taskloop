@@ -127,7 +127,7 @@ export interface AiProvider {
 
 `chatText` **不做 zod 校验**（本来就没有结构可校），只做三件事：剥掉模型偶尔自带的 markdown 围栏、`trim`、空字符串报 `AI_PARSE_FAILED`。`chatJson` 的行为约定一条不改。
 
-**两个方法用两个不同的模型**：`chatText` 用 `settings['ai.chat.model']`（默认 `glm-4.7-flashx`，纯文本、非推理、便宜），`chatJson` 用 `settings['ai.provider'].model`（`glm-5.3-flash`，要推理、要识图）。`GlmClient` 构造时要能接收两个模型名，或提供 `withModel(model)` 派生实例——**不许在调用点直接 new 一个 client 塞模型名**，那是把配置读取散到各处。
+**两个方法用两个不同的模型**：`chatText` 用 `settings['ai.chat.model']`（默认 `glm-4.7-flashx`，纯文本、**强制思考**、便宜），`chatJson` 用 `settings['ai.provider'].model`（`glm-5.3-flash`，要推理、要识图）。`GlmClient` 构造时要能接收两个模型名，或提供 `withModel(model)` 派生实例——**不许在调用点直接 new 一个 client 塞模型名**，那是把配置读取散到各处。
 
 行为约定（实现必须满足）：
 
@@ -375,9 +375,12 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 | 项 | 值 | 理由 |
 |---|---|---|
 | `temperature` | `0.8` | 闲聊要松，`parse` 用的低温在这里会像客服 |
-| `maxTokens` | `800` | 约 500~600 汉字，够一段长回复；放开到 2000 会明显变慢 |
-| 超时 | `30s` | 非推理模型，比 `chatJson` 的 180s 短。超时按失败处理 |
+| `maxTokens` | `8000` | **推理 + 正文共享**这个预算。实测推理峰值 1214（12 条记忆 + 摘要 + 13 条历史）；800 时推理 794、正文 0 字符、`finish_reason=length` |
+| 超时 | `60s` | 强制思考，8000 预算下实测 23.0~44.8s，留余量。超时按失败处理 |
 | 空字符串 | 按失败处理 | `chatText` 内部就报 `AI_PARSE_FAILED`，**不许拿空串 patch 消息让气泡变空气泡** |
+| 预算口径 | `reasoning + content` | `max_tokens` 是两者之和，不是正文字数上限；按正文字数估预算必然踩空 |
+
+**空正文重试一次**：chatText 拿到空正文且 finish_reason ≠ length 时原样重发一次（最多 2 次请求），仍空才落失败；finish_reason = length 不重试。两次的 tokens_in/out 相加落库，latency_ms 含重试耗时。
 
 失败路径（与 `msg.send` 现有失败一致，不新增分支）：落一条 `kind='error'` 消息 + `message.appended`，占位 assistant 消息 `status='failed'`，`retryable: true`。用户点重试重跑同一轮。
 
@@ -555,11 +558,11 @@ src/main/ai/prompts/
 | `glm-4.5-flash` | ✅ | 推理（`content` 空是 token 不够） | 未测 | 备选 |
 | `glm-4.6` | ✅ | 推理 | 未测 | 备选 |
 | `glm-4.6-flash` | ❌ `1220 您无权访问` | — | — | 此 key 不可用 |
-| `glm-4.7-flashx` | 未实测 | 非推理，纯文本 | 未测（官方标 200 tok/s 档） | **v0.37 起的闲聊模型**，用户 2026-10-30 裁决「聊天不需要识图」。`ai.chat.model` 默认值 |
+| `glm-4.7-flashx` | ✅ | 推理（强制思考，`reasoning_content` 与正文共享 `max_tokens`） | 23.0~44.8s（8000 预算 / 重 system）/ 推理峰值 1214 tokens | **v0.37 起的闲聊模型**，用户 2026-10-30 裁决「聊天不需要识图」。`ai.chat.model` 默认值 |
 
 > **换模型必须走裁决，不许自己换**——包括"某个模型报错了我顺手换成 flash"。换模型看 `ai.health` 与 `messages.latency_ms`，改完在报告里写明换的模型名与三次实测延迟。
 >
-> **`glm-4.7-flashx` 上线前必须实测三件事**（W12 施工第一步，别跳过）：① 它是不是非推理模型（响应里有没有 `reasoning_content`）；② 单次闲聊的首字延迟与总耗时（三次取中位）；③ 用日文/英文各问一句，确认中文输出规则不串。实测结果写进本节下表，供以后换模型时对照。
+> **已实测（2026-11-01，v0.56）**：① 是推理模型，响应带 `reasoning_content`；② 800 预算下正文返回空、`finish_reason=length`，预算 65536 下正文正常、推理峰值 1214（0 条历史 540 / 13 条历史 782，**不随历史增长**）；③ 日文/英文输出规则 **仍未测**，留作待办
 
 ### 9.5 必须靠 prompt 与校验硬扛的三个已知错误
 

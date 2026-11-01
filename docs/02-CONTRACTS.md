@@ -411,7 +411,7 @@ export interface WebhookConfig {
  */
 export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string };
-  'ai.chat.model': string;                                        // v0.37 新增：闲聊模型，默认 'glm-4.7-flashx'
+  'ai.chat.model': string;                                        // v0.37 新增：闲聊模型（强制思考），默认 'glm-4.7-flashx'
   'hud.mode': HudMode;                                            // v0.30：'ball' | 'panel'
   'hud.displayId': number | null;
   'hud.position': { x: number | null; y: number | null };          // ball 只存 y（x 锁右边缘），panel 存 x/y
