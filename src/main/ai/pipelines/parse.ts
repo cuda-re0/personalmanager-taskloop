@@ -1,3 +1,4 @@
+import { duePrecisionOf } from '../../../shared/due'
 import { computePlannedPoints } from '../../../shared/points/rubric'
 import type { PointsConfig } from '../../../shared/points/rubric'
 import type { Message, TaskDraft, TaskType } from '../../../shared/types/domain'
@@ -101,12 +102,19 @@ export function buildParseRequest(input: ParseRequestInput): ParseRequest {
   return { messages, droppedImages, unsupportedAttachments: others.length }
 }
 
-/** due_hint → TaskDraft.dueHint（完整 ISO8601 UTC）。schema 已保证可解析，这里只做归一 */
+/**
+ * due_hint → TaskDraft.dueHint（v0.53：按精度分流）。
+ *
+ * `minute` 归一成 UTC；`day` / `month` **原样返回，一个字都不要动**——那个串本身就是要落库的值，
+ * `toISOString()` 会把它变成 `2026-11-05T00:00:00.000Z`，等于替用户编了一个零点。
+ */
 function toDueHint(value: string | null, type: TaskType): string | null {
   // daily 不使用截止时间（01 §2.1.1）：模型偶尔会给 daily 填 due_hint，归一掉
   if (type === 'daily' || value === null) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+  const precision = duePrecisionOf(value)
+  if (precision === 'minute') return new Date(value).toISOString()
+  if (precision === 'day' || precision === 'month') return value
+  return null
 }
 
 /** reply 末尾补一句"多出来的图没看"，不报错（开工词 §4.6） */

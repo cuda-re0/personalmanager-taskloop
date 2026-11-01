@@ -1,3 +1,4 @@
+import { dueLocalDay, duePrecisionOf } from '@shared/due'
 import { computePlannedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
 import type { PublicSettings } from '@shared/types/ipc'
@@ -141,28 +142,26 @@ export function formatClock(iso: string): string {
 }
 
 /**
- * dueHint 的合法形状（02 §1）：完整 ISO8601，必须带年月日与时分。
+ * TaskDraft.dueHint → datetime-local 值（v0.53：三档精度）。
  *
- * 读侧先验形状再交给 Date。V8 会把 '10-30 18:00' 静默当成 2001 年（实测，不报错）：
- * 本地时间 2001-10-30 18:00，toISOString 是 2001-10-30T10:00:00.000Z（UTC+8）。
- * 这个值会一路喂给提醒、逾期判定与效率系数。
- */
-const ISO_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
-
-/**
- * TaskDraft.dueHint（完整 ISO8601 UTC，02 §1）→ datetime-local 值。
+ * - `minute`：走 Date 再取**本地**字段（直接 slice(0,16) 切出来是 UTC，和用户眼里的时间差 8 小时）
+ * - `day` / `month`：当天 / 月末的本地零点，拼成 `T00:00`
  *
- * 必须走 Date 再取本地字段：直接 slice(0,16) 切出来的是 UTC 字符串，
- * 和用户眼里的本地时间差 8 小时。空值/形状不合法/日期不存在一律返回 ''，
- * 不 fallback 到今天，也不把非法值交给 new Date。
+ * 为什么日/月级也给 `00:00`：草稿卡保持单个 `datetime-local`（用户裁决，不拆两个控件）。
+ * 用户一改就带上时刻，自动升成 `minute` 精度。空值 / 非法形状一律 `''`，不 fallback 到今天。
  */
 export function dueHintToLocal(hint: string | null): string {
   if (!hint) return ''
-  if (!ISO_SHAPE.test(hint)) return ''
-  const d = new Date(hint)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const precision = duePrecisionOf(hint)
+  if (precision === null) return ''
+  if (precision === 'minute') {
+    const d = new Date(hint)
+    if (Number.isNaN(d.getTime())) return ''
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  const day = dueLocalDay(hint)
+  return day === null ? '' : `${day}T00:00`
 }
 
 /**

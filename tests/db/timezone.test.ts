@@ -99,6 +99,26 @@ describe('本地日历日', () => {
       expect(statsRepo.dayIndex('2026-10-27', '2026-10-27')).toHaveLength(0)
     }
   })
+
+  it('月级 due_at 只落在月末那天，且不造时刻占位符', () => {
+    taskService.createTask({ type: 'deadline', title: '交学费', dueAt: '2026-11' })
+
+    const monthEnd = statsRepo.dayIndex('2026-11-30', '2026-11-30')
+    expect(monthEnd).toHaveLength(1)
+    expect(monthEnd[0].day).toBe('2026-11-30')
+
+    // 月初与前一日都不该命中：月级不等于 11-01，也不是"整月铺满"
+    expect(statsRepo.dayIndex('2026-11-01', '2026-11-01')).toHaveLength(0)
+    expect(statsRepo.dayIndex('2026-11-29', '2026-11-29')).toHaveLength(0)
+
+    // 区间闭包：BETWEEN 两端都要包住月末那天
+    expect(statsRepo.dayIndex('2026-11-01', '2026-11-30')).toHaveLength(1)
+
+    // 没有具体时刻就是空串，不许造 '--:--' 之类的占位符
+    const items = statsRepo.dayDetail('2026-11-30')
+    expect(items).toHaveLength(1)
+    expect(items[0].time).toBe('')
+  })
 })
 
 describe('日期校验的文案（04 §1：这条消息会被 UI 直接渲染）', () => {

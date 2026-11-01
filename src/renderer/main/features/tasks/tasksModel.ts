@@ -1,4 +1,5 @@
 import type { Occurrence, Task, TaskType } from '@shared/types/domain'
+import { dueHasTime, dueInstant } from '@shared/due'
 import { toLocalDay as localDayOf } from '@shared/localDay'
 
 /**
@@ -10,12 +11,15 @@ export function compareTasks(a: Task, b: Task): number {
   const rank = (t: Task): number => (t.status === 'doing' ? 0 : 1)
   if (rank(a) !== rank(b)) return rank(a) - rank(b)
   if (a.priority !== b.priority) return b.priority - a.priority
-  if (a.dueAt === null || b.dueAt === null) {
-    // null 最后：一方 null 一方有值时，null 方排后面
-    if (a.dueAt === null && b.dueAt === null) return a.sortKey - b.sortKey
-    return a.dueAt === null ? 1 : -1
+  // 比「截止瞬间」而不是原串：月级 due_at 是 `2026-11`，按字符串比会排到该月最前（v0.53）
+  const at = dueInstant(a.dueAt)
+  const bt = dueInstant(b.dueAt)
+  if (at === null || bt === null) {
+    // 没有截止时间、或解析不出的排最后
+    if (at === null && bt === null) return a.sortKey - b.sortKey
+    return at === null ? 1 : -1
   }
-  if (a.dueAt !== b.dueAt) return a.dueAt < b.dueAt ? -1 : 1
+  if (at.getTime() !== bt.getTime()) return at.getTime() - bt.getTime()
   return a.sortKey - b.sortKey
 }
 
@@ -101,17 +105,24 @@ export function groupTasks(
 export function remainingLabel(task: Task, now: Date): string {
   if (task.type !== 'deadline' && task.type !== 'event') return ''
   if (!task.dueAt) return ''
-  const dueTime = new Date(task.dueAt).getTime()
-  if (Number.isNaN(dueTime)) return ''
-  const diffHours = (dueTime - now.getTime()) / 3600000
+  const due = dueInstant(task.dueAt)
+  if (due === null) return ''
+  const diffHours = (due.getTime() - now.getTime()) / 3600000
   if (diffHours < 0) return '逾期'
-  if (diffHours < 24) return `${Math.max(1, Math.floor(diffHours))}h`
-  if (task.type === 'deadline') {
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    if (localDayOf(new Date(dueTime)) === localDayOf(tomorrow)) return '明天'
+
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const isTomorrow = task.type === 'deadline' && localDayOf(due) === localDayOf(tomorrow)
+
+  if (dueHasTime(task.dueAt)) {
+    if (diffHours < 24) return `${Math.max(1, Math.floor(diffHours))}h`
+    if (isTomorrow) return '明天'
+    return `${Math.floor(diffHours / 24)}d`
   }
-  return `${Math.floor(diffHours / 24)}d`
+
+  // 没有具体时刻（day / month）：只按整天口径，不出现小时数——出现小时数等于替他编了个时刻
+  if (isTomorrow) return '明天'
+  return `${Math.max(1, Math.ceil(diffHours / 24))}d`
 }
 
 /** 步骤是否已勾（勾选 = 状态离开 todo；完成语义归 W6/W7，见 useTasksData 注释） */

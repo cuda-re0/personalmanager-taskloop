@@ -1,4 +1,5 @@
 import type { DayIndexEntry, DayStat, DayTaskItem } from '../../../shared/types/domain'
+import { dueHasTime } from '../../../shared/due'
 import { roundPoints } from '../../../shared/points/rubric'
 import { getDb, tx } from '../connection'
 import { appError } from '../errors'
@@ -74,19 +75,31 @@ function bumpCounter(day: string, column: 'tasks_created' | 'tasks_done' | 'occu
  * 日历（calendarService 的唯一数据源；W6B / W2 直接调这两个函数）
  * ------------------------------------------------------------------ */
 
+/**
+ * `due_at` → 本地日历日（v0.53）：SQL 侧唯一表达式，两处查询必须共用。
+ *
+ * `month` 精度的 `due_at` 是 `2026-11` 这种串，`date('2026-11','localtime')` 直接返回 NULL
+ * （不是合法 SQLite 时间），月级任务会从日历里整片消失；补成月初再滚到月末即可。
+ * 其余形状（含 `day` 精度的 `2026-11-05`）照旧按本地时区取日。
+ */
+const DUE_LOCAL_DAY_SQL = `CASE WHEN length(due_at) = 7
+     THEN date(due_at || '-01', '+1 month', '-1 day')
+     ELSE date(due_at, 'localtime')
+END`
+
 export function dayIndex(from: string, to: string): DayIndexEntry[] {
   assertDay(from, '起始日')
   assertDay(to, '结束日')
   if (from > to) throw appError('INVALID_INPUT', '日期区间起点晚于终点', { detail: `${from} > ${to}` })
   const rows = getDb()
     .prepare(
-      `SELECT date(due_at, 'localtime') AS day,
+      `SELECT ${DUE_LOCAL_DAY_SQL} AS day,
               COUNT(*)                                        AS total,
               SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done_count
        FROM tasks
        WHERE type IN ('deadline','event')
          AND due_at IS NOT NULL
-         AND date(due_at, 'localtime') BETWEEN ? AND ?
+         AND ${DUE_LOCAL_DAY_SQL} BETWEEN ? AND ?
          AND status NOT IN ('discarded','archived')
        GROUP BY day
        ORDER BY day ASC`
@@ -103,7 +116,7 @@ export function dayDetail(day: string): DayTaskItem[] {
        FROM tasks
        WHERE type IN ('deadline','event')
          AND due_at IS NOT NULL
-         AND date(due_at, 'localtime') = ?
+         AND ${DUE_LOCAL_DAY_SQL} = ?
          AND status NOT IN ('discarded','archived')
        ORDER BY due_at ASC, sort_key ASC`
     )
@@ -121,7 +134,8 @@ export function dayDetail(day: string): DayTaskItem[] {
     taskId: r.id,
     type: r.type,
     title: r.title,
-    time: isoToLocalTime(r.due_at),
+    // 没有时刻的条目（day / month 精度）就是空串：不造 `--:--` 之类的占位符
+    time: dueHasTime(r.due_at) ? isoToLocalTime(r.due_at) : '',
     dueAt: r.due_at,
     status: r.status,
     // 未完成的条目显示计划分，完成的显示实得分

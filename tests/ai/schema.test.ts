@@ -69,8 +69,12 @@ describe('ParseResultSchema', () => {
     ).toBe(true)
   })
 
-  it('due_hint 必须是带年月日时分、可解析的 ISO8601', () => {
-    for (const bad of ['10-30 18:00', '2026-10-30', '明天下午三点', '2026-13-45T99:99:00+08:00']) {
+  it('due_hint 接受三档精度（带时分 / 只有日期 / 只有月份）', () => {
+    for (const good of ['2026-11-05T09:00:00+08:00', '2026-11-05', '2026-11']) {
+      const result = ParseResultSchema.safeParse(validResult({ tasks: [validTask({ due_hint: good })] }))
+      expect(result.success, `due_hint=${good} 应该通过`).toBe(true)
+    }
+    for (const bad of ['10-30 18:00', '2026-11-05T09', '2026-13-01', '2026-02-30', '明天下午三点']) {
       const result = ParseResultSchema.safeParse(
         validResult({ tasks: [validTask({ due_hint: bad })] })
       )

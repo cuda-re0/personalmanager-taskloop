@@ -14,6 +14,7 @@ import type {
   TaskType
 } from '../../shared/types/domain'
 import type { CompleteTaskInput } from '../../shared/types/ipc'
+import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { computeAwardedPoints, computePlannedPoints } from '../../shared/points/rubric'
 import type { TaskDraft } from '../../shared/types/domain'
 import { isDifficultyAllowed } from '../../shared/taskRules'
@@ -349,17 +350,15 @@ function promoteMarkerOf(draft: TaskDraft): DraftPromoteMarker {
 }
 
 /**
- * dueHint 的合法形状（02 §1）。V8 会把 '10-30 18:00' 静默解析成 2001-10-30（实测不报错），
- * 而 due_at 同时喂提醒、逾期判定与效率系数三条链路——不匹配一律当 null，不交给 new Date。
+ * 落库前把 dueHint / patch.dueAt 按精度归一（v0.53，形状与合法性交给 `@shared/due`）：
+ * `minute` 归一成完整 ISO8601 UTC，`day` / `month` **原样保留**，空值与非法形状 → null。
  */
-const DUE_HINT_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
-
-/** 落库前把 dueHint / patch.dueAt 统一成完整 ISO8601 UTC；空值或形状非法 → null */
 function toDueAt(value: string | null | undefined): string | null {
   if (value === null || value === undefined || value === '') return null
-  if (!DUE_HINT_SHAPE.test(value)) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+  const precision = duePrecisionOf(value)
+  if (precision === 'minute') return new Date(value).toISOString()
+  if (precision === 'day' || precision === 'month') return value
+  return null
 }
 
 /** 'HH:mm' 形状校验；不合法 → null（不带年份的脏值不落库） */
@@ -543,12 +542,12 @@ function assertCompletable(task: Task): void {
   assertTransition(task.type, task.status, 'done')
 }
 
-/** 距截止的小时数（02 §5.2）：仅限时任务，`dueAt` 缺失或坏值按未知处理 */
+/** 距截止的小时数（02 §5.2）：仅限时任务，`dueAt` 缺失或坏值按未知处理（v0.53 走 dueInstant） */
 function leadHoursOf(task: Task, completedAt: string): number | null {
   if (task.type !== 'deadline' || task.dueAt === null) return null
-  const due = new Date(task.dueAt).getTime()
-  if (Number.isNaN(due)) return null
-  return (due - new Date(completedAt).getTime()) / 3600000
+  const due = dueInstant(task.dueAt)
+  if (due === null) return null
+  return (due.getTime() - new Date(completedAt).getTime()) / 3600000
 }
 
 /** 逾期天数：满 24 小时算一天、向下取整（02 §5.2）。日期整除，不产出积分值 */

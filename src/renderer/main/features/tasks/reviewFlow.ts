@@ -1,5 +1,6 @@
 import type { Message, ReviewVerdict, Task } from '@shared/types/domain'
 import type { Api } from '@shared/types/ipc'
+import { dueInstant } from '@shared/due'
 
 /**
  * 完成审核的分流（v0.34~v0.36，04 §3.3 / 01 §3）。
@@ -43,10 +44,8 @@ const inFlight = new Set<string>()
  * - `dueAt` 恰好等于 now：**不算**超期（用严格小于，边界归用户）
  */
 function isOverdue(dueAt: string | null, now: Date): boolean {
-  if (dueAt === null) return false
-  const due = Date.parse(dueAt)
-  if (Number.isNaN(due)) return false
-  return due < now.getTime()
+  const due = dueInstant(dueAt)
+  return due !== null && due.getTime() < now.getTime()
 }
 
 /**

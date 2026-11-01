@@ -1,6 +1,6 @@
 {
   "version": "v1 2026-10-29",
-  "note": "四组正例：单任务 / 图转任务 / 多任务（含一条 event 正例）/ 纯闲聊。日期按「当前时间 = 2026-10-29 星期四」书写，仅示意格式。",
+  "note": "五组正例：单任务 / 图转任务 / 多任务（含一条 event 正例）/ 只有月份 / 纯闲聊。日期按「当前时间 = 2026-10-29 星期四」书写，仅示意格式。示例 2 / 3 演示只有日期、示例 4 演示只有月份，一律不补时刻。",
   "examples": [
     {
       "label": "单任务：有明确截止时间",
@@ -34,7 +34,7 @@
       "user": "【用户发来一张图片，内容是白板上的手写字：「周五前把报销单交财务」】",
       "assistant": {
         "intent": "create_task",
-        "reply": "白板上这句记下来了，截止按这周五下班前填。",
+        "reply": "白板上这句记下来了，截止记成这周五。",
         "tasks": [
           {
             "type": "deadline",
@@ -43,7 +43,7 @@
             "requires_evidence": true,
             "difficulty": "easy",
             "estimate_min": 30,
-            "due_hint": "2026-10-30T18:00:00+08:00",
+            "due_hint": "2026-10-30",
             "daily_time_hint": null,
             "tags": ["工作"],
             "steps": [],
@@ -67,7 +67,7 @@
             "requires_evidence": true,
             "difficulty": "hard",
             "estimate_min": 150,
-            "due_hint": "2026-11-04T09:00:00+08:00",
+            "due_hint": "2026-11-04",
             "daily_time_hint": null,
             "tags": ["学习"],
             "steps": [],
@@ -81,12 +81,36 @@
             "requires_evidence": true,
             "difficulty": "medium",
             "estimate_min": 120,
-            "due_hint": "2026-10-30T18:00:00+08:00",
+            "due_hint": "2026-10-30",
             "daily_time_hint": null,
             "tags": ["学习"],
             "steps": [],
             "missing_info": [],
             "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "label": "只有月份：不补日期、不补时刻",
+      "user": "11月要交学费",
+      "assistant": {
+        "intent": "create_task",
+        "reply": "记成 11 月的限时任务了，具体哪天交你知道了再改。",
+        "tasks": [
+          {
+            "type": "deadline",
+            "title": "交学费",
+            "detail_md": "在本月内完成学费缴纳。",
+            "requires_evidence": true,
+            "difficulty": "easy",
+            "estimate_min": 20,
+            "due_hint": "2026-11",
+            "daily_time_hint": null,
+            "tags": ["生活"],
+            "steps": [],
+            "missing_info": ["具体哪天截止？"],
+            "confidence": 0.8
           }
         ]
       }

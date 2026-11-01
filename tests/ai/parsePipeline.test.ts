@@ -126,6 +126,20 @@ describe('toTaskDrafts：字段映射', () => {
     expect(draft.dueHint).toBe('2026-10-30T07:00:00.000Z')
   })
 
+  it('只有日期 / 只有月份原样保留（不许 toISOString）；daily 仍归 null', () => {
+    const [dayDraft, monthDraft, dailyDraft] = toTaskDrafts(
+      result([
+        task({ due_hint: '2026-11-05' }),
+        task({ due_hint: '2026-11' }),
+        task({ type: 'daily', difficulty: 'easy', due_hint: '2026-11-05' })
+      ]),
+      DEFAULT_CONFIG
+    )
+    expect(dayDraft.dueHint).toBe('2026-11-05')
+    expect(monthDraft.dueHint).toBe('2026-11')
+    expect(dailyDraft.dueHint).toBeNull()
+  })
+
   it('steps 的 done 默认 false、estimateMin 缺省为 null', () => {
     const [draft] = toTaskDrafts(
       result([task({ steps: [{ title: '只写标题' }] })]),
@@ -191,11 +205,11 @@ describe('fewshot（03 §9.5 / 开工词 §4.5）', () => {
     expect(raw).toContain('考试')
   })
 
-  it('四组正例：单任务 / 图转任务 / 多任务 / 纯闲聊', () => {
+  it('五组正例：单任务 / 图转任务 / 多任务 / 只有月份 / 纯闲聊', () => {
     const users = parseFewshotMessages()
       .filter(m => m.role === 'user')
       .map(m => String(m.content))
-    expect(users).toHaveLength(4)
+    expect(users).toHaveLength(5)
     expect(users.some(u => u.includes('图片'))).toBe(true)
     expect(users.some(u => u.includes('天气'))).toBe(true)
   })

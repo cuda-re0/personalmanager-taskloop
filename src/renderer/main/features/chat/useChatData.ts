@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { dueInstant } from '@shared/due'
 import { computeAwardedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
 import { snapDifficulty } from '@shared/taskRules'
@@ -54,10 +55,11 @@ function bulkCount(): number {
 /** 04 §3.3：limit 类只有限时才有 leadHours / overdueDays，取不到 completedAt 就是 null */
 function leadHoursOf(task: Task): number | null {
   if (task.type !== 'deadline' || !task.dueAt || !task.completedAt) return null
-  const due = Date.parse(task.dueAt)
+  // v0.53：dueAt 可能有 day / month 精度，必须走 dueInstant（裸 Date.parse 会当成 UTC 零点）
+  const due = dueInstant(task.dueAt)
   const done = Date.parse(task.completedAt)
-  if (Number.isNaN(due) || Number.isNaN(done)) return null
-  return (due - done) / 3600000
+  if (due === null || Number.isNaN(done)) return null
+  return (due.getTime() - done) / 3600000
 }
 
 /**

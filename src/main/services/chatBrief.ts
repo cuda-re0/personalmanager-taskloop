@@ -1,4 +1,5 @@
 import type { DayStat, Task } from '../../shared/types/domain'
+import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { fmtPoints } from '../../shared/format'
 import { isoToLocalDay, isoToLocalTime, todayLocalDay } from '../../shared/localDay'
 
@@ -47,8 +48,19 @@ function weekdayOf(day: string): string {
   return WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
 }
 
-/** 今天 → `今天 18:00`；别的日子 → `11-02 09:00`（03 §4.3.1） */
+/**
+ * 按时分精度写截止（03 §4.3.1，v0.53 扩到三档）：
+ * - `month` → `11月`（只知道月份就只写月份）
+ * - `day`   → 今天 `今天`，别的日子 `MM-DD`（不带时刻）
+ * - `minute`→ 今天 `今天 18:00`，别的日子 `11-02 09:00`
+ */
 function dueLabel(dueAt: string, today: string, timeZone?: string): string {
+  const precision = duePrecisionOf(dueAt)
+  if (precision === 'month') return `${Number(dueAt.slice(5, 7))}月`
+  if (precision === 'day') {
+    const day = dueAt.slice(0, 10)
+    return day === today ? '今天' : day.slice(5)
+  }
   const day = isoToLocalDay(dueAt, timeZone)
   const time = isoToLocalTime(dueAt, timeZone)
   return day === today ? `今天 ${time}` : `${day.slice(5)} ${time}`
@@ -70,9 +82,9 @@ export function buildTodayBrief(input: ChatBriefInput): string {
   // 已完成 = 限时/活动今天完成数 + 每日打卡数（两个口径不相交，加起来才是 ① 里的「今日已完成」）
   const doneToday = input.stat.tasksDone + input.stat.occurrencesDone
   const overdue = pending.filter(task => {
-    if (task.dueAt === null) return false
-    const due = Date.parse(task.dueAt)
-    return Number.isFinite(due) && due < now.getTime()
+    // 取不到截止瞬间（非法 / 空）视为未知，不算逾期
+    const due = dueInstant(task.dueAt)
+    return due !== null && due.getTime() < now.getTime()
   }).length
 
   const head = `今天是 ${today}（${weekdayOf(today)}）。`

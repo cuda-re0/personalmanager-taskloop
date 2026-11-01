@@ -264,11 +264,18 @@ export interface TaskDraft {
   detailMd: string
   difficulty: Difficulty
   estimateMin: number | null
-  dueHint: string | null // 完整 ISO8601 UTC（03 §4.1 的 due_hint 原样），daily=null
-  // deadline=截止 / event=发生时刻
-  // **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，
-  // 而 due_at 同时喂提醒、逾期判定与效率系数三条链路。
-  // 界面上显示成什么都由渲染层决定（04 §3.2），字段本身只存 ISO
+  /**
+   * 截止（deadline）/ 发生（event）时间，三档精度（03 §4.1 的 due_hint 原样，v0.53）：
+   * - `2026-11-05T15:00:00.000Z` → 精确到分（归一成 UTC）
+   * - `2026-11-05`                → 只知道哪天
+   * - `2026-11`                   → 只知道哪个月
+   *
+   * `day` / `month` **必须原样保留，不许 `toISOString()`**——那等于替用户编一个零点。
+   * **不要存 '10-30 18:00' 这种无年份形态**：跨年会错一年，而 due_at 同时喂提醒、
+   * 逾期判定与效率系数三条链路；「截止瞬间」一律走 `@shared/due` 的 `dueInstant`。
+   * 界面上显示成什么都由渲染层决定（04 §3.2）。daily 恒为 null。
+   */
+  dueHint: string | null
   dailyTimeHint: string | null // 'HH:mm'，仅 daily
   activeToHint: string | null // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[] // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改

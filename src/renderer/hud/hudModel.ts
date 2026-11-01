@@ -1,4 +1,5 @@
 import type { Occurrence, Task } from '@shared/types/domain'
+import { dueInstant } from '@shared/due'
 import { fmtPoints } from '@shared/format'
 
 /**
@@ -71,11 +72,11 @@ export function todayPointsLabel(points: number): string {
   return `今日 ${points > 0 ? '+' : ''}${fmtPoints(points)}`
 }
 
-/** `dueAt` → 时间戳；null / 空串 / 解析不出数字一律 null（同档内排在最后） */
+/** `dueAt` → 时间戳（v0.53 走 dueInstant）；null / 空串 / 解析不出数字一律 null（同档内排在最后） */
 function dueTimestamp(dueAt: string | null): number | null {
   if (dueAt === null || dueAt.length === 0) return null
-  const at = Date.parse(dueAt)
-  return Number.isNaN(at) ? null : at
+  const at = dueInstant(dueAt)
+  return at === null ? null : at.getTime()
 }
 
 /**

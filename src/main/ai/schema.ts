@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { ALLOWED_DIFFICULTIES } from '../../shared/taskRules'
 import type { TaskType } from '../../shared/types/domain'
 
@@ -22,18 +23,23 @@ const eventResultSchema = z.enum(['exceeded', 'met', 'below'])
 const verdictSchema = z.enum(['pass', 'partial', 'fail', 'need_evidence'])
 
 /**
- * `due_hint`：null 或**可被 new Date() 解析的 ISO8601**。
+ * `due_hint`：null 或**三档精度之一**（v0.53，形状与合法性都交给 `@shared/due`）。
  *
- * 形状必须带年月日与时分。只写 `10-30 18:00` 时 V8 会静默解析成 2001 年（实测，不报错），
- * 而 due_at 同时喂提醒、逾期判定与效率系数三条链路——所以形状先挡一道，再验可解析性。
+ * - `2026-11-05T15:00:00+08:00` → 精确到分
+ * - `2026-11-05`                → 只知道哪天
+ * - `2026-11`                   → 只知道哪个月
+ *
+ * 只写 `10-30 18:00` 时 V8 会静默解析成 2001 年（实测，不报错），而 due_at 同时喂提醒、
+ * 逾期判定与效率系数三条链路——所以形状先挡一道，再验是不是真实存在的日期。
  */
 const dueHintSchema = z
   .string()
-  .refine(v => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v), {
-    message: 'due_hint 必须形如 2026-10-30T15:00:00+08:00（带年月日与时分）'
+  .refine(v => duePrecisionOf(v) !== null, {
+    message:
+      'due_hint 必须形如 2026-11-05T09:00:00+08:00 / 2026-11-05 / 2026-11，不要写"10月30日"这种无年份形态'
   })
-  .refine(v => !Number.isNaN(new Date(v).getTime()), {
-    message: 'due_hint 不是可解析的日期时间'
+  .refine(v => dueInstant(v) !== null, {
+    message: 'due_hint 不是合法日期（检查月份 1-12、日期是否超出当月天数）'
   })
 
 const dailyTimeSchema = z.string().refine(v => /^([01]\d|2[0-3]):[0-5]\d$/.test(v), {
