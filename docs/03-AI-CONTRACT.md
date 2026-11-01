@@ -134,7 +134,7 @@ export interface AiProvider {
 1. `response_format: { type: 'json_object' }`；上游不支持时退化为在 system prompt 里强制"只输出 JSON，不要 markdown 围栏"，并在解析前剥围栏。
 2. 解析流程：`JSON.parse` → `schema.safeParse` → 失败则把校验错误拼进第二次请求让模型自修（**只重试 1 次**）。
 3. 最终失败：返回 `AI_PARSE_FAILED`，由 `aiService` 落一条 `kind='error'` 消息，`retryable: true`。**不准静默失败，不准抛到渲染层崩界面。**
-4. 超时 **60s**（v0.22 从 45s 上调，实测 `glm-5.3-flash` 单次最慢 29.9s，45s 余量不够），`AbortController` 可控（用户关窗口要能中断）。
+4. 超时 **180s**（v0.22 从 45s 上调到 60s；v0.51 又上调到 180s——**和 `max_tokens: 10000` 是配套的**，见 §9.1：10000 token 按实测约 75 token/s 需要 130s+，60s 会把"没读懂"换成"请求超时"），`AbortController` 可控（用户关窗口要能中断）。
 5. 每次调用把 `tokens_in/out/latency_ms` 写回 `messages`，方便后期看成本。**`tokens_out` 必须包含推理 token**：上游把 `reasoning_tokens` 算在 `completion_tokens` 里，只记 `content` 的估算值会少算一半以上（实测一次 172 tokens 里有 151 是推理）。
 6. API Key 从安全存储读，**绝不进日志、不进 DB 明文、不进 git**。
 7. **任何 provider 返回的内容都要过 zod 校验。** 将来接 harness 时同样不能免检——它不是可信边界。
@@ -352,7 +352,7 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 |---|---|---|
 | `temperature` | `0.8` | 闲聊要松，`parse` 用的低温在这里会像客服 |
 | `maxTokens` | `800` | 约 500~600 汉字，够一段长回复；放开到 2000 会明显变慢 |
-| 超时 | `30s` | 非推理模型，比 `chatJson` 的 60s 短。超时按失败处理 |
+| 超时 | `30s` | 非推理模型，比 `chatJson` 的 180s 短。超时按失败处理 |
 | 空字符串 | 按失败处理 | `chatText` 内部就报 `AI_PARSE_FAILED`，**不许拿空串 patch 消息让气泡变空气泡** |
 
 失败路径（与 `msg.send` 现有失败一致，不新增分支）：落一条 `kind='error'` 消息 + `message.appended`，占位 assistant 消息 `status='failed'`，`retryable: true`。用户点重试重跑同一轮。
@@ -498,7 +498,7 @@ src/main/ai/prompts/
 ```
 
 - **`content` 才是答案**，`reasoning_content` 必须丢弃，不许拼进 JSON 解析。
-- **`max_tokens` 必须给够**：实测 `max_tokens: 32` 时 32 个 token 全被推理吃掉，`content` 返回**空字符串**，`finish_reason: "length"`。建任务场景一律 `max_tokens: 2048`，并检查 `finish_reason`——为 `length` 时按 `AI_PARSE_FAILED` 处理，**不要重试**（重试也是同样的截断）。
+- **`max_tokens` 必须给够**：实测 `max_tokens: 32` 时 32 个 token 全被推理吃掉，`content` 返回**空字符串**，`finish_reason: "length"`。建任务场景一律 `max_tokens: 10000`（v0.51 从 2048 上调：2048 对 `glm-5.3-flash` 不够，实测日志 `finish_reason=length（content 0 字符，out=2048 tokens）`，同一句话时而成功时而失败），并检查 `finish_reason`——为 `length` 时按 `AI_PARSE_FAILED` 处理，**不要重试**（重试也是同样的截断）。
 - `usage.completion_tokens_details.reasoning_tokens` 存在，计费与耗时都在这里。
 
 ### 9.2 `response_format: { type: 'json_object' }` 可用
