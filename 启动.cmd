@@ -2,7 +2,7 @@
 rem ============================================================
 rem  taskloop launcher - ALWAYS builds, then starts the app.
 rem  Double-click this file. Takes about 15 seconds to build.
-rem  Close any old taskloop window first (no single-instance lock).
+rem  Single-instance lock is on: re-launching brings the existing main window up.
 rem ============================================================
 setlocal
 title taskloop - build and start

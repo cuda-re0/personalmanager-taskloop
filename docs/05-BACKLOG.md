@@ -448,6 +448,22 @@ v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai
 
 ---
 
+## W10b · 开机自启 + 单实例 + 悬浮窗打开主界面（v0.46 交付）
+
+**授权目录**：`src/main/{index,windowManager,autoStart}.ts`、`src/main/ipc/{registry,guards}.ts`、`src/shared/{channels.ts,types/ipc.ts}`、`src/preload/index.ts`、`src/renderer/hud/{HudSettings,useHudData}.tsx?`、对应测试。**不许碰** `hud.css`、`renderer/main/**`、`db/**`、`hudService.ts`。
+
+**用户五条裁决**：① 不做界面开关；② 开机只出悬浮条（132×40），主窗不弹；③ 默认就开（首次运行写注册表）；④ 单实例一并加；⑤ `打开主界面` 放 HUD 设置页第 4 项，文字固定四字。
+
+**交付**：`autoStart.ts` 四个导出（`AUTOSTART_FLAG` / `isAutoStart` 精确匹配 / `loginItemArgs` 打包与开发两形态 / `seedAutoStart`）+ 标记文件 `autostart.seeded`（播过种后**永不再碰注册表**，用户删 Run 键也不写回）；`windowManager.showMainWindow()` 作为"叫出主窗"的唯一入口（`second-instance` 与 `app.showMain` 共用，主窗已被 `×` 关掉则重建）；单实例锁在 `whenReady` 之前，拿不到锁直接退出、不建库不建窗；新通道 `app.showMain`（WIRED 55 → 56）。
+
+**验收**（`kickoff/46` §9，真机五条）：Run 键出现 `taskloop` → 照那条值跑只出悬浮条 → 点悬浮条进设置点 `打开主界面` 主窗出现 → 关掉主窗再点能重建 → 再启动一次只有一个进程且主窗被拉出来。
+
+**明确不做**：自启的界面开关与状态展示、托盘图标、记住上次主窗开没开、macOS/Linux 分支、参数透传、把自启状态塞进 settings 或 bootstrap、HUD 双击手势。
+
+**已知边界**：未打包时 Run 键指向 `node_modules\electron\dist\electron.exe` + 项目目录，挪目录/删 `node_modules` 就失效（打包后自动走 `isPackaged` 分支）；从"任务管理器 → 启动"禁用后 Windows 不删 Run 键，我们**看不见**也不纠正。
+
+---
+
 ## W11 · 附件存储
 
 （编号避开已有的 W10 打包。与 W2 同期开工，互不抢文件。）

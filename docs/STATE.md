@@ -21,6 +21,9 @@
 > 留一笔账：`closing` 仍是组件级单例，A 提交**失败**返回时若 B 正在提交，会把 B 的 `closing` 复位成 `false`（B 的失焦可能多存一次同样内容，幂等、无数据损坏）。修它要按行维护一组 flag，另单。
 > 真机未点：04 §10 四条（抽屉三种关法 / 改称呼后聊天里被称呼 / 记忆增删改重开仍在 / AI 三行取值）+ 44b 两条（切行编辑不被收掉 / 切回看到新字）。
 > **手点结果（2026-10-31，用户）**：记忆行编辑态按 `Esc` **仍会关掉抽屉**——第 3 条未达成。静态看 input 的 `stopPropagation()` 在位、`onKeyDown` 也确实挂在 input 上，根因未定（不猜用户操作，也不在没有定位前改代码）。用户判定"没什么问题"，暂不修，留账。其余项用户未报问题。
+> **v0.46（`kickoff/46`）**：**W10b 交付——开机自启 + 单实例 + 悬浮窗「打开主界面」**。用户五条裁决：不做界面开关、**默认就开**、开机**只出悬浮条**、单实例一并加、`打开主界面` 放 HUD 设置页**第 4 项**（文字固定四字）。落地：`src/main/autoStart.ts`（`AUTOSTART_FLAG` / `isAutoStart` 精确匹配 / `loginItemArgs` 打包与开发两形态 / `seedAutoStart` 幂等不抛）+ 标记文件 `autostart.seeded` 保证**播过种后永不再碰注册表**（用户删掉 Run 键也不会被写回）；`windowManager` 加 `{ show }` / `getMainWindow` / **`showMainWindow`（`second-instance` 与 `app.showMain` 的唯一入口）**；单实例锁置于 `whenReady` 之前，拿不到锁直接 `app.quit()`、不建库不建窗；新通道 `app.showMain`（WIRED **55 → 56**，无入参无返回不广播）。基线 62/751 → **63 / 755（1 红是基线自带的时间炸弹，见 §四）**。
+> 越界追认 1 个文件：`tests/renderer/hudWiring.test.ts` 的 JSX 中文白名单硬顶着五个串，加「打开主界面」必红，§6 漏列。另两处是**单子写错、按实际执行**：`AppApi` 实为 `Api` 内联接口（§3.4 名称不对）；`showMainWindow` 在 `registry.ts` / `index.ts` 各出现 **2** 次（import + 调用），§8 那条"各 1"本身不成立。
+>
 > **v0.45（`kickoff/45`）**：**W13 零花钱交付**——积分从"分数"变成"零花钱额度"。用户裁决：基准 500 积分 = 500 元、记账填元并按当期汇率扣分、**允许扣成负数**、入口是 ④ 的**第 5 个标签「支出」**、汇率由 AI 每周一按上周表现浮动 **±15%（0.85 ~ 1.15）**、做得越好越升值、**失败沿用上期汇率不许回落 1.0**。落地：迁移 `004_spend`（`point_ledger` 加 `amount_cents` / `fx_rate`，新表 `fx_rates`）+ `points.spend` / `spendUndo` / `spendMonth`（WIRED **52 → 55**）+ `fxService` / `fxSweeper` / `ai/pipelines/fx.ts` / `prompts/fx.system.md` + 渲染层 `SpendView`。公式见 02 §5.7，表结构见 01 §2.4 / §2.11，白名单见 04 §1.4，提示词见 03 §4.5。**v0.26 的「界面不提供撤销」就地收窄**：只约束得分/冲销流水，支出行有 `[撤销]`（行内有按钮，所以支出行整体不是按钮）。基线 59/728 → **62 / 751**。**未手点**（5 条在 `kickoff/45` §12）。
 
 ## 一、进度
@@ -45,14 +48,15 @@
 | W12C | SSE 真流式 | ⏸ **备选，不建议做** | 05 W12C：触发条件写死，不满足就别做 |
 | W13 | 零花钱（汇率浮动 + 支出记账） | ✅ **v0.45 代码已交付（62 文件 / 751 条），待用户手点** | 04 §1.4 / §4④ / `kickoff/45`：④ 第 5 个标签「支出」；记账填元、按当期汇率扣分（`delta = -roundPoints(amountCents / 100 / rate)`）；汇率每周一 AI 评估、区间 0.85~1.15、失败沿上期；迁移 004（两列 + `fx_rates`）；新增三条通道（WIRED 55）。手点 5 条见 `kickoff/45` §12 |
 | W8 / W8B | 提醒 / 外部通知渠道 | ⏸ **搁置**（用户 2026-10-29 决定：当前主线是让核心闭环可用，提醒往后放） | — |
-| W10 | 打包 | 未开工（临时替代：仓库根 `启动.cmd` 双击构建并启动、`直接启动.cmd` 用现成产物秒开）。**排在 W7、W12 之后** | — |
+| W10 | 打包 | 🟡 **绿色版已产出（免安装）**，未走 electron-builder | `dist\taskloop\taskloop.exe`（288MB）：本机 Electron 运行时改名 + `resources/app/{package.json, out/, node_modules×4}`。electron-builder 三次下载卡死，改**离线方案**（不联网）。不写注册表、不需要管理员权限；数据仍走 `%APPDATA%\taskloop`，与开发版共用 |
+| W10b | 开机自启 + 单实例 + 悬浮窗打开主界面 | ✅ **v0.46 代码已交付（63 文件 / 755 条，1 红为基线时间炸弹），待用户手点** | 04 §5.3 / `kickoff/46`：自启无界面开关、默认开、开机只出悬浮条；HUD 设置第 4 项 `打开主界面`；`app.showMain`（WIRED 56）。手点 5 条见 `kickoff/46` §9 |
 
 ## 二、基线（每次动手前后都该是这个数）
 
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 62 文件 / 751 条（架构方在 W13 工作区实跑；W12 前是 53/681，W12 后 57/708，43 后 57/711，W12B 后 59/728）
+npm test            # 63 文件 / 755 条，**754 绿 1 红**（红的是 `chatBrief` 时间炸弹，见 §四；架构方在 W10b 工作区实跑。W13 后是 62/751，W12B 后 59/728）
 npm run build
 ```
 
@@ -96,6 +100,7 @@ npm run build
 | 全屏自动隐藏未实现（纯 Electron 检测不可靠） | 只保留手动隐藏；W10 真机评估是否引入原生模块 | 04 §5.2、05 W9 验收 |
 | 契约写"成功一轮把占位消息 patch 成 `task_draft`"，实际做不到 | `messages.kind` 是**列**，`messageRepo.patch` 改不了列；W4 改为落一条独立的 `task_draft` 消息（一条回复 + 一条草稿），行为正确、文档过时。**v0.23 补 02 §3.4 口径**，不算缺陷 | 02 §3.4、`kickoff/16` §2.3 |
 | **汇率评估只在周一自动跑**（`fxSweeper` 每 30 分钟检查本周有没有那一期） | 真机上不改系统时间就没法看它跑；只有 `ensureWeek` 的全部分支被单测覆盖（已有记录不调 AI / 钳制 / 失败沿上期 / 无数据不调） | `kickoff/45` §5.2、02 §5.7 |
+| **聊天摘要里的「今天」不读入参时间**：`chatBrief.ts:68` 用 `todayLocalDay(timeZone)` 取**真实系统日期**，而函数签名收了 `input.now` | 测试注入不了时间：`tests/main/chatBrief.test.ts` 断言写死 `今天是 2026-10-31（周六）`，**过了 10-31 必红**（运行时行为是对的，`now` 默认就是 `new Date()`）。修法一行：改用 `toLocalDay(now, timeZone)` | 2026-11-01 交付 W10b 时实测（基线自带，与本单无关）。**未修**，属另一单 |
 
 ## 五、用户报过的问题 · 归属与状态（v0.22 盘点）
 

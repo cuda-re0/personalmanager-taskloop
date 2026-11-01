@@ -450,6 +450,7 @@ export type PublicSettings = AppSettings;
 | `app.getBootstrap` | — | `Bootstrap` | 启动时一次性拉取：settings 摘要、当前任务、余额、最近 30 条消息、今日统计 |
 | `app.setSetting` | `{ key: K; value: AppSettings[K] }`，其中 `K extends keyof AppSettings` | `void` | 写 settings 并广播 `app.setting.changed`。**key 封闭**：写未登记的 key 编译期即报错 |
 | `app.openExternal` | `{ url: string }` | `void` | 仅允许 http/https |
+| `app.showMain` | — | `void` | v0.46：叫出主窗。隐藏/最小化 → `restore + show + focus`；已被 `×` 关掉 → 重建一个。**不广播、不落库、无返回数据**，纯窗口动作。与 `second-instance` 共用同一个 `showMainWindow()` |
 | `app.quit` | — | `void` | |
 
 ```ts
