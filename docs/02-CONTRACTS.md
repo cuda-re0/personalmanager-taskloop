@@ -296,7 +296,9 @@ export interface TaskDraft {
   confidence: number;                // 0~1
   pointsPlanned: number;             // 小数（2 位）。AI 不给。按 type 分派：
                                      //   daily → settings['points.dailyBase']
-                                     //   deadline / event → computePlannedPoints(difficulty, cfg)
+                                     //   daily → settings['points.dailyBase']
+                                     //   deadline → computePlannedPoints('deadline', difficulty)
+                                     //   event    → computePlannedPoints('event', difficulty)
                                      //   **cfg 不许省略**：省了就落到 DEFAULT_CONFIG，用户改过
                                      //   points.difficultyBase 之后卡面与落库会分叉（§5.2b）
                                      // **必须与卡片显示值完全一致**：W5 确认时直接写入
@@ -417,7 +419,9 @@ export interface AppSettings {
   'hud.background': string | null;                                 // v0.30 新增：null = 跟随主题 --bg
   'hud.opacity': number;                                           // v0.30 新增：0.3–1，默认 1，只作用于背景
   'hud.autoHideFullscreen': boolean;                              // 保留 key，本轮不实现检测（v0.17 降级，见 04 §5.6）
-  'points.difficultyBase': Record<Difficulty, number>;
+  'points.difficultyBase': Record<Difficulty, number>;             // 活动 / 每日 用的共用表
+  'points.deadlineBase': Partial<Record<Difficulty, number>>;      // v0.54（第 19 个 key）：**仅限时**
+                                                                   // 缺档回落 points.difficultyBase
   'points.dailyBase': number;
   'points.streakBonus': { days: number; bonus: number }[];
   'points.dailyCap': number | null;
@@ -526,7 +530,7 @@ export type CompleteTaskInput =
 
 **不要给 `TaskPatch` 加 `type`。** 改类型会连带四件事：难度要 `snapDifficulty` 归位、目标类型不适用的字段（`due_at` / `daily_time` / `repeat_rule` / `active_*`）要清、`reminders` 行要按新类型重排、切到每日后当天的 occurrence 要补。其中重排提醒依赖 W8 的同步逻辑，现在做只会留下"按旧类型排好的提醒"——那比不能改类型糟得多。
 
-**`promoteDraft` 的 `patch` 用创建侧形状 `TaskCreatePatch`：`TaskPatch` 的全部字段 + 可选 `type`。** draft 尚未落库，"落库后不可改类型"约束的是 update 链路；确认本质是创建，`createTask` 本来就收 type，允许用户在确认那一刻定类型。主进程收到 `type` 时：按新 type 落库，`pointsPlanned` 按新 type 口径重算（`daily` 恒 `cfg.dailyBase`，`deadline/event` 走 `computePlannedPoints(difficulty, cfg)`），due 字段按 type 映射（`daily` → `daily_time`/`repeat_rule`/`active_from`，否则 → `due_at`）；非法 type×difficulty 照旧只拒 `INVALID_INPUT`、不归位——草稿卡就地改 type 时渲染层 `applyDraftPatch` 已做过 `snapDifficulty`，正常路径到主进程必然合法。落库之后依旧不可改：`task.update` 的 `TaskPatch` 没有也不许有 `type`。
+**`promoteDraft` 的 `patch` 用创建侧形状 `TaskCreatePatch`：`TaskPatch` 的全部字段 + 可选 `type`。** draft 尚未落库，"落库后不可改类型"约束的是 update 链路；确认本质是创建，`createTask` 本来就收 type，允许用户在确认那一刻定类型。主进程收到 `type` 时：按新 type 落库，`pointsPlanned` 按新 type 口径重算（`daily` 恒 `cfg.dailyBase`，`deadline` / `event` 走 `computePlannedPoints(type, difficulty, cfg)`），due 字段按 type 映射（`daily` → `daily_time`/`repeat_rule`/`active_from`，否则 → `due_at`）；非法 type×difficulty 照旧只拒 `INVALID_INPUT`、不归位——草稿卡就地改 type 时渲染层 `applyDraftPatch` 已做过 `snapDifficulty`，正常路径到主进程必然合法。落库之后依旧不可改：`task.update` 的 `TaskPatch` 没有也不许有 `type`。
 
 ### 3.2b `api.occurrence`（每日任务）
 
@@ -763,7 +767,8 @@ setSetting: <K extends keyof AppSettings>(input: { key: K; value: AppSettings[K]
 
 ```ts
 export interface PointsConfig {
-  difficultyBase: Record<Difficulty, number>;
+  difficultyBase: Record<Difficulty, number>;        // 活动 / 每日
+  deadlineBase: Partial<Record<Difficulty, number>>; // v0.54：仅限时，缺档回落 difficultyBase
   dailyBase: number;                       // 每日任务单日基础分
   streakBonus: { days: number; bonus: number }[];  // 连续里程碑
   dailyCap: number | null;                 // 日上限，null=不限
@@ -771,11 +776,22 @@ export interface PointsConfig {
 
 export const DEFAULT_CONFIG: PointsConfig = {
   difficultyBase: { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
+  deadlineBase: { easy: 2, medium: 3, hard: 5 },   // 限时只有这三档合法
   dailyBase: 1,
-  streakBonus: [{ days: 7, bonus: 5 }, { days: 30, bonus: 20 }],
+  streakBonus: [{ days: 7, bonus: 5 }, { days: 30, bonus: 10 }],
   dailyCap: null,
 };
 ```
+
+**`computePlannedPoints(type, difficulty, cfg)`（v0.54 起带类型参数）**：`deadline` 取 `cfg.deadlineBase[d]`，取不到回落 `cfg.difficultyBase[d]`；其余类型照旧取 `difficultyBase`。`RUBRIC_VERSION = 'v0.8'`。
+
+**为什么分成两张表（v0.54，2026-11-01 用户拍板）**：用户原话「限时任务的基础分值太高了，应该设置为 2-5 分」。限时是日常作业/缴费，活动是考试/比赛，两者的"值多少钱"本来就不该同一把尺。**只降限时、活动与每日一分不动**，是用户明确裁决，不要为了"跨类型看起来一致"去动另外两类。
+
+三条已知后果，**记录在案，实现方不许顺手调平**：
+
+1. **限时逾期一天基本清零**：逾期扣分仍是 `2 分/天`，`easy 2−2→夹到 1`、`medium 3−2=1`、`hard 5−2=3`。用户看过这个后果后选了"扣分不动"。
+2. **跨类型分值不可比**：限时 `hard 5` 低于活动 `medium 20`。
+3. **积分更攒不动**：1 积分 = 1 元、额度基准 500，一个限时任务从 20 元变成 3 元。
 
 ### 5.2 限时 / 活动任务
 
@@ -810,9 +826,14 @@ export function roundPoints(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
-/** 应得分：只由难度决定，v0.7 起与时长无关 */
-export function computePlannedPoints(d: Difficulty, cfg = DEFAULT_CONFIG): number {
-  return clamp(roundPoints(cfg.difficultyBase[d]), 1, 100);
+/** 应得分：由 type × 难度决定，v0.7 起与时长无关；v0.54 起限时走独立基数表 */
+export function computePlannedPoints(
+  type: TaskType,
+  d: Difficulty,
+  cfg = DEFAULT_CONFIG,
+): number {
+  const base = type === 'deadline' ? (cfg.deadlineBase[d] ?? cfg.difficultyBase[d]) : cfg.difficultyBase[d];
+  return clamp(roundPoints(base), 1, 100);
 }
 
 export interface AwardInput {
@@ -846,26 +867,38 @@ function clamp(v: number, lo: number, hi: number) {
 
 **为什么时长不进公式（v0.7，2026-10-28 拍板）：** 旧版是 `难度基数 × 工作量系数`（0 min → 1.0，≥240 min → 1.6）。时长是用户或 AI 自己填的，等于"填得越长分越高"——磨洋工能刷分。现在时长只做两件事：给 AI 判定难度当输入、算提醒与逾期。分值只由难度决定。
 
-应得分（B 档，**与时长无关**）：
+应得分（B 档，**与时长无关**；v0.54 起限时改用独立基数表）：
 
 | 难度 | trivial | easy | medium | hard | epic |
 |---|---|---|---|---|---|
-| 应得分 | 5 | 10 | 20 | 35 | 50 |
+| **限时**（`deadlineBase`） | 不合法 | **2** | **3** | **5** | 不合法 |
+| **活动**（`difficultyBase`） | 不合法 | 不合法 | 20 | 35 | 50 |
+| **每日** | 1 | 1 | 1 | 不合法 | 不合法 |
 
-实得分举例（以 medium 20 分为例）：
+每日恒取 `cfg.dailyBase`，不看难度，上表填 1 只为对照。
 
-| 类型 | 情形 | 算式 | 实得 |
-|---|---|---|---|
-| 限时 | 提前 4 天完成，达标 | 20 × 1.0 × 1.2 | 24 |
-| 限时 | 提前 30 小时，达标 | 20 × 1.0 × 1.1 | 22 |
-| 限时 | 当天卡点完成 | 20 × 1.0 × 1.0 | 20 |
-| 限时 | 逾期 3 天完成 | 20 × 1.0 × 1.0 − 6 | 14 |
-| 限时 | 提前 4 天且超预期 | 20 × 1.15 × 1.2 | 27.6 |
-| 活动 | 结果达标 | 20 × 1.0 | 20 |
-| 活动 | 结果超预期 | 20 × 1.2 | 24 |
-| 活动 | 结果不佳 | 20 × 0.85 | 17 |
+实得分举例，**限时以 medium 3 分为例**：
+
+| 情形 | 算式 | 实得 |
+|---|---|---|
+| 提前 4 天完成，达标 | 3 × 1.0 × 1.2 | 3.6 |
+| 提前 30 小时，达标 | 3 × 1.0 × 1.1 | 3.3 |
+| 当天卡点完成 | 3 × 1.0 × 1.0 | 3 |
+| 提前 4 天且超预期 | 3 × 1.15 × 1.2 | 4.14 |
+| 逾期 1 天完成 | 3 − 2 | 1（下限兜底） |
+| 逾期 3 天完成 | 3 − 6 → 夹到下限 | 1 |
+
+**活动以 medium 20 分为例**（未变，照旧）：
+
+| 情形 | 算式 | 实得 |
+|---|---|---|
+| 结果达标 | 20 × 1.0 | 20 |
+| 结果超预期 | 20 × 1.2 | 24 |
+| 结果不佳 | 20 × 0.85 | 17 |
 
 上表每一行都应能被实现方徒手复算，复算不出来就是文档错了。
+
+**注意限时那两行「逾期」——上限被 `planned × 1.4` 夹住、下限是 1，所以限时任务一旦逾期，`easy`/`medium` 基本就是 1 分。** 这是 v0.54「只降限时、扣分不动」的必然结果，已由用户确认，不要当成 bug 去"修正"。
 
 **几个刻意的取舍：**
 
@@ -887,11 +920,11 @@ function clamp(v: number, lo: number, hi: number) {
 | 限时 | `easy` / `medium` / `hard` |
 | 活动 | `medium` / `hard` / `epic` |
 
-- **默认难度是 `medium`，不是 `easy`。** `medium` 三类都合法；`easy` 对 event 非法（04 §3.2 的下拉里根本没有这一项，`<select value="easy">` 匹配不到 option 会显示空白，任务却已经 10 分落了库）。01 §2.1 的 `DEFAULT 'easy'` 只是 SQL 兜底、不是应用层默认档，`createTask` 写 `input.difficulty ?? 'easy'` 是缺陷，不是"跟 DDL 对齐"。
+- **默认难度是 `medium`，不是 `easy`。** `medium` 三类都合法；`easy` 对 event 非法（04 §3.2 的下拉里根本没有这一项，`<select value="easy">` 匹配不到 option 会显示空白，任务却已经 2 分落了库）。01 §2.1 的 `DEFAULT 'easy'` 只是 SQL 兜底、不是应用层默认档，`createTask` 写 `input.difficulty ?? 'easy'` 是缺陷，不是"跟 DDL 对齐"。
 - 切换类型时若当前难度不合法，用 `snapDifficulty(type, d)` 归位到最近合法档，**平手取低档**——切个类型就白涨几十分，用户会认为系统算错了。
 - **校验落在三处**：AI 输出（W4 的 parse pipeline）、草稿归一化（渲染层 `normalizeDraft`）、主进程 `createTask`。前两处**归位**（`snapDifficulty`），保证卡面显示的就是合法档；主进程**不归位，直接 `INVALID_INPUT`**——它若悄悄换一个难度，卡面 35 分、库里 20 分，又变回两套口径。正常路径渲染层已经归过位，主进程报错只会发生在绕过 UI 的调用上。
-- **草稿卡面分值与落库值必须同源**：`draftPointsOf(draft, cfg)` 的 `cfg` 必须是 `bootstrap.settings` 的 `points.*`（完整 `PointsConfig`），不许省略参数落回 `DEFAULT_CONFIG`，也不许只传 `dailyBase`。渲染层目前是 `dailyBase: number` 加一个写死的 `const DAILY_BASE = 1`，W2 的 bootstrap 接上后必须整条换掉：用户改过 `points.difficultyBase` 之后，卡面 +35 / 落库 +30 是同一类 bug 的另一种形态。
-- **改难度必须同步应得分。** `TaskPatch` 含 `difficulty`，`updateTask` 收到 `difficulty` 时必须在**同一事务**里按本节规则重算 `points_planned`（daily 除外，它恒为 `cfg.dailyBase`），并做 type×difficulty 校验——难度从 `hard` 改成 `easy` 后 `points_planned` 若还是 35，完成时会按 35 发分。此条主进程已落地（v0.11 起，含历史脏值纠回测试）；渲染层的 `applyDraftPatch` 同样已实现。
+- **草稿卡面分值与落库值必须同源**：`draftPointsOf(draft, cfg)` 的 `cfg` 必须是 `bootstrap.settings` 的 `points.*`（完整 `PointsConfig`），不许省略参数落回 `DEFAULT_CONFIG`，也不许只传 `dailyBase`。渲染层目前是 `dailyBase: number` 加一个写死的 `const DAILY_BASE = 1`，W2 的 bootstrap 接上后必须整条换掉：用户改过 `points.deadlineBase` 之后，卡面 +5 / 落库 +3 是同一类 bug 的另一种形态。
+- **改难度必须同步应得分。** `TaskPatch` 含 `difficulty`，`updateTask` 收到 `difficulty` 时必须在**同一事务**里按本节规则重算 `points_planned`（daily 除外，它恒为 `cfg.dailyBase`），并做 type×difficulty 校验——难度从 `hard` 改成 `easy` 后 `points_planned` 若还是 5，完成时会按 5 发分。此条主进程已落地（v0.11 起，含历史脏值纠回测试）；渲染层的 `applyDraftPatch` 同样已实现。
 - **daily 的 `points_planned` 只有一个来源：`cfg.dailyBase`。** `createTask` 收到 `{type:'daily', pointsPlanned: 99}` 时必须**忽略这个值**，不能原样落库——每日任务的应得分是定义出来的，不是调用方给的，`points_awarded` 也从不看它（走 `computeDailyPoints`）。`pointsPlanned < 1` 的入参校验照旧（显式给了就必须 ≥1），忽略只发生在"值合法但不用"。
 - **数据库不设 CHECK**：条件约束以后要改就得写迁移，而历史数据不该因为规则收紧就读不出来。
 
@@ -928,7 +961,11 @@ export function computeDailyPoints(
 
 "一个月典型总分"的算法：10 次作业（平均 medium）+ 2 次考试（hard）+ 3 个每日习惯 × 30 天 + 里程碑。
 
-**为什么每日任务只给 1 分（已确认）**：每日任务是"低成本高频"，限时/活动是"高成本低频"。1 分/天让 3 个习惯一个月贡献约 120 分，与 10 次作业的 200 分形成 3:5 的比例——两者都算重要事，但习惯不靠单次分值取胜，靠"不断"。连续 7 天 +5、30 天 +20 才是它真正的激励所在。
+> **v0.54 改动（2026-11-01 用户裁决）**：**只改了限时那一列**——限时 `easy/medium/hard` 从 10/20/35 降到 **2/3/5**，30 天里程碑从 +20 降到 **+10**。上表 B 档里活动（`medium/hard/epic` = 20/35/50）与每日（1 分）**一字未动**，所以"一个月典型总分 ≈ 320"对现在已不成立：10 次限时作业从 200 分变成 30 分。上表作为当初选档的历史记录保留，不要照它反推限时的当前值。
+
+**为什么每日任务只给 1 分（已确认）**：每日任务是"低成本高频"，限时/活动是"高成本低频"。当初（v0.7）的理由是 1 分/天让 3 个习惯一个月贡献约 120 分，与 10 次作业的 200 分形成 3:5 的比例。
+
+**v0.54 之后这个比例反过来了**：10 次限时作业只有约 30 分，3 个习惯仍是约 90 分 + 里程碑，习惯明显压过做事。**用户知道这一点并仍选择"只降限时"**——限时任务的分值要贴近"一次家务值几块钱"的直觉，而不是跟习惯打卡比高低。实现方不要为了"恢复 3:5"去动每日或连击，那是越界。
 
 ### 5.5 配置来源与生效
 

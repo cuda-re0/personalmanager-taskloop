@@ -244,7 +244,7 @@ Prompt 硬约束（写进 system prompt，实现方照抄）：
 - 用户说"做完了 / 交了 / 搞定了" → `intent='review_task'`。
 - `reply` 是给用户看的，不要复述 JSON，不要列字段名。
 
-映射到 `TaskDraft` 时，主进程补齐：`localId = nanoid(8)`、`pointsPlanned = computePlannedPoints(difficulty)`（v0.7 起只看难度；`daily` 取 `cfg.dailyBase`）、`reminderOffsets` 按 type 取 §4.1 默认值。
+映射到 `TaskDraft` 时，主进程补齐：`localId = nanoid(8)`、`pointsPlanned = computePlannedPoints(type, difficulty, cfg)`（只看 type × 难度，与时长无关；`daily` 取 `cfg.dailyBase`；v0.54 起限时走独立的 `points.deadlineBase`，即 easy 2 / medium 3 / hard 5）、`reminderOffsets` 按 type 取 §4.1 默认值。
 
 ### 4.2 `review` — 完成审核（R5 + S4）
 

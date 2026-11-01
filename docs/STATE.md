@@ -43,6 +43,14 @@
 > 施工方还揪出单子一处硬伤：fewshot 第 3 例 deadline 仍留着 `18:00`（用户原话「这周五前」没给钟点）。**fewshot 对模型的影响比 system 正文更大**，留着等于把整单想纠正的行为教回去——已由 `kickoff/52` 修掉，现五例分别是 `15:00`（说了三点）/ `2026-10-30` / `2026-11-04` + `2026-10-30` / `2026-11` / 纯闲聊。
 > **未真机手点**：`51 §6` 三条主路径（「11月5号前」→ 草稿卡 11-05 00:00、「11月要交学费」→ 11-30 且日历红点落 30 号、「明天下午三点」→ 不退化）+ 两条落库核对。静态能证的只是"日/月级不补时刻、不再归一成 UTC 零点"；**模型会不会老实填日期，只有真跑才知道**。
 
+> **v0.54（`kickoff/53`）**：**限时任务基础分值降到 2–5 分**。用户原话：「限时任务的基础分值太高了，应该设置为 2-5 分。」三问三答定死：**只降限时**（`easy 2 / medium 3 / hard 5`，活动 20/35/50 与每日 1 分**一分不动**）、**逾期扣分不动**（仍 2 分/天、封顶 20）、**只缩 30 天连击**（+20 → +10，7 天 +5 不变）。
+> 实现：`PointsConfig` 加 `deadlineBase: Partial<Record<Difficulty, number>>`，settings 第 **19** 个 key `points.deadlineBase`；`computePlannedPoints` 签名加 `type` 并带缺档回落（`deadlineBase[d] ?? difficultyBase[d]`）；`RUBRIC_VERSION` v0.7 → **v0.8**。共用表 `difficultyBase` 一个字没改，所以活动与每日不受影响。
+> **三条已知后果，用户知情后仍选的，不许"顺手调平"**：① 限时逾期一天基本清零（`easy 2−2→夹到 1`、`medium 3−2=1`）；② 跨类型不可比（限时 hard 5 < 活动 medium 20）；③ 积分更攒不动（一个限时任务从 20 元变 3 元，500 额度基准不变）。02 §5.2 已把这些写成"不要当 bug 修"。
+> 连带影响面：限时基数被 **10 个测试文件**钉死（`rubric` / `settings` / `task` / `complete` / `parsePipeline` / `aiService` / `promoteDraft` / `chatViewModel` / `normalizeDraft` / `tasksModel`），白名单 **19 个路径**（9 代码 + 10 测试），无新建文件。
+> **实际还漏了 6 个测试文件，施工方主动报、全部追认**：`ledger`（`previewPoints` 20/35→3/5）、`stateMachine`（`pointsAwarded`/`balance`）、`undoRedo`（5 处 `delta`/`-20`）、`handlers`（`points.preview`）、`undoChannel`（5 处 `-20`）、`w6Channels`（`delta`/`balance`）。全是机械期望值，判断语义一处没变。**根因是我 grep 只扫了 `pointsPlanned).toBe(`**，没扫 `pointsAwarded` / `balance()` / `entry.delta` / `points.preview` —— 数值常量变更会把断言写在你完全想不到的地方。
+> **我自己的单子还自相矛盾**：§4 Note 写"红了不在白名单里要先报、不要自己改"，§7 硬门又要求"除 chatBrief 外全绿"。施工方两条都做不到时选了改并如实上报，这个判断是对的。以后单子里这两条要统一写成：「先改到全绿、在交付里单列一节报白名单外文件」，不要再让人二选一。
+> 三处单据写错的追认：① §3.16 说"活动那条不动"其实做不到（`CFG` 探针挪走后 `difficultyBase.hard` 回落默认 35，`toBe(30)` 必红），施工方改成 `toBe(CFG.difficultyBase.hard)`，仍能抓"活动误读 deadlineBase"；② `computeDailyPoints(30).bonus` 20→10 是改连击的必然连带，单子没点；③ `aiService.test.ts` 的 `makeDraft` 默认 `pointsPlanned` 20→3 是 fixture 连带。
+
 ## 一、进度
 
 | 线 | 内容 | 状态 | 落点 |

@@ -330,7 +330,8 @@ CREATE TABLE settings (
 | `hud.background` | `null` | v0.30 新增：背景色，null = 跟随主题 |
 | `hud.opacity` | `1` | v0.30 新增：背景透明度 0.3–1 |
 | `hud.autoHideFullscreen` | `true` | 全屏应用时隐藏。**v0.17：本轮不实现检测**（无原生依赖时不可靠，W10 真机评估），key 保留 |
-| `points.difficultyBase` | `{"trivial":5,"easy":10,"medium":20,"hard":35,"epic":50}` | ★ B 中档，已定 |
+| `points.difficultyBase` | `{"trivial":5,"easy":10,"medium":20,"hard":35,"epic":50}` | ★ B 中档，已定（活动 / 每日用） |
+| `points.deadlineBase` | `{"easy":2,"medium":3,"hard":5}` | v0.54：**仅限时**，缺档回落 `difficultyBase` |
 | `points.dailyBase` | `1` | ★ 每日任务单日基础分，已定 |
 | `points.streakBonus` | `[{"days":7,"bonus":5},{"days":30,"bonus":20}]` | ★ 连续里程碑，已定 |
 | `points.dailyCap` | `null` | 日上限，null=不限；S1 暂不做 |
