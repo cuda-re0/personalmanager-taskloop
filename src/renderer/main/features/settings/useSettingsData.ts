@@ -54,6 +54,8 @@ export interface SettingsData {
   addMemory(contentMd: string, kind: MemoryKind): Promise<boolean>
   /** 返回 `true` = 已写入 `ai-key.bin`；`true` 时由调用方把输入框置空 */
   saveKey(key: string): Promise<boolean>
+  /** 退出整个应用（含悬浮条与后台 sweeper），fire-and-forget */
+  quit(): void
 }
 
 /** 还没拉到人物卡时的表单初值：四个字段都空、语气按第一项，`saved` 仍是 `null`（于是不可保存） */
@@ -256,6 +258,17 @@ export function useSettingsData(): SettingsData {
     }
   }, [])
 
+  /**
+   * 退出整个应用（v0.55）：`app.quit()` 一旦生效渲染进程就没了，Promise 不会正常回来，
+   * 所以是 fire-and-forget——不 await、不置"正在退出"标志、失败也不做 UI 反馈（进程都要没了，
+   * 报错没有落点）。
+   */
+  const quit = useCallback((): void => {
+    void window.api.app.quit().catch((e: unknown) => {
+      console.error('[settings] app.quit 调用失败', e)
+    })
+  }, [])
+
   return useMemo(
     () => ({
       form,
@@ -277,7 +290,8 @@ export function useSettingsData(): SettingsData {
       updateMemory,
       removeMemory,
       addMemory,
-      saveKey
+      saveKey,
+      quit
     }),
     [
       form,
@@ -298,7 +312,8 @@ export function useSettingsData(): SettingsData {
       updateMemory,
       removeMemory,
       addMemory,
-      saveKey
+      saveKey,
+      quit
     ]
   )
 }

@@ -156,6 +156,11 @@ const TABLE: Row[] = [
   }),
   row(CH.app.quit, g.quit, () => {
     app.quit()
+    // 硬兜底（v0.55）：app.quit() 会被任意窗口 close 事件里的 preventDefault 中止，
+    // 那时用户点了按钮却什么都没发生。800ms 后进程还在就强杀。
+    // 用 app.exit(0) 而不是再调一次 quit：它跳过 before-quit，而本项目的 before-quit 只
+    // clearInterval 两个 sweeper——进程都没了，不存在泄漏。
+    setTimeout(() => app.exit(0), 800)
   }),
 
   /* ---------------- task（11） ---------------- */

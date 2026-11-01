@@ -309,3 +309,26 @@
   color: var(--text);
   text-align: right;
 }
+
+/* ---------- 退出（v0.55） ---------- */
+
+.settings-quit-block {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-quit {
+  padding: 6px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--danger);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-quit:hover {
+  background: var(--danger);
+  color: #fff;
+}

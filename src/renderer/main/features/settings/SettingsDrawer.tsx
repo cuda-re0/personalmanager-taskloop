@@ -21,6 +21,9 @@ import './settings.css'
  * 项目没有焦点管理设施，做一半的焦点陷阱比不做更怪；关闭即卸载由调用方负责
  * （`index.tsx` 的 `{settingsOpen && …}`）。
  *
+ * 注意：上面三种都只是**关抽屉**，应用还在跑。真正退出应用是底部那个按钮
+ * （`data.quit`，v0.55）——它会连悬浮条与后台定时器一起结束。
+ *
  * `Esc` 的一个坑：记忆行在编辑态时，`Esc` 只退出编辑。编辑框的 keydown 里
  * `stopPropagation()` 把事件摁住，面板根那层监听收不到，抽屉就不会被一起关掉。
  */
@@ -62,6 +65,11 @@ export function SettingsDrawer({ onClose }: Props): ReactElement {
           <PersonaBlock data={data} />
           <MemoryBlock data={data} />
           <AiBlock data={data} />
+          <section className="settings-block settings-quit-block">
+            <button type="button" className="settings-quit" onClick={data.quit}>
+              退出程序
+            </button>
+          </section>
         </div>
       </div>
     </>

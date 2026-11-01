@@ -96,7 +96,8 @@ const ALLOWED = new Set([
   '已配置',
   '未配置',
   '新的记忆',
-  '记忆类型'
+  '记忆类型',
+  '退出程序'
 ])
 
 /** 设置目录下所有文件（含 css） */
@@ -143,6 +144,12 @@ describe('接线', () => {
 
   it('展示组件不直连 IPC：SettingsDrawer 里 window.api 0 命中', () => {
     expect(DRAWER).not.toContain('window.api')
+  })
+
+  it('退出按钮在抽屉里，动作走 hook 而不是直连 IPC（v0.55）', () => {
+    expect(DRAWER).toContain('退出程序')
+    expect(DRAWER).toContain('data.quit')
+    expect(DATA).toContain('window.api.app.quit')
   })
 
   it('抽屉宽度 420px（最小窗宽 980，永远放得下）', () => {
