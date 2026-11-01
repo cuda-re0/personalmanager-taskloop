@@ -462,6 +462,24 @@ v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai
 
 **已知边界**：未打包时 Run 键指向 `node_modules\electron\dist\electron.exe` + 项目目录，挪目录/删 `node_modules` 就失效（打包后自动走 `isPackaged` 分支）；从"任务管理器 → 启动"禁用后 Windows 不删 Run 键，我们**看不见**也不纠正。
 
+**已知缺陷（2026-11-01 架构方验出的真问题，未修）**：Run 键名是 `electron.app.Electron`，不是 `taskloop`。Electron 在 Windows 从 **exe 的版本资源**取应用名，而绿色版只是把 `electron.exe` 改了文件名，版本信息里 `ProductName` 仍是 "Electron"。后果：任务管理器 → 启动 里显示「Electron」，用户认不出；别的 Electron 应用若用默认名会互相覆盖。修法一行 `setLoginItemSettings({ …, name: 'taskloop' })`，改完还要删 `%APPDATA%\taskloop\autostart.seeded` 重新播种、清掉旧键。
+
+---
+
+## W10c · 设置里填 API Key（v0.47 交付）
+
+**起因**：`03 §9.7` 从 v0.22 起把 `writeKey()` 定成"只导出、不许注册 IPC"，理由是"v1 没有设置页"。v0.44 设置抽屉做出来了，AI 块却照着旧条文做成三行只读——**契约没跟上实现**，用户直接指出「你竟然没有留填 apikey 的位置」。打包版不读 `.env.local`，没有这个入口就等于 AI 装完是死的。
+
+**授权目录**（13 文件）：`src/shared/{channels.ts,types/ipc.ts}`、`src/preload/index.ts`、`src/main/ipc/{guards,registry}.ts`、`src/main/services/aiService.ts`、`src/main/ai/config.ts`（仅注释）、`src/renderer/main/features/settings/{SettingsDrawer,useSettingsData}.ts*`、三个 `tests/ipc/*` 计数、新增 `tests/main/aiSetKey.test.ts`。**不许碰** `settings.css`、`settingsWiring.test.ts`、`db/**`、`chatBrief.ts`。
+
+**设计**：AI 块第四行 = `input[type=password]` + `[保存]`，走新通道 `ai.setKey`（WIRED 56 → 57）。**零新增界面中文串**——「保存」复用人物卡那个按钮的字，「API Key」复用现有标签，所以 `settingsWiring` 的 `ALLOWED` 一个字没动、断言仍绿，这就是"没多写一个字"的机器证明。
+
+**几条硬纪律**：唯一副作用是写 `userData/ai-key.bin`（不广播、不落库、不发网络请求）；返回**写入后重算**的 `configured`，不硬编码 `true`；空串与纯空格都由 service 给「API Key 不能为空」（guard 故意不写 `.min(1)`，否则被通用句盖掉）；加密不可用时「API Key 保存失败」并**拒绝落明文**；**任何日志/错误 message 里不许出现 key**；成功即清空输入框，**不回显**掩码。
+
+**明确不做**：「测试连接」按钮（要真发一次带图请求）、「清除 Key」、把 key 写进 settings 或 bootstrap、旧 key 备份与回滚。
+
+**验收（架构方用 CDP + 临时 userData 实跑，未麻烦用户）**：`--user-data-dir=%TEMP%\tl-verify` 启动打包版 → AI 块 `未配置`、密码框在、`[保存]` 默认灰 → 纯空格仍灰 → 填 `sk-verify-fake-123` 后按钮可用 → 点保存：输入框清空、第三行变 `已配置`、无错误 → 临时目录出现 `ai-key.bin`（49 B 密文）→ **杀掉进程重启**，`keyStatus` 仍 `configured: true`（DPAPI 密文可读回）。验完删除临时目录，未碰真实 `%APPDATA%\taskloop`。
+
 ---
 
 ## W11 · 附件存储
@@ -543,7 +561,7 @@ v0.36 追加裁决：**`pass` 之后落库失败也一律回 `doing`**（与 `ai
 
 **代价**：这是本项目第一个真正的表单页，会带来输入校验、脏值离开提醒、保存反馈三套通用逻辑。**不做进 W12，是为了让 W12 能一次跑通对话闭环**，而不是被表单拖住。
 
-**交付（v0.44，`1a5ede0`，`kickoff/44`）**：形态定为右侧抽屉 420px + 遮罩；人物卡显式 `[保存]`（脏值才亮，只提交变化字段）；记忆行内编辑 + 每行删除 + 底部新增；语气 `温柔/直率/活泼`。新增 `ai.keyStatus`（不联网，只为显示一行状态）。**三处主动放弃**：key 输入框（`writeKey()` 按 03 §9.7 不许注册成 IPC）、改模型名（改错会让建任务与审核全线失败，且无回滚入口）、清空全部记忆（02 §3.8 明令禁止）。规格见 04 §10，文案白名单见 04 §1.3。
+**交付（v0.44，`1a5ede0`，`kickoff/44`）**：形态定为右侧抽屉 420px + 遮罩；人物卡显式 `[保存]`（脏值才亮，只提交变化字段）；记忆行内编辑 + 每行删除 + 底部新增；语气 `温柔/直率/活泼`。新增 `ai.keyStatus`（不联网，只为显示一行状态）。**三处主动放弃**：key 输入框（`writeKey()` 按 03 §9.7 不许注册成 IPC）、改模型名（改错会让建任务与审核全线失败，且无回滚入口）、清空全部记忆（02 §3.8 明令禁止）。（**前半条已于 v0.47 推翻**——key 输入框补上了，见 W10c；模型名与"清空全部"仍不做。）规格见 04 §10，文案白名单见 04 §1.3。
 
 ---
 

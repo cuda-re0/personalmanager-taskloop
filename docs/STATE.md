@@ -3,7 +3,7 @@
 > 每次开工前只读这一页 + 你那一节的契约。历史沿革在 `kickoff/08-WAVE1-DELTA.md`，
 > **不要从头读**——那是变更流水，只在"为什么这么定"说不清时才翻。
 >
-> 最后更新：2026-10-31，契约 **v0.45**。v0.21 修完用户手点报的 7 条问题（`cbf5eca`）；
+> 最后更新：2026-11-01，契约 **v0.47**。v0.21 修完用户手点报的 7 条问题（`cbf5eca`）；
 > v0.22 补 W4 开工前的实测口径（`03 §9`：推理模型、`due_hint` 恒 null 的根因、60s 超时、key 三级优先级）；
 > v0.23/v0.24 是 W4 审核与两处更正；v0.25 补明细页两条更正（翻月双向、切视图不卸载工作台），见 `04 §4④`；
 > **v0.26 换形态**：用户真机看过之后，明细从整窗页改成 ④ 的第 4 个标签、右栏 400→460、界面去掉撤销（`kickoff/22`）。
@@ -21,6 +21,10 @@
 > 留一笔账：`closing` 仍是组件级单例，A 提交**失败**返回时若 B 正在提交，会把 B 的 `closing` 复位成 `false`（B 的失焦可能多存一次同样内容，幂等、无数据损坏）。修它要按行维护一组 flag，另单。
 > 真机未点：04 §10 四条（抽屉三种关法 / 改称呼后聊天里被称呼 / 记忆增删改重开仍在 / AI 三行取值）+ 44b 两条（切行编辑不被收掉 / 切回看到新字）。
 > **手点结果（2026-10-31，用户）**：记忆行编辑态按 `Esc` **仍会关掉抽屉**——第 3 条未达成。静态看 input 的 `stopPropagation()` 在位、`onKeyDown` 也确实挂在 input 上，根因未定（不猜用户操作，也不在没有定位前改代码）。用户判定"没什么问题"，暂不修，留账。其余项用户未报问题。
+> **v0.47（`kickoff/47`）**：**W10c 交付——设置里能填 API Key**。起因是用户看完打包版直接指出的漏项：`03 §9.7` 从 v0.22 起把 `writeKey()` 定成"不注册 IPC"，理由是"v1 没有设置页"；v0.44 抽屉做出来后 AI 块仍照旧条文做成三行只读，**契约没跟上实现**。而打包版不读 `.env.local`，没这个入口等于装完 AI 就是死的。落地：新通道 `ai.setKey`（WIRED **56 → 57**）→ `aiService.setKey` → `writeKey()`，写 `userData/ai-key.bin`；AI 块第四行 = `input[type=password]` + `[保存]`。**零新增界面中文串**（「保存」复用人物卡按钮的字），所以 `settingsWiring` 的 `ALLOWED` 一个字没动、断言仍绿——这就是"没多写一个字"的机器证明。基线 63/755 → **64 / 757（仍 1 红，同一颗时间炸弹）**。
+> **架构方自己验完三条验收**（没麻烦用户）：`--user-data-dir=%TEMP%\tl-verify` 起打包版，CDP 点开抽屉 → `未配置` / 密码框在 / `[保存]` 默认灰 → 纯空格仍灰 → 填假 key 后可用 → 保存后输入框清空、第三行变 `已配置`、临时目录出现 49 B 密文 → **杀进程重启**仍 `configured: true`（DPAPI 密文可读回）。验完删临时目录，**没碰真实 `%APPDATA%\taskloop`**。
+> **一处我自己动手**：`config.ts:18` 那句「`writeKey()` 只导出、不注册 IPC：v1 没有设置页」现在是假话（白名单只授权改 `writeKey()` 上方的 doc 注释，漏了这里），假注释会误导后续会话，我直接改成「自身不注册通道，v0.47 起由 `ai.setKey` 调用」。
+>
 > **v0.46（`kickoff/46`）**：**W10b 交付——开机自启 + 单实例 + 悬浮窗「打开主界面」**。用户五条裁决：不做界面开关、**默认就开**、开机**只出悬浮条**、单实例一并加、`打开主界面` 放 HUD 设置页**第 4 项**（文字固定四字）。落地：`src/main/autoStart.ts`（`AUTOSTART_FLAG` / `isAutoStart` 精确匹配 / `loginItemArgs` 打包与开发两形态 / `seedAutoStart` 幂等不抛）+ 标记文件 `autostart.seeded` 保证**播过种后永不再碰注册表**（用户删掉 Run 键也不会被写回）；`windowManager` 加 `{ show }` / `getMainWindow` / **`showMainWindow`（`second-instance` 与 `app.showMain` 的唯一入口）**；单实例锁置于 `whenReady` 之前，拿不到锁直接 `app.quit()`、不建库不建窗；新通道 `app.showMain`（WIRED **55 → 56**，无入参无返回不广播）。基线 62/751 → **63 / 755（1 红是基线自带的时间炸弹，见 §四）**。
 > 越界追认 1 个文件：`tests/renderer/hudWiring.test.ts` 的 JSX 中文白名单硬顶着五个串，加「打开主界面」必红，§6 漏列。另两处是**单子写错、按实际执行**：`AppApi` 实为 `Api` 内联接口（§3.4 名称不对）；`showMainWindow` 在 `registry.ts` / `index.ts` 各出现 **2** 次（import + 调用），§8 那条"各 1"本身不成立。
 >
@@ -49,14 +53,15 @@
 | W13 | 零花钱（汇率浮动 + 支出记账） | ✅ **v0.45 代码已交付（62 文件 / 751 条），待用户手点** | 04 §1.4 / §4④ / `kickoff/45`：④ 第 5 个标签「支出」；记账填元、按当期汇率扣分（`delta = -roundPoints(amountCents / 100 / rate)`）；汇率每周一 AI 评估、区间 0.85~1.15、失败沿上期；迁移 004（两列 + `fx_rates`）；新增三条通道（WIRED 55）。手点 5 条见 `kickoff/45` §12 |
 | W8 / W8B | 提醒 / 外部通知渠道 | ⏸ **搁置**（用户 2026-10-29 决定：当前主线是让核心闭环可用，提醒往后放） | — |
 | W10 | 打包 | 🟡 **绿色版已产出（免安装）**，未走 electron-builder | `dist\taskloop\taskloop.exe`（288MB）：本机 Electron 运行时改名 + `resources/app/{package.json, out/, node_modules×4}`。electron-builder 三次下载卡死，改**离线方案**（不联网）。不写注册表、不需要管理员权限；数据仍走 `%APPDATA%\taskloop`，与开发版共用 |
-| W10b | 开机自启 + 单实例 + 悬浮窗打开主界面 | ✅ **v0.46 代码已交付（63 文件 / 755 条，1 红为基线时间炸弹），待用户手点** | 04 §5.3 / `kickoff/46`：自启无界面开关、默认开、开机只出悬浮条；HUD 设置第 4 项 `打开主界面`；`app.showMain`（WIRED 56）。手点 5 条见 `kickoff/46` §9 |
+| W10b | 开机自启 + 单实例 + 悬浮窗打开主界面 | ✅ **v0.46 代码已交付（63 文件 / 755 条，1 红为基线时间炸弹）** | 04 §5.3 / `kickoff/46`：自启无界面开关、默认开、开机只出悬浮条；HUD 设置第 4 项 `打开主界面`；`app.showMain`（WIRED 56）。架构方已用 CDP 实跑 5 条验收；**遗留真缺陷：Run 键名是 `electron.app.Electron`**（见 §四） |
+| W10c | 设置里填 API Key | ✅ **v0.47 代码已交付（64 文件 / 757 条，1 红同上）** | 02 §3.4 / 03 §9.7 / 04 §10.3：AI 块第四行密码框 + `[保存]`，`ai.setKey`（WIRED 57）→ `writeKey()` 写 `ai-key.bin`。三条验收架构方已用临时 userData 实跑 |
 
 ## 二、基线（每次动手前后都该是这个数）
 
 ```
 npm run typecheck   # 三段：node / web / test
 npx eslint src tests --ext .ts,.tsx --max-warnings 0
-npm test            # 63 文件 / 755 条，**754 绿 1 红**（红的是 `chatBrief` 时间炸弹，见 §四；架构方在 W10b 工作区实跑。W13 后是 62/751，W12B 后 59/728）
+npm test            # 64 文件 / 757 条，**756 绿 1 红**（红的是 `chatBrief` 时间炸弹，见 §四；架构方在 W10c 工作区实跑。W10b 后是 63/755，W13 后 62/751，W12B 后 59/728）
 npm run build
 ```
 
@@ -101,6 +106,7 @@ npm run build
 | 契约写"成功一轮把占位消息 patch 成 `task_draft`"，实际做不到 | `messages.kind` 是**列**，`messageRepo.patch` 改不了列；W4 改为落一条独立的 `task_draft` 消息（一条回复 + 一条草稿），行为正确、文档过时。**v0.23 补 02 §3.4 口径**，不算缺陷 | 02 §3.4、`kickoff/16` §2.3 |
 | **汇率评估只在周一自动跑**（`fxSweeper` 每 30 分钟检查本周有没有那一期） | 真机上不改系统时间就没法看它跑；只有 `ensureWeek` 的全部分支被单测覆盖（已有记录不调 AI / 钳制 / 失败沿上期 / 无数据不调） | `kickoff/45` §5.2、02 §5.7 |
 | **聊天摘要里的「今天」不读入参时间**：`chatBrief.ts:68` 用 `todayLocalDay(timeZone)` 取**真实系统日期**，而函数签名收了 `input.now` | 测试注入不了时间：`tests/main/chatBrief.test.ts` 断言写死 `今天是 2026-10-31（周六）`，**过了 10-31 必红**（运行时行为是对的，`now` 默认就是 `new Date()`）。修法一行：改用 `toLocalDay(now, timeZone)` | 2026-11-01 交付 W10b 时实测（基线自带，与本单无关）。**未修**，属另一单 |
+| **开机启动项的键名是 `electron.app.Electron`，不是 `taskloop`** | Electron 在 Windows 从 **exe 的版本资源**取应用名；绿色版只是把 `electron.exe` 改了文件名，`ProductName` 仍是 "Electron"。后果：任务管理器 → 启动 里显示「Electron」认不出，别的 Electron 应用用默认名会互相覆盖。修法一行 `setLoginItemSettings({ …, name: 'taskloop' })`，改完要删 `autostart.seeded` 重新播种并清旧键 | 2026-11-01 架构方验 W10b 第 1 条验收时发现。**未修**，属另一单 |
 
 ## 五、用户报过的问题 · 归属与状态（v0.22 盘点）
 
