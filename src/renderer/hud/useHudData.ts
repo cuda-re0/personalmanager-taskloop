@@ -14,6 +14,8 @@ import { buildRows, composeHudBg, localDayOf, type HudRow } from './hudModel'
  * 背景与透明度（v0.30）走 `app.setSetting`（`hud.background` / `hud.opacity`）。
  * 这两个值要求"即时生效"，所以先落本地状态再发 IPC：IPC 失败只进控制台，
  * 界面上的 `--hud-bg` 由 `app.setting.changed` 的回归值兜住。
+ *
+ * v0.46：`showMain` 只是窗口动作，不读也不改这里的任何状态。
  */
 
 const ACTIVE_STATUS = new Set(['todo', 'doing', 'reviewing', 'pending_review'])
@@ -61,6 +63,8 @@ export interface HudActions {
   setBackground(color: string): void
   /** 透明度 0.3–1：即时生效 + 落 `hud.opacity` */
   setOpacity(value: number): void
+  /** 叫出主窗（`app.showMain`，v0.46）：隐藏或最小化则显示聚焦，已关掉则重建 */
+  showMain(): void
   /** 关闭悬浮窗（`hud.setVisible({ visible: false })`），回主窗顶栏可再打开 */
   close(): void
 }
@@ -335,6 +339,15 @@ export function useHudData(): HudData {
       .catch((e: unknown) => console.error('[hud] hud.opacity 写入失败', e))
   }, [])
 
+  const showMain = useCallback((): void => {
+    void window.api.app
+      .showMain()
+      .then(res => {
+        if (!res.ok) console.error('[hud] app.showMain 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[hud] app.showMain 调用失败', e))
+  }, [])
+
   const close = useCallback((): void => {
     void window.api.hud
       .setVisible({ visible: false })
@@ -365,6 +378,6 @@ export function useHudData(): HudData {
     hudBg,
     background: snapshot.background ?? themeBg,
     opacity: snapshot.opacity,
-    actions: { setMode, completeRow, addTask, setBackground, setOpacity, close }
+    actions: { setMode, completeRow, addTask, setBackground, setOpacity, showMain, close }
   }
 }

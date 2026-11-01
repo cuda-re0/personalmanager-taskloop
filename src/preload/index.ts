@@ -33,6 +33,7 @@ const api: Api = {
     setSetting: <K extends keyof AppSettings>(input: { key: K; value: AppSettings[K] }) =>
       invoke<void>(CH.app.setSetting, input),
     openExternal: input => invoke<void>(CH.app.openExternal, input),
+    showMain: () => invoke<void>(CH.app.showMain),
     quit: () => invoke<void>(CH.app.quit)
   },
 

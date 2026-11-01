@@ -176,6 +176,7 @@ export interface Api {
       value: AppSettings[K]
     }): Promise<IpcResult<void>>
     openExternal(input: { url: string }): Promise<IpcResult<void>>
+    showMain(): Promise<IpcResult<void>>
     quit(): Promise<IpcResult<void>>
   }
 

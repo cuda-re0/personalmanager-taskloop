@@ -202,6 +202,8 @@ export const g = {
   setSetting: setSettingSchema,
   openExternal: z.object({ url: z.string() }),
   quit: z.undefined(),
+  // 无入参：纯粹的窗口动作（v0.46）
+  showMain: z.undefined(),
   // task
   list: z.object({
     status: z.array(taskStatusSchema).optional(),
@@ -343,6 +345,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.app.setSetting]: g.setSetting,
   [CH.app.openExternal]: g.openExternal,
   [CH.app.quit]: g.quit,
+  [CH.app.showMain]: g.showMain,
   [CH.task.list]: g.list,
   [CH.task.get]: g.get,
   [CH.task.promoteDraft]: g.promoteDraft,

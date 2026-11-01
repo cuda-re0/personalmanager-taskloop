@@ -18,6 +18,7 @@ import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
 import * as taskService from '../services/taskService'
 import * as hudService from '../services/hudService'
+import { showMainWindow } from '../windowManager'
 import { runEnvelope } from './envelope'
 import { g, parseInput } from './guards'
 
@@ -28,12 +29,13 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 55 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 56 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
  * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**、
  * **v0.37 起 persona 两条 + memory 四条**、**v0.44 起 ai.keyStatus**、
- * **v0.45 起 points.spend / spendUndo / spendMonth 三条**，
- * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34、kickoff/45）；
+ * **v0.45 起 points.spend / spendUndo / spendMonth 三条**、**v0.46 起 app.showMain**，
+ * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34、
+ * kickoff/45、kickoff/46）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -103,11 +105,11 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 55 条
+ * WIRED：本轮接通的 56 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
-  /* ---------------- app（4） ---------------- */
+  /* ---------------- app（5） ---------------- */
   // 返回的就是当前全量快照，**不广播**（02 §3.2b 的例外条款）
   row(CH.app.getBootstrap, g.getBootstrap, (): Bootstrap => {
     const today = todayLocalDay()
@@ -146,6 +148,10 @@ const TABLE: Row[] = [
     void shell.openExternal(parsed.toString()).catch(e => {
       console.error('[ipc] openExternal 失败', parsed.toString(), e)
     })
+  }),
+  // v0.46：无入参、无返回值、不广播、不落库，纯粹的窗口动作
+  row(CH.app.showMain, g.showMain, () => {
+    showMainWindow()
   }),
   row(CH.app.quit, g.quit, () => {
     app.quit()

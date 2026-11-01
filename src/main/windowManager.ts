@@ -33,7 +33,17 @@ const webPreferences = {
  * v0.26 右栏 400 → 460，下限同步 +40 取 980（520 + 460 = 980，不再留余量：
  * 窗口再小只会压到会话区，压破 min-width 就出横向滚动条）。
  */
-export function createMainWindow(): BrowserWindow {
+/** 主窗句柄（`createMainWindow` 建、`getMainWindow` 取；关闭后返回 null） */
+let mainWindow: BrowserWindow | null = null
+
+/**
+ * @param options.show `ready-to-show` 时是否显示，默认 `true`。
+ * 开机自启传 `false`：窗口照建、渲染层照加载（IPC 照常就绪），只是不弹出来
+ * ——用户从悬浮条点「打开主界面」再把它叫出来（46 §3.2）。
+ */
+export function createMainWindow(options: { show?: boolean } = {}): BrowserWindow {
+  const showOnReady = options.show ?? true
+
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -44,8 +54,11 @@ export function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences
   })
+  mainWindow = win
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (showOnReady) win.show()
+  })
 
   // 外链不在应用内打开
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -53,8 +66,34 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
+
   loadRenderer(win, 'main')
   return win
+}
+
+/** 主窗（未创建 / 已销毁时返回 null） */
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
+/**
+ * 叫出主窗（v0.46）：`second-instance` 与 `app.showMain` 的唯一入口。
+ *
+ * 主窗被 `×` 关掉时应用不退出（HUD 还在），此刻句柄是 null——重建一个，
+ * 用户点「打开主界面」得到的是真窗口，不是空操作。
+ */
+export function showMainWindow(): void {
+  const win = getMainWindow()
+  if (!win) {
+    createMainWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /** HUD 窗口句柄（`createHudWindow` 建、`getHudWindow` 取；关闭后返回 null） */

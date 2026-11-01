@@ -103,11 +103,13 @@ describe('两页结构（今天 / 设置）', () => {
 })
 
 describe('文案白名单（04 §5.3：本节即白名单）', () => {
-  it('JSX 可见文字只有 今天 设置 背景颜色 透明度 关闭悬浮窗', () => {
+  it('JSX 可见文字只有 今天 设置 背景颜色 透明度 打开主界面 关闭悬浮窗', () => {
     const text = jsxText(PANEL)
       .concat(jsxText(SETTINGS), jsxText(BALL), jsxText(INDEX))
       .filter(t => /[\u4e00-\u9fa5]/.test(t))
-    expect(new Set(text)).toEqual(new Set(['今天', '设置', '背景颜色', '透明度', '关闭悬浮窗']))
+    expect(new Set(text)).toEqual(
+      new Set(['今天', '设置', '背景颜色', '透明度', '打开主界面', '关闭悬浮窗'])
+    )
   })
 
   it('不写空态文案、不加说明与 tooltip（title=）', () => {

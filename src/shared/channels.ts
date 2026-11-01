@@ -8,6 +8,7 @@ export const CH = {
     getBootstrap: 'app:getBootstrap',
     setSetting: 'app:setSetting',
     openExternal: 'app:openExternal',
+    showMain: 'app:showMain',
     quit: 'app:quit'
   },
   task: {
