@@ -69,13 +69,13 @@ describe('todo → reviewing（v0.25 合法边）', () => {
     const { task: done, entry } = taskService.completeTask({ id: task.id, quality: 'met' })
 
     expect(done.status).toBe('done')
-    expect(done.pointsAwarded).toBe(20)
+    expect(done.pointsAwarded).toBe(3)
     expect(entry?.reasonCode).toBe('task_done')
     // 任务完成流水必须挂任务、不挂 occurrence（01 §3）
     expect(entry?.occurrenceId).toBeNull()
     expect(ledgerRepo.countAll()).toBe(1)
     expect(ledgerRepo.listByTask(task.id)).toHaveLength(1)
-    expect(pointsService.balance()).toBe(20)
+    expect(pointsService.balance()).toBe(3)
   })
 })
 

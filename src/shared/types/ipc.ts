@@ -123,6 +123,11 @@ export interface AppSettings {
   'hud.opacity': number
   'hud.autoHideFullscreen': boolean
   'points.difficultyBase': Record<Difficulty, number>
+  /**
+   * 限时任务的难度基数（v0.54，第 19 个 key）：**仅限时**，缺档回落 `points.difficultyBase`。
+   * 只有 `easy` / `medium` / `hard` 会有值（限时的合法难度就这三档）。
+   */
+  'points.deadlineBase': Partial<Record<Difficulty, number>>
   'points.dailyBase': number
   'points.streakBonus': { days: number; bonus: number }[]
   'points.dailyCap': number | null

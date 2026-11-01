@@ -86,11 +86,11 @@ describe('W6 四条通道（假 ipc + 假 transport + 内存库）', () => {
     )
 
     expect(data.task.status).toBe('done')
-    expect(data.entry?.delta).toBe(20)
+    expect(data.entry?.delta).toBe(3)
     expect(eventsOf('task.updated').length).toBe(1)
     const points = eventsOf('points.changed')[0] as { balance: number; entry: { delta: number } }
-    expect(points.balance).toBe(20)
-    expect(points.entry.delta).toBe(20)
+    expect(points.balance).toBe(3)
+    expect(points.entry.delta).toBe(3)
     expect((eventsOf('daystats.changed')[0] as { day: { tasksDone: number } }).day.tasksDone).toBe(1)
   })
 

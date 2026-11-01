@@ -127,7 +127,7 @@ export function withImageNote(reply: string, droppedImages: number): string {
  * `ParseResult` → `TaskDraft[]`（03 §4.1 末段要补齐的三样）。
  *
  * `cfg` 是**必填参数**、不许省：省了就会落回 `DEFAULT_CONFIG`，用户改过
- * `points.difficultyBase` 之后卡面 +35 / 落库 +30 就是这条的必然结果（02 §5.2）。
+ * `points.deadlineBase` 之后卡面 +7 / 落库 +3 就是这条的必然结果（02 §5.2）。
  */
 export function toTaskDrafts(result: ParseResult, cfg: PointsConfig): TaskDraft[] {
   return result.tasks.map(task => ({
@@ -154,6 +154,6 @@ export function toTaskDrafts(result: ParseResult, cfg: PointsConfig): TaskDraft[
     confidence: task.confidence,
     // 唯一口径（02 §5.2b）：daily 取 cfg.dailyBase，其余看难度
     pointsPlanned:
-      task.type === 'daily' ? cfg.dailyBase : computePlannedPoints(task.difficulty, cfg)
+      task.type === 'daily' ? cfg.dailyBase : computePlannedPoints(task.type, task.difficulty, cfg)
   }))
 }

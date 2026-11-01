@@ -25,34 +25,35 @@ const DIFFICULTIES: Difficulty[] = ['trivial', 'easy', 'medium', 'hard', 'epic']
 const BASE: Record<Difficulty, number> = { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 }
 
 describe('computePlannedPoints：应得分只看难度（02 §5.2 表）', () => {
+  // 这里固定用 event：活动/每日仍走共用表 BASE，本单只降限时
   for (const d of DIFFICULTIES) {
     it(`${d} → ${BASE[d]}`, () => {
-      expect(computePlannedPoints(d)).toBe(BASE[d])
+      expect(computePlannedPoints('event', d)).toBe(BASE[d])
     })
   }
 
   /**
    * "与 estimateMin 无关"在 v0.7 已经不是行为差异，而是**签名里没有这个位置**了。
    * 旧实现里时长最多乘到 1.6（epic 240min = 80 分），这里能同时证明两件事：
-   * 1) 只剩难度一个必填参数（cfg 有默认值，不计入 length）；
+   * 1) 只有 type + difficulty 两个必填参数（cfg 有默认值，不计入 length）；
    * 2) 每一档的结果都恰好等于基准值，乘不出任何系数。
    */
-  it('与 estimateMin 无关：只剩难度一个必填参数，结果恒等于基准值', () => {
-    expect(computePlannedPoints.length).toBe(1)
+  it('与 estimateMin 无关：只剩类型与难度两个必填参数，结果恒等于基准值', () => {
+    expect(computePlannedPoints.length).toBe(2)
     for (const d of DIFFICULTIES) {
-      expect(computePlannedPoints(d)).toBe(DEFAULT_CONFIG.difficultyBase[d])
+      expect(computePlannedPoints('event', d)).toBe(DEFAULT_CONFIG.difficultyBase[d])
     }
     // 旧公式在 epic + 240min 会给出 80；现在拿不到这个数
-    expect(computePlannedPoints('epic')).not.toBe(80)
+    expect(computePlannedPoints('event', 'epic')).not.toBe(80)
   })
 
   /**
    * 硬检查：estimateMin 不能原路返回。
    *
-   * 这里不用 `expect(computePlannedPoints('epic', 240)).toBe(50)`，因为那个断言和意图正好相反：
-   * 第二个位置参数是 `cfg`，不是"多余实参"，传 240 进去会走 `(240).difficultyBase['epic']`
+   * 这里不用 `expect(computePlannedPoints('event', 'epic', 240)).toBe(50)`，因为那个断言和意图正好相反：
+   * 第三个位置参数是 `cfg`，不是"多余实参"，传 240 进去会走 `(240).difficultyBase['epic']`
    * → 运行时抛 TypeError（已实测），而不是被 JS 忽略。
-   * 反过来说，如果哪天有人把签名改成 `(d, estimateMin?, cfg?)` 并"接住但不用"，
+   * 反过来说，如果哪天有人把签名改成 `(type, d, estimateMin?, cfg?)` 并"接住但不用"，
    * 这个调用就会从"抛错"变成"安静返回 50"——下面这条 toThrow 立刻红。
    * 也就是说：这条断言在**当前实现**下绿、在**退步之后**红，方向是对的。
    *
@@ -61,11 +62,11 @@ describe('computePlannedPoints：应得分只看难度（02 §5.2 表）', () =>
    * 自契约 v0.9 起由 tsconfig.test.json 承担（已接进 npm run typecheck），此前是死代码。
    */
   it('estimateMin 不能作为参数回来：编译报错，运行时也当场崩（不静默算错）', () => {
-    // @ts-expect-error 第二参数已删除，传了必须编译报错
-    expect(() => computePlannedPoints('epic', 240)).toThrow(TypeError)
-    // 实测：把 estimateMin 加回第二参数后 length 由 1 变 2
+    // @ts-expect-error 第三参数是 cfg，传 240 必须编译报错
+    expect(() => computePlannedPoints('event', 'epic', 240)).toThrow(TypeError)
+    // 实测：把 estimateMin 加回第三参数后 length 由 2 变 3
     // （TS 的可选参数擦除成无默认值形参，会计入 length），两道一起兜
-    expect(computePlannedPoints.length).toBe(1)
+    expect(computePlannedPoints.length).toBe(2)
   })
 
   it('上下限：[1, 100]', () => {
@@ -73,25 +74,35 @@ describe('computePlannedPoints：应得分只看难度（02 §5.2 表）', () =>
       ...DEFAULT_CONFIG,
       difficultyBase: { ...DEFAULT_CONFIG.difficultyBase, trivial: 0.2 }
     }
-    expect(computePlannedPoints('trivial', tiny)).toBe(1)
+    expect(computePlannedPoints('event', 'trivial', tiny)).toBe(1)
 
     const huge = {
       ...DEFAULT_CONFIG,
       difficultyBase: { ...DEFAULT_CONFIG.difficultyBase, epic: 200 }
     }
-    expect(computePlannedPoints('epic', huge)).toBe(100)
+    expect(computePlannedPoints('event', 'epic', huge)).toBe(100)
   })
 
-  it('配置来自参数而不是硬编码（A 轻档）', () => {
+  it('配置来自参数而不是硬编码（A 轻档），且限时走 deadlineBase', () => {
     const cfg = {
       ...DEFAULT_CONFIG,
       difficultyBase: { trivial: 3, easy: 6, medium: 12, hard: 22, epic: 32 },
+      deadlineBase: { easy: 2, medium: 7, hard: 11 },
       dailyBase: 1,
       streakBonus: [...DEFAULT_CONFIG.streakBonus],
       dailyCap: DEFAULT_CONFIG.dailyCap
     }
-    expect(computePlannedPoints('easy', cfg)).toBe(6)
-    expect(computePlannedPoints('epic', cfg)).toBe(32)
+    expect(computePlannedPoints('event', 'easy', cfg)).toBe(6)
+    expect(computePlannedPoints('event', 'epic', cfg)).toBe(32)
+    // 限时只认 deadlineBase；同一难度在活动上仍取共用表
+    expect(computePlannedPoints('deadline', 'medium', cfg)).toBe(7)
+    expect(computePlannedPoints('event', 'medium', cfg)).toBe(12)
+  })
+
+  it('deadlineBase 缺档回落到共用表（不产生 NaN）', () => {
+    // 限时合法难度只有 easy/medium/hard，epic 必然取不到值
+    expect(computePlannedPoints('deadline', 'epic', DEFAULT_CONFIG)).toBe(50)
+    expect(computePlannedPoints('deadline', 'trivial', DEFAULT_CONFIG)).toBe(5)
   })
 })
 
@@ -301,8 +312,8 @@ describe('上下限：上限 1.4 倍、下限 1 分', () => {
 })
 
 describe('常量与每日任务（02 §5.1 / §5.3）', () => {
-  it("RUBRIC_VERSION === 'v0.7'", () => {
-    expect(RUBRIC_VERSION).toBe('v0.7')
+  it("RUBRIC_VERSION === 'v0.8'", () => {
+    expect(RUBRIC_VERSION).toBe('v0.8')
   })
 
   it('QUALITY_FACTOR：0.6 / 1.0 / 1.15', () => {
@@ -311,10 +322,12 @@ describe('常量与每日任务（02 §5.1 / §5.3）', () => {
 
   it('DEFAULT_CONFIG 与 02 §5.1 一致（B 中档）', () => {
     expect(DEFAULT_CONFIG.difficultyBase).toEqual(BASE)
+    // v0.8：限时独立基数表（2/3/5），共用表一字未动
+    expect(DEFAULT_CONFIG.deadlineBase).toEqual({ easy: 2, medium: 3, hard: 5 })
     expect(DEFAULT_CONFIG.dailyBase).toBe(1)
     expect(DEFAULT_CONFIG.streakBonus).toEqual([
       { days: 7, bonus: 5 },
-      { days: 30, bonus: 20 }
+      { days: 30, bonus: 10 }
     ])
     expect(DEFAULT_CONFIG.dailyCap).toBeNull()
   })
@@ -322,7 +335,7 @@ describe('常量与每日任务（02 §5.1 / §5.3）', () => {
   it('每日基础分 1，命中 7 / 30 天里程碑才给奖励', () => {
     expect(computeDailyPoints(1)).toEqual({ base: 1, bonus: 0, milestoneReached: null })
     expect(computeDailyPoints(7)).toEqual({ base: 1, bonus: 5, milestoneReached: 7 })
-    expect(computeDailyPoints(30)).toEqual({ base: 1, bonus: 20, milestoneReached: 30 })
+    expect(computeDailyPoints(30)).toEqual({ base: 1, bonus: 10, milestoneReached: 30 })
     expect(computeDailyPoints(31)).toEqual({ base: 1, bonus: 0, milestoneReached: null })
   })
 

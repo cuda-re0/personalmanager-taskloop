@@ -44,7 +44,7 @@ function makeDraft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'localId' | 'type'
     missingInfo: [],
     requiresEvidence: false,
     confidence: 0.8,
-    pointsPlanned: 20,
+    pointsPlanned: 3,
     ...seed,
     difficulty: seed.difficulty ?? 'medium',
     estimateMin: seed.estimateMin ?? null
@@ -229,9 +229,9 @@ describe('task.promoteDraft（W5）', () => {
       localId: 'd-1',
       patch: { difficulty: 'hard' }
     }) as Task
-    // draft.pointsPlanned=20（medium），patch 改 hard 后按当前配置重算 = 35
+    // draft.pointsPlanned=3（medium），patch 改 hard 后按当前配置重算 = 5
     expect(task.difficulty).toBe('hard')
-    expect(task.pointsPlanned).toBe(35)
+    expect(task.pointsPlanned).toBe(5)
 
     // trivial 对 deadline 非法：主进程只拒绝、不归位（02 §5.2b）
     const messageId2 = seedDraftMessage([makeDraft({ localId: 'd-2', type: 'deadline', title: '另一件事' })])
@@ -286,8 +286,8 @@ describe('task.promoteDraft（W5）', () => {
     expect(task.activeFrom).toBeNull()
     // patch 未带 offsets 时沿用 draft 值（daily 草稿是 []）；UI 路径由渲染层切类型时换默认值
     expect(task.reminderOffsets).toEqual([])
-    // draft.pointsPlanned=1 是 daily 口径（dailyBase），deadline+medium 必须重算 = 20
-    expect(task.pointsPlanned).toBe(20)
+    // draft.pointsPlanned=1 是 daily 口径（dailyBase），deadline+medium 必须重算 = 3
+    expect(task.pointsPlanned).toBe(3)
   })
 
   it('patch.type=daily 的 deadline 草稿：按新类型落库（daily_time/active_from、ensureRange），分值恒 cfg.dailyBase', () => {

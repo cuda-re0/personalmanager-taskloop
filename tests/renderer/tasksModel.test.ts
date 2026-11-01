@@ -197,6 +197,7 @@ describe('pointsConfigOf（02 §5.2b：settings 的 points.* → 完整 PointsCo
       'hud.opacity': 1,
       'hud.autoHideFullscreen': true,
       'points.difficultyBase': { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
+      'points.deadlineBase': { easy: 2, medium: 3, hard: 5 },
       'points.dailyBase': 1,
       'points.streakBonus': [{ days: 7, bonus: 5 }],
       'points.dailyCap': null,
@@ -208,6 +209,7 @@ describe('pointsConfigOf（02 §5.2b：settings 的 points.* → 完整 PointsCo
     })
     expect(cfg).toEqual({
       difficultyBase: { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
+      deadlineBase: { easy: 2, medium: 3, hard: 5 },
       dailyBase: 1,
       streakBonus: [{ days: 7, bonus: 5 }],
       dailyCap: null

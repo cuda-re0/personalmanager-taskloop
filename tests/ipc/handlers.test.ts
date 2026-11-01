@@ -185,7 +185,7 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
   })
 
   it('points.preview / streakPreview 是纯计算：不写流水、不广播', () => {
-    expect(callOk(CH.points.preview, { type: 'deadline', difficulty: 'medium' })).toBe(20)
+    expect(callOk(CH.points.preview, { type: 'deadline', difficulty: 'medium' })).toBe(3)
     expect(callOk(CH.points.streakPreview, { current: 6, nextDayWillReach: 7 })).toBe(5)
     expect(events).toEqual([])
   })

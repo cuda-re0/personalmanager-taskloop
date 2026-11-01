@@ -42,12 +42,13 @@ export const TYPE_DEFAULT_OFFSETS: Record<TaskType, number[]> = {
  * bootstrap.settings 的 points.* → rubric 的 PointsConfig（02 §5.2b）。
  *
  * 必须传**完整**配置：不许只传 dailyBase，也不许省略参数落回 DEFAULT_CONFIG——
- * 用户改过 points.difficultyBase 之后，卡面 +35 / 落库 +30 就是省这两步的必然结果。
+ * 用户改过 points.deadlineBase 之后，卡面 +7 / 落库 +3 就是省这两步的必然结果。
  * W5 起 useChatData 从 app.getBootstrap 组装（v0.12 第 4 条，原 PENDING_CONFIG 占位已删）。
  */
 export function pointsConfigOf(settings: PublicSettings): PointsConfig {
   return {
     difficultyBase: settings['points.difficultyBase'],
+    deadlineBase: settings['points.deadlineBase'],
     dailyBase: settings['points.dailyBase'],
     streakBonus: settings['points.streakBonus'],
     dailyCap: settings['points.dailyCap']
@@ -59,13 +60,13 @@ export function pointsConfigOf(settings: PublicSettings): PointsConfig {
  *
  * 显示、切类型重算、草稿归一化、W5 写库都必须是这一个数——显示 1 却存 20，每日任务
  * 就会变成每天 20 分。cfg 是必填参数、不许省略：省了会落回 DEFAULT_CONFIG，
- * 用户改过 points.difficultyBase 之后卡面 35 / 落库 30 就是同一类 bug 的另一种形态。
+ * 用户改过 points.deadlineBase 之后卡面 5 / 落库 3 就是同一类 bug 的另一种形态。
  */
 export function draftPointsOf(
   draft: Pick<TaskDraft, 'type' | 'difficulty'>,
   cfg: PointsConfig
 ): number {
-  return draft.type === 'daily' ? cfg.dailyBase : computePlannedPoints(draft.difficulty, cfg)
+  return draft.type === 'daily' ? cfg.dailyBase : computePlannedPoints(draft.type, draft.difficulty, cfg)
 }
 
 /**

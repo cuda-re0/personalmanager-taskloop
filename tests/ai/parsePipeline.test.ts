@@ -41,7 +41,7 @@ function result(tasks: ParseResult['tasks']): ParseResult {
 /** 与生产同一份配置，但把两处基准调开，能看出到底用了哪一份 */
 const CUSTOM: PointsConfig = {
   ...DEFAULT_CONFIG,
-  difficultyBase: { ...DEFAULT_CONFIG.difficultyBase, medium: 99 },
+  deadlineBase: { ...DEFAULT_CONFIG.deadlineBase, medium: 99 },
   dailyBase: 7
 }
 
@@ -49,8 +49,8 @@ describe('toTaskDrafts：分值口径（02 §5.2b）', () => {
   it('deadline 用 computePlannedPoints，且真的用了传入的 cfg', () => {
     const [draft] = toTaskDrafts(result([task()]), CUSTOM)
     expect(draft.pointsPlanned).toBe(99)
-    // 拿默认配置算一次作为对照：如果实现里漏传 cfg，这里会是 20
-    expect(computePlannedPoints('medium', DEFAULT_CONFIG)).toBe(20)
+    // 拿默认配置算一次作为对照：如果实现里漏传 cfg，这里会是 3
+    expect(computePlannedPoints('deadline', 'medium', DEFAULT_CONFIG)).toBe(3)
   })
 
   it('daily 恒取 cfg.dailyBase（不看难度）', () => {

@@ -286,7 +286,8 @@ export interface TaskDraft {
   confidence: number // 0~1
   pointsPlanned: number // 小数（2 位）。AI 不给。按 type 分派：
   //   daily → settings['points.dailyBase']
-  //   deadline / event → computePlannedPoints(difficulty)
+  //   deadline → computePlannedPoints('deadline', difficulty)（走**限时基数表** points.deadlineBase）
+  //   event    → computePlannedPoints('event', difficulty)（走共用表 points.difficultyBase）
   // **必须与卡片显示值完全一致**：W5 确认时直接写入
   // tasks.points_planned，两套口径会让每日任务变成每天 20 分
 }

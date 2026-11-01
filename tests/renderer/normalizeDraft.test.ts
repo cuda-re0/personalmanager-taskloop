@@ -43,7 +43,7 @@ describe('normalizeDraft 归位难度再算分（02 §5.2b）', () => {
   it('先归位再算分：deadline + epic 归位 hard，分值按 hard 而非 epic', () => {
     const out = normalizeDraft(draft({ type: 'deadline', difficulty: 'epic' }), CFG)
     expect(out.difficulty).toBe('hard')
-    expect(out.pointsPlanned).toBe(CFG.difficultyBase.hard)
+    expect(out.pointsPlanned).toBe(CFG.deadlineBase.hard)
   })
 
   it('不修改传入的草稿对象', () => {
@@ -53,9 +53,10 @@ describe('normalizeDraft 归位难度再算分（02 §5.2b）', () => {
   })
 
   it('合法组合原样保留，分值按 cfg 重算', () => {
+    // 限时的探针必须落在 deadlineBase 上，30 不会出现在生产表里
     const cfg: PointsConfig = {
       ...DEFAULT_CONFIG,
-      difficultyBase: { ...DEFAULT_CONFIG.difficultyBase, hard: 30 }
+      deadlineBase: { ...DEFAULT_CONFIG.deadlineBase, hard: 30 }
     }
     const out = normalizeDraft(draft({ type: 'deadline', difficulty: 'hard' }), cfg)
     expect(out.difficulty).toBe('hard')

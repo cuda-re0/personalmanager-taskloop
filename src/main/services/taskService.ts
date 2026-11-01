@@ -129,7 +129,7 @@ export function createTask(input: CreateTaskInput): Task {
     const cfg = pointsConfig()
     const pointsPlanned = isDaily
       ? cfg.dailyBase
-      : (input.pointsPlanned ?? computePlannedPoints(difficulty, cfg))
+      : (input.pointsPlanned ?? computePlannedPoints(input.type, difficulty, cfg))
 
     const task = taskRepo.insert({
       id,
@@ -243,7 +243,7 @@ export function updateTask(id: string, patch: TaskPatch): Task {
 
     const cfg = pointsConfig()
     const pointsPlanned =
-      current.type === 'daily' ? cfg.dailyBase : computePlannedPoints(difficulty, cfg)
+      current.type === 'daily' ? cfg.dailyBase : computePlannedPoints(current.type, difficulty, cfg)
 
     taskRepo.update(id, patch, now)
     return taskRepo.updateColumns(id, { points_planned: pointsPlanned }, now)
@@ -449,7 +449,7 @@ export function promoteDraft(input: PromoteDraftInput): PromoteDraftResult {
     const pointsPlanned = isDaily
       ? cfg.dailyBase
       : patch.difficulty !== undefined || typeChanged
-        ? computePlannedPoints(difficulty, cfg)
+        ? computePlannedPoints(type, difficulty, cfg)
         : draft.pointsPlanned
 
     const task = createTask({

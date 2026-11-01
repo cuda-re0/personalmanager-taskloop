@@ -120,7 +120,7 @@ export const FIXTURE_TASKS: Task[] = [
     dueAt: `${DAY}T10:00:00.000Z`,
     // 提前 96h 完成 → 提前 4 天，效率系数 1.2（04 §3.3 的示例场景）
     completedAt: `2026-10-24T10:00:00.000Z`,
-    pointsPlanned: computePlannedPoints('medium'),
+    pointsPlanned: computePlannedPoints('deadline', 'medium'),
     requiresEvidence: true,
     evidence: [evidencePhoto, evidenceShot],
     reminderOffsets: [-1440, -60],
@@ -145,7 +145,7 @@ export const FIXTURE_TASKS: Task[] = [
     difficulty: 'hard',
     estimateMin: 120,
     dueAt: `2026-11-14T01:00:00.000Z`,
-    pointsPlanned: computePlannedPoints('hard'),
+    pointsPlanned: computePlannedPoints('event', 'hard'),
     requiresEvidence: true
   }),
   makeTask({
@@ -156,7 +156,7 @@ export const FIXTURE_TASKS: Task[] = [
     difficulty: 'easy',
     estimateMin: 30,
     dueAt: `${DAY}T12:00:00.000Z`,
-    pointsPlanned: computePlannedPoints('easy'),
+    pointsPlanned: computePlannedPoints('deadline', 'easy'),
     requiresEvidence: true,
     evidence: [evidenceText],
     reminderOffsets: [-1440]

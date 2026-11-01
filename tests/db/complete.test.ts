@@ -50,59 +50,59 @@ function deadlineInProgress(options: {
 }
 
 describe('task.complete · 计分', () => {
-  it('medium 完成 → 应得分 20、入账 20、余额 +20、明细一行', () => {
+  it('medium 完成 → 应得分 3、入账 3、余额 +3、明细一行', () => {
     const task = deadlineInProgress({ difficulty: 'medium' })
-    expect(task.pointsPlanned).toBe(20)
+    expect(task.pointsPlanned).toBe(3)
 
     const { task: done, entry } = taskService.completeTask({ id: task.id, quality: 'met' })
 
     expect(done.status).toBe('done')
     expect(done.completedAt).not.toBeNull()
-    expect(done.pointsAwarded).toBe(20)
+    expect(done.pointsAwarded).toBe(3)
     expect(done.quality).toBe('met')
-    expect(entry?.delta).toBe(20)
+    expect(entry?.delta).toBe(3)
     expect(entry?.reasonCode).toBe('task_done')
     expect(entry?.occurrenceId).toBeNull()
-    expect(pointsService.balance()).toBe(20)
+    expect(pointsService.balance()).toBe(3)
     expect(ledgerRepo.countAll()).toBe(1)
     expect(statsRepo.getDay(todayLocalDay()).tasksDone).toBe(1)
-    expect(statsRepo.getDay(todayLocalDay()).points).toBe(20)
+    expect(statsRepo.getDay(todayLocalDay()).points).toBe(3)
   })
 
-  it('easy 提前 30 小时 → 10 × 1.1 = 11，显示为 11 而不是 11.00', () => {
+  it('easy 提前 30 小时 → 2 × 1.1 = 2.2，显示为 2.2 而不是 2.20', () => {
     const task = deadlineInProgress({ difficulty: 'easy', dueInHours: 30 })
     const { entry } = taskService.completeTask({ id: task.id, quality: 'met' })
 
-    expect(entry?.delta).toBe(11)
-    expect(fmtPoints(entry?.delta ?? 0)).toBe('11')
-    expect(pointsService.balance()).toBe(11)
+    expect(entry?.delta).toBe(2.2)
+    expect(fmtPoints(entry?.delta ?? 0)).toBe('2.2')
+    expect(pointsService.balance()).toBe(2.2)
   })
 
-  it('hard 提前 96 小时且超预期 → 35 × 1.2 × 1.15 = 48.3（保留小数）', () => {
+  it('hard 提前 96 小时且超预期 → 5 × 1.2 × 1.15 = 6.9（保留小数）', () => {
     const task = deadlineInProgress({ difficulty: 'hard', dueInHours: 96 })
     const { entry } = taskService.completeTask({ id: task.id, quality: 'exceeded' })
 
-    expect(entry?.delta).toBe(48.3)
-    expect(fmtPoints(entry?.delta ?? 0)).toBe('48.3')
-    expect(pointsService.balance()).toBe(48.3)
+    expect(entry?.delta).toBe(6.9)
+    expect(fmtPoints(entry?.delta ?? 0)).toBe('6.9')
+    expect(pointsService.balance()).toBe(6.9)
   })
 
-  it('逾期 3 天完成 → 20 − 6 = 14（满 24 小时算一天）', () => {
+  it('逾期 3 天完成 → 3 − 6 = -3 夹到下限 1（满 24 小时算一天）', () => {
     const task = deadlineInProgress({ difficulty: 'medium', dueInHours: -73 })
     const { entry } = taskService.completeTask({ id: task.id, quality: 'met' })
 
-    expect(entry?.delta).toBe(14)
+    expect(entry?.delta).toBe(1)
   })
 
   it('连续 4 个小数额任务，余额是 SUM(delta) 且没有浮点尾巴', () => {
-    // 20 × 0.6 (partial) × 1.1 (提前 30h) = 13.2
+    // 3 × 0.6 (partial) × 1.1 (提前 30h) = 1.98
     for (let i = 0; i < 4; i += 1) {
       const task = deadlineInProgress({ difficulty: 'medium', dueInHours: 30 })
       taskService.completeTask({ id: task.id, quality: 'partial' })
     }
     const balance = pointsService.balance()
-    expect(Math.abs(balance - 52.8)).toBeLessThan(1e-9)
-    expect(String(balance).length).toBeLessThanOrEqual('52.8'.length)
+    expect(Math.abs(balance - 7.92)).toBeLessThan(1e-9)
+    expect(String(balance).length).toBeLessThanOrEqual('7.92'.length)
   })
 
   it('重复完成同一限时任务 → CONFLICT，库中仍只有一条流水', () => {
@@ -111,7 +111,7 @@ describe('task.complete · 计分', () => {
 
     expectErrorCode(() => taskService.completeTask({ id: task.id, quality: 'met' }), 'CONFLICT')
     expect(ledgerRepo.countAll()).toBe(1)
-    expect(pointsService.balance()).toBe(20)
+    expect(pointsService.balance()).toBe(3)
     expect(taskService.requireTask(task.id).status).toBe('done')
   })
 
@@ -194,7 +194,7 @@ describe('task.complete · 证据闸门（01 §3，v0.38 起无条件）', () =>
 
     expect(done.evidence).toHaveLength(1)
     expect(done.evidence[0].kind).toBe('text')
-    expect(entry?.delta).toBe(20)
+    expect(entry?.delta).toBe(3)
   })
 })
 
@@ -239,7 +239,7 @@ describe('task.complete · 活动 result（02 §3.2 v0.19）', () => {
       result: 'exceeded'
     })
     // 没有 due_at → 效率系数 1.0，result 不该再乘一次
-    expect(entry?.delta).toBe(20)
+    expect(entry?.delta).toBe(3)
   })
 })
 
@@ -275,17 +275,17 @@ describe('task.complete · noPoints（02 §3.2 的不计分出口）', () => {
 })
 
 describe('task.undoCompletion（done → doing，01 §3）', () => {
-  it('余额回落、明细出现 -20、completed_at 清空、tasks_done 减回来', () => {
+  it('余额回落、明细出现 -3、completed_at 清空、tasks_done 减回来', () => {
     const task = deadlineInProgress({ difficulty: 'medium' })
     const { entry } = taskService.completeTask({ id: task.id, quality: 'met' })
-    expect(entry?.delta).toBe(20)
+    expect(entry?.delta).toBe(3)
 
     const undone = taskService.undoCompletion(task.id)
 
     expect(undone.task.status).toBe('doing')
     expect(undone.task.completedAt).toBeNull()
     expect(undone.task.pointsAwarded).toBeNull()
-    expect(undone.entry?.delta).toBe(-20)
+    expect(undone.entry?.delta).toBe(-3)
     expect(pointsService.balance()).toBe(0)
     expect(ledgerRepo.countAll()).toBe(2)
     expect(statsRepo.getDay(todayLocalDay()).tasksDone).toBe(0)
@@ -328,7 +328,7 @@ describe('task.undoCompletion（done → doing，01 §3）', () => {
     expect((thrown as { code?: string }).code).toBe('CONFLICT')
     expect((thrown as Error).message).toBe('超过 24 小时的完成记录不能撤销')
     expect(taskService.requireTask(task.id).status).toBe('done')
-    expect(pointsService.balance()).toBe(20)
+    expect(pointsService.balance()).toBe(3)
     expect(ledgerRepo.countAll()).toBe(1)
   })
 
@@ -346,27 +346,22 @@ describe('task.undoCompletion（done → doing，01 §3）', () => {
 })
 
 describe('配置来源（02 §5.5：历史流水永不重算）', () => {
-  it('改 points.difficultyBase 后历史流水不变，新任务按新表算', () => {
+  it('改 points.deadlineBase 后历史流水不变，新任务按新表算', () => {
     const first = deadlineInProgress({ difficulty: 'medium' })
     const firstEntry = taskService.completeTask({ id: first.id, quality: 'met' }).entry
-    expect(firstEntry?.delta).toBe(20)
+    expect(firstEntry?.delta).toBe(3)
 
-    settingRepo.set('points.difficultyBase', {
-      trivial: 5,
-      easy: 10,
-      medium: 30,
-      hard: 35,
-      epic: 50
-    })
+    // 限时只认 deadlineBase，所以改的必须是这张表
+    settingRepo.set('points.deadlineBase', { easy: 2, medium: 30, hard: 5 })
 
     // 历史流水不动
-    expect(pointsService.listLedger()[0].delta).toBe(20)
+    expect(pointsService.listLedger()[0].delta).toBe(3)
 
     const second = deadlineInProgress({ difficulty: 'medium' })
     expect(second.pointsPlanned).toBe(30)
     const secondEntry = taskService.completeTask({ id: second.id, quality: 'met' }).entry
     expect(secondEntry?.delta).toBe(30)
-    expect(pointsService.balance()).toBe(50)
+    expect(pointsService.balance()).toBe(33)
   })
 })
 
@@ -376,6 +371,6 @@ describe('daily_stats 与流水同日一致', () => {
     const { task: done } = taskService.completeTask({ id: task.id, quality: 'met' })
     const day = isoToLocalDay(done.completedAt ?? '')
     expect(day).toBe(todayLocalDay())
-    expect(statsRepo.getDay(day).points).toBe(20)
+    expect(statsRepo.getDay(day).points).toBe(3)
   })
 })

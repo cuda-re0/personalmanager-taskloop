@@ -7,12 +7,18 @@ import type { Difficulty, EventResult, Quality, TaskType } from '../types/domain
  * 自己填，等于"填得越长分越高"——磨洋工可刷分。现在时长只保留两个用途：
  * 1) 作为 AI 判定难度的输入（03-AI-CONTRACT：trivial 的定义就是 ≤10 分钟）；
  * 2) 提醒与逾期判定。
- * 分值只由难度决定，改公式必须同时升这个版本号，历史流水按版本解释。
+ * 分值只由难度决定——准确说：限时由**限时基数表**（`deadlineBase`）决定，活动/每日由共用表
+ * （`difficultyBase` / `dailyBase`）决定。改公式必须同时升这个版本号，历史流水按版本解释。
+ *
+ * v0.8（2026-11-01 用户裁决）：限时改用独立基数表 2/3/5（原 10/20/35），活动与每日不变。
+ * 共用表一个字没动——只降限时，不是全表降。
  */
-export const RUBRIC_VERSION = 'v0.7'
+export const RUBRIC_VERSION = 'v0.8'
 
 export interface PointsConfig {
   difficultyBase: Record<Difficulty, number>
+  /** **仅限时**的难度基数；缺失档位回落到 `difficultyBase`（见 computePlannedPoints） */
+  deadlineBase: Partial<Record<Difficulty, number>>
   dailyBase: number // 每日任务单日基础分
   streakBonus: { days: number; bonus: number }[] // 连续里程碑
   dailyCap: number | null // 日上限，null=不限
@@ -20,10 +26,11 @@ export interface PointsConfig {
 
 export const DEFAULT_CONFIG: PointsConfig = {
   difficultyBase: { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
+  deadlineBase: { easy: 2, medium: 3, hard: 5 },
   dailyBase: 1,
   streakBonus: [
     { days: 7, bonus: 5 },
-    { days: 30, bonus: 20 }
+    { days: 30, bonus: 10 }
   ],
   dailyCap: null
 }
@@ -67,9 +74,23 @@ export function roundPoints(v: number): number {
   return Math.round(v * 100) / 100
 }
 
-/** 应得分：只由难度决定（v0.7 起与时长无关，estimateMin 不再进公式） */
-export function computePlannedPoints(d: Difficulty, cfg = DEFAULT_CONFIG): number {
-  return clamp(roundPoints(cfg.difficultyBase[d]), 1, 100)
+/**
+ * 应得分：只由**类型 × 难度**决定（v0.7 起与时长无关，estimateMin 不再进公式）。
+ *
+ * 限时走 `deadlineBase`，活动/每日走 `difficultyBase`。`deadlineBase` 只有三档，
+ * 传入 `trivial`/`epic` 时取不到值，**回落到共用表**——否则 `undefined` 会一路变成 `NaN`
+ * 污染整条积分链（这类非法输入本应由 createTask 的 type×difficulty 校验挡在前面）。
+ */
+export function computePlannedPoints(
+  type: TaskType,
+  difficulty: Difficulty,
+  cfg = DEFAULT_CONFIG
+): number {
+  const base =
+    type === 'deadline'
+      ? (cfg.deadlineBase?.[difficulty] ?? cfg.difficultyBase[difficulty])
+      : cfg.difficultyBase[difficulty]
+  return clamp(roundPoints(base), 1, 100)
 }
 
 export interface AwardInput {

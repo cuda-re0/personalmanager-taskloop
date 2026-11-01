@@ -61,7 +61,7 @@ function makeDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
     missingInfo: [],
     requiresEvidence: true,
     confidence: 0.9,
-    pointsPlanned: 20,
+    pointsPlanned: 3,
     ...overrides
   }
 }
@@ -133,7 +133,7 @@ describe('aiService', () => {
     expect(cards).toHaveLength(1)
     if (cards[0].meta.kind === 'task_draft') {
       expect(cards[0].meta.drafts).toHaveLength(1)
-      expect(cards[0].meta.drafts[0].pointsPlanned).toBe(20)
+      expect(cards[0].meta.drafts[0].pointsPlanned).toBe(3)
       expect(cards[0].meta.drafts[0].reminderOffsets).toEqual([-1440, -60])
       expect(cards[0].meta.drafts[0].dueHint).toBe('2026-10-30T07:00:00.000Z')
     }
@@ -246,7 +246,7 @@ describe('aiService', () => {
 
     const task = aiService.confirmDraft({ messageId, localId: 'draft001' })
     expect(task.title).toBe('写季度报告初稿')
-    expect(task.pointsPlanned).toBe(20)
+    expect(task.pointsPlanned).toBe(3)
     expect(task.status).toBe('todo')
     expect(events.some(e => e.type === 'task.created' && e.task.id === task.id)).toBe(true)
 

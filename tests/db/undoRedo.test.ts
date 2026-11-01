@@ -52,12 +52,12 @@ describe('撤销后重做 · 限时/活动（task 级）', () => {
     const task = deadlineReadyToComplete()
 
     const first = taskService.completeTask({ id: task.id, quality: 'met' })
-    expect(first.entry?.delta).toBe(20)
-    expect(pointsService.balance()).toBe(20)
+    expect(first.entry?.delta).toBe(3)
+    expect(pointsService.balance()).toBe(3)
 
     const undone = taskService.undoCompletion(task.id)
     expect(undone.task.status).toBe('doing')
-    expect(undone.entry?.delta).toBe(-20)
+    expect(undone.entry?.delta).toBe(-3)
     expect(pointsService.balance()).toBe(0)
 
     // 重做：这一步在修复前抛 CONFLICT「这个任务已经发过完成分了」
@@ -65,9 +65,9 @@ describe('撤销后重做 · 限时/活动（task 级）', () => {
     const second = taskService.completeTask({ id: task.id, quality: 'met' })
 
     expect(second.task.status).toBe('done')
-    expect(second.entry?.delta).toBe(20)
-    expect(pointsService.balance()).toBe(20)
-    // 三条流水：+20、-20、+20；但有效的 task_done 只有一条
+    expect(second.entry?.delta).toBe(3)
+    expect(pointsService.balance()).toBe(3)
+    // 三条流水：+3、-3、+3；但有效的 task_done 只有一条
     expect(ledgerRepo.countAll()).toBe(3)
     expect(ledgerRepo.hasTaskDoneEntry(task.id)).toBe(true)
   })
@@ -80,11 +80,11 @@ describe('撤销后重做 · 限时/活动（task 级）', () => {
     const entries = ledgerRepo.listByTask(task.id)
     const original = entries.find(e => e.reasonCode === 'task_done')
     expect(original).toBeDefined()
-    expect(original?.delta).toBe(20) // 金额没被改
+    expect(original?.delta).toBe(3) // 金额没被改
     expect(original?.reversedAt).not.toBeNull() // 只是被标记
     // 冲销行本身不占用任何"有效发分"的坑位
     const rollbackEntry = entries.find(e => e.reasonCode === 'manual_adjust')
-    expect(rollbackEntry?.delta).toBe(-20)
+    expect(rollbackEntry?.delta).toBe(-3)
     expect(rollbackEntry?.occurrenceId).toBeNull()
   })
 

@@ -70,7 +70,7 @@ describe('task.undo 通道', () => {
     return taskService.addEvidence(task.id, { kind: 'text', text: '已交作业', addedAt: nowIso() }).id
   }
 
-  it('撤销 → 余额回落、明细出 -20、状态回 doing，广播 task.updated + points.changed + daystats', () => {
+  it('撤销 → 余额回落、明细出 -3、状态回 doing，广播 task.updated + points.changed + daystats', () => {
     const id = reviewing()
     callOk(CH.task.complete, { id, quality: 'met' })
     events = []
@@ -81,7 +81,7 @@ describe('task.undo 通道', () => {
     )
 
     expect(data.task.status).toBe('doing')
-    expect(data.entry?.delta).toBe(-20)
+    expect(data.entry?.delta).toBe(-3)
     expect(pointsService.balance()).toBe(0)
     // 原发分行 + 冲销行：撤销不删流水
     expect(ledgerRepo.countAll()).toBe(2)
@@ -92,7 +92,7 @@ describe('task.undo 通道', () => {
     expect(updated.changed).toContain('status')
     const points = eventsOf('points.changed')[0] as { balance: number; entry: { delta: number } }
     expect(points.balance).toBe(0)
-    expect(points.entry.delta).toBe(-20)
+    expect(points.entry.delta).toBe(-3)
     // 原完成日就是今天：只推今天这一份聚合
     const daystats = eventsOf('daystats.changed')
     expect(daystats).toHaveLength(1)
@@ -100,7 +100,7 @@ describe('task.undo 通道', () => {
     expect(statsRepo.getDay(todayLocalDay()).points).toBe(0)
   })
 
-  it('撤销后重做（先回 reviewing）能再次入账，余额与明细都是 +20', () => {
+  it('撤销后重做（先回 reviewing）能再次入账，余额与明细都是 +3', () => {
     const id = reviewing()
     callOk(CH.task.complete, { id, quality: 'met' })
     callOk(CH.task.undo, { id })
@@ -113,9 +113,9 @@ describe('task.undo 通道', () => {
     })
 
     expect(again.task.status).toBe('done')
-    expect(again.entry.delta).toBe(20)
-    expect(pointsService.balance()).toBe(20)
-    // +20 / -20 / +20 三条，有效发分只有最后一条
+    expect(again.entry.delta).toBe(3)
+    expect(pointsService.balance()).toBe(3)
+    // +3 / -3 / +3 三条，有效发分只有最后一条
     expect(ledgerRepo.countAll()).toBe(3)
     const effective = ledgerRepo
       .listByTask(id)
@@ -139,7 +139,7 @@ describe('task.undo 通道', () => {
       expect(result.error.code).toBe('CONFLICT')
       expect(result.error.message).toBe('超过 24 小时的完成记录不能撤销')
     }
-    expect(pointsService.balance()).toBe(20)
+    expect(pointsService.balance()).toBe(3)
     expect(taskService.requireTask(id).status).toBe('done')
     expect(events).toEqual([])
   })

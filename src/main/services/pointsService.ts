@@ -59,6 +59,7 @@ export function todayStat(): DayStat {
 export function pointsConfig(): PointsConfig {
   return {
     difficultyBase: settingRepo.get('points.difficultyBase'),
+    deadlineBase: settingRepo.get('points.deadlineBase'),
     dailyBase: settingRepo.get('points.dailyBase'),
     streakBonus: settingRepo.get('points.streakBonus'),
     dailyCap: settingRepo.get('points.dailyCap')
@@ -74,7 +75,7 @@ export function pointsConfig(): PointsConfig {
 export function previewPoints(type: TaskType, difficulty: Difficulty): number {
   const cfg = pointsConfig()
   if (type === 'daily') return roundPoints(cfg.dailyBase)
-  return computePlannedPoints(difficulty, cfg)
+  return computePlannedPoints(type, difficulty, cfg)
 }
 
 /** `points.streakPreview`：连续到 streakAfter 那天能拿到的里程碑奖励，0 = 无 */

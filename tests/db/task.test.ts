@@ -101,7 +101,7 @@ describe('tasks 建/查/改', () => {
     // createManual 的 TaskPatch 根本没有 pointsPlanned 字段，走的就是这条路径
     const created = taskService.createTask({ type: 'deadline', title: '手建-默认难度' })
     expect(created.difficulty).toBe('medium') // 02 §5.2b：应用层默认档是 medium
-    expect(created.pointsPlanned).toBe(20)
+    expect(created.pointsPlanned).toBe(3)
     expect(created.pointsPlanned).not.toBe(0)
 
     const hard = taskService.createTask({ type: 'event', title: '手建-hard', difficulty: 'hard' })
@@ -169,18 +169,18 @@ describe('tasks 建/查/改', () => {
     expect(patched.updatedAt >= task.updatedAt).toBe(true)
   })
 
-  it('改难度必须重算 points_planned（hard 35 → easy 10），且与难度同事务落库', () => {
+  it('改难度必须重算 points_planned（hard 5 → easy 2），且与难度同事务落库', () => {
     const task = taskService.createTask({ type: 'deadline', title: '交作业', difficulty: 'hard' })
-    expect(task.pointsPlanned).toBe(35)
+    expect(task.pointsPlanned).toBe(5)
 
     const patched = taskService.updateTask(task.id, { difficulty: 'easy' })
     expect(patched.difficulty).toBe('easy')
-    expect(patched.pointsPlanned).toBe(10)
+    expect(patched.pointsPlanned).toBe(2)
 
-    // 重新查一遍：库里也得是 10，不能只是返回值对
+    // 重新查一遍：库里也得是 2，不能只是返回值对
     const fetched = taskService.requireTask(task.id)
     expect(fetched.difficulty).toBe('easy')
-    expect(fetched.pointsPlanned).toBe(10)
+    expect(fetched.pointsPlanned).toBe(2)
   })
 
   it('daily 创建时忽略传入的 pointsPlanned，只认 cfg.dailyBase（02 §5.2b）', () => {

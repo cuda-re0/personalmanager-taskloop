@@ -1,7 +1,7 @@
 import type { AppSettings } from '../../shared/types/ipc'
 
 /**
- * settings 默认值。逐条对应 01 §2.7 的「默认值」列与 02 §3.0 的 `AppSettings` 封闭接口（18 个 key）。
+ * settings 默认值。逐条对应 01 §2.7 的「默认值」列与 02 §3.0 的 `AppSettings` 封闭接口（19 个 key）。
  *
  * `ai.apiKey` 故意不在这里：它存 `safeStorage`，既不入 settings 表也不在 `AppSettings` 里（02 §3.0 末段）。
  *
@@ -23,10 +23,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   'hud.opacity': 1,
   'hud.autoHideFullscreen': true,
   'points.difficultyBase': { trivial: 5, easy: 10, medium: 20, hard: 35, epic: 50 },
+  // v0.54（第 19 个 key）：仅限时的难度基数，活动与每日仍走上面那张共用表
+  'points.deadlineBase': { easy: 2, medium: 3, hard: 5 },
   'points.dailyBase': 1,
   'points.streakBonus': [
     { days: 7, bonus: 5 },
-    { days: 30, bonus: 20 }
+    { days: 30, bonus: 10 }
   ],
   'points.dailyCap': null,
   'reminder.quietHours': { from: '22:00', to: '08:00' },

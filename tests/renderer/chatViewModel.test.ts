@@ -18,7 +18,8 @@ import {
 
 const CFG: PointsConfig = {
   ...DEFAULT_CONFIG,
-  difficultyBase: { ...DEFAULT_CONFIG.difficultyBase, hard: 30 }
+  // 30 不会出现在生产表里，正好证明用的是传入的 cfg 而不是 DEFAULT_CONFIG
+  deadlineBase: { easy: 2, medium: 3, hard: 30 }
 }
 
 describe('dueHintToLocal 先验形状（02 §1）', () => {
@@ -47,7 +48,7 @@ describe('dueHintToLocal 先验形状（02 §1）', () => {
 })
 
 describe('draftPointsOf 收完整 PointsConfig（02 §5.2b）', () => {
-  it('限时 hard 取 cfg 的 30，不是 DEFAULT_CONFIG 的 35', () => {
+  it('限时 hard 取 cfg 的 30，不是 DEFAULT_CONFIG 的 5', () => {
     expect(draftPointsOf({ type: 'deadline', difficulty: 'hard' }, CFG)).toBe(30)
   })
 
@@ -57,7 +58,9 @@ describe('draftPointsOf 收完整 PointsConfig（02 §5.2b）', () => {
   })
 
   it('活动同样按 difficultyBase 取值', () => {
-    expect(draftPointsOf({ type: 'event', difficulty: 'hard' }, CFG)).toBe(30)
+    expect(draftPointsOf({ type: 'event', difficulty: 'hard' }, CFG)).toBe(
+      CFG.difficultyBase.hard
+    )
   })
 })
 
