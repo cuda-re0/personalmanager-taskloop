@@ -109,7 +109,7 @@ export interface AppSettings {
   'ai.provider': { name: 'zhipu'; model: string }
   /**
    * 聊天模型（v0.37，第 18 个 key）：`chat` 管线与记忆提取用它，与上面那个**分开**。
-   * 默认 `glm-4.7-flashx`（纯文本、非推理、便宜）；`chatJson` 仍走 `ai.provider.model`。
+   * 默认 `glm-4.7-flashx`（纯文本、**强制思考**、便宜）。注意推理 token 与正文共享 `max_tokens`；`chatJson` 仍走 `ai.provider.model`。
    */
   'ai.chat.model': string
   'hud.mode': HudMode

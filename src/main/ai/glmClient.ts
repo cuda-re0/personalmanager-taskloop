@@ -207,22 +207,44 @@ export class GlmClient implements AiProvider {
   }
 
   /**
-   * `chatText`：纯文本回复（03 §3.1 v0.37）。
+   * `chatText`：纯文本回复（03 §3.1 v0.37、v0.56）。
    *
    * 与 `chatJson` 只差三处：body 不带 `response_format`、结果不解析 JSON、
    * 只做「剥围栏 → trim → 空串报 AI_PARSE_FAILED」。**`chatJson` 的实现一个字没动。**
+   *
+   * v0.56：空正文**原样重发一次**（最多 2 次请求）。空正文不是格式错，没有 issues 可回授，
+   * 改 prompt 只会引入不确定性；`finish_reason === 'length'` 不重试（同样的预算得到同样的截断，
+   * 与 `chatJson` §2.2 同一原则）。两次的 tokens 相加落库，`latencyMs` 从第一次请求发起算起。
    */
   async chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
     const started = Date.now()
-    const outcome = await this.requestText(opts.messages, opts)
-    const text = stripFence(outcome.content).trim()
-    if (text.length === 0) {
-      throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
-        retryable: true,
-        detail: `chatText 输出为空（finish_reason=${outcome.finishReason}，out=${outcome.usage.out} tokens）`
-      })
+    const maxAttempts = 2
+
+    let usage = { in: 0, out: 0 }
+    let lastFinish = 'unknown'
+    let lastLength = 0
+    let attempted = 0
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const outcome = await this.requestText(opts.messages, opts)
+      attempted += 1
+      // 账单口径：两次的真实消耗都要算进去
+      usage = { in: usage.in + outcome.usage.in, out: usage.out + outcome.usage.out }
+      lastFinish = outcome.finishReason
+      lastLength = outcome.content.length
+
+      const text = stripFence(outcome.content).trim()
+      if (text.length > 0) {
+        return { text, usage, latencyMs: Date.now() - started }
+      }
+      // 截断：同样的预算重试还是截断，直接失败
+      if (outcome.finishReason === 'length') break
     }
-    return { text, usage: outcome.usage, latencyMs: Date.now() - started }
+
+    throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
+      retryable: true,
+      detail: `chatText 输出为空（finish_reason=${lastFinish}，正文 ${lastLength} 字符，已重试 ${attempted - 1} 次）`
+    })
   }
 
   /** 一次 HTTP 往返（纯文本）。超时/鉴权/状态码映射与 `request` 同一套口径 */
@@ -287,7 +309,7 @@ export class GlmClient implements AiProvider {
       })
     }
 
-    return this.readOutcome(payload)
+    return this.readOutcome(payload, true)
   }
 
   /** 一次 HTTP 往返。鉴权、超时、状态码映射都在这里，失败一律抛 AppErrorException */
@@ -384,8 +406,13 @@ export class GlmClient implements AiProvider {
     return appError('AI_UPSTREAM_ERROR', AI_COPY.upstream, { retryable: false, detail })
   }
 
-  /** 从响应体里取 `content` / `finish_reason` / `usage`。`reasoning_content` 读都不读 */
-  private readOutcome(payload: unknown): RequestOutcome {
+  /**
+   * 从响应体里取 `content` / `finish_reason` / `usage`。`reasoning_content` 读都不读。
+   *
+   * `allowEmpty`：只有 `requestText`（`chatText`）传 true——它要自己拿空正文去做"重试一次"的判定，
+   * 不能被这里抢先抛错。`chatJson` 那条路径照旧（默认 false，行为一个字不变）。
+   */
+  private readOutcome(payload: unknown, allowEmpty = false): RequestOutcome {
     const root = payload as {
       choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>
       usage?: { prompt_tokens?: unknown; completion_tokens?: unknown }
@@ -400,7 +427,7 @@ export class GlmClient implements AiProvider {
       out: typeof root?.usage?.completion_tokens === 'number' ? root.usage.completion_tokens : 0
     }
 
-    if (content.length === 0 && finishReason !== 'length') {
+    if (!allowEmpty && content.length === 0 && finishReason !== 'length') {
       throw appError('AI_PARSE_FAILED', AI_COPY.parseFailed, {
         retryable: true,
         detail: `content 为空（finish_reason=${finishReason}）`

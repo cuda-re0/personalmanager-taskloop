@@ -13,7 +13,7 @@ import type { AppSettings } from '../../shared/types/ipc'
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   'ai.provider': { name: 'zhipu', model: 'glm-5.3-flash' },
-  // v0.37（第 18 个 key）：闲聊与记忆提取用的便宜模型。纯文本、200K、非推理。
+  // v0.37（第 18 个 key）：闲聊与记忆提取用的便宜模型。纯文本、200K、强制思考。
   'ai.chat.model': 'glm-4.7-flashx',
   'hud.mode': 'ball',
   'hud.displayId': null,

@@ -26,7 +26,16 @@ export const CHAT_HISTORY_LIMIT = 20
 /** 前 12 条记忆（03 §4.3.1 第 2 段） */
 export const CHAT_MEMORY_LIMIT = 12
 export const CHAT_TEMPERATURE = 0.8
-export const CHAT_MAX_TOKENS = 800
+/**
+ * 聊天预算 8000（v0.56 从 800 上调）。
+ *
+ * - 这是**推理 + 正文共享**的总预算：`max_tokens` 卡的是 `reasoning_content + content`，
+ *   不是正文字数上限。
+ * - `glm-4.7-flashx` 是**强制思考模型**（03 §9.4），每次回复都要先想一段。
+ * - 800 时实测推理 794/800、正文 0 字符、`finish_reason=length`——预算定成 800 的那天起，
+ *   每一轮聊天都必然失败。实测推理峰值 1214（重 system），8000 留约 6.6 倍余量。
+ */
+export const CHAT_MAX_TOKENS = 8000
 
 /** 三档语气的固定句，**不要自由发挥**（03 §4.3.1） */
 const TONE_LINE: Record<PersonaTone, string> = {

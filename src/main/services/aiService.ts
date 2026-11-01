@@ -79,8 +79,8 @@ function isConfigured(): boolean {
   return readKey() !== null
 }
 
-/** chat 的重量级参数（03 §4.3.2）：非推理模型，比 chatJson 的 180s 短 */
-const CHAT_TIMEOUT_MS = 30_000
+/** chat 的重参数（03 §4.3.2）：强制思考模型，推理与正文共享 max_tokens。60s 的依据是 8000 预算下实测 23.0~44.8s（重 system），留余量 */
+const CHAT_TIMEOUT_MS = 60_000
 
 interface CachedClient {
   /** `apiKey|model|timeout` —— 任何一项变了就重建，配置改完下一轮就生效 */

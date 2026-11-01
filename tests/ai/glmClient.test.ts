@@ -208,6 +208,22 @@ describe('GlmClient 解析与重试', () => {
     expect(fetchImpl.calls).toBe(1)
   })
 
+  it('chatText：空正文（finish=stop）→ 原样重发一次 → 第二次有正文则成功，共 2 次请求', async () => {
+    const fetchImpl = fakeFetch([
+      chatResponse('', { finish: 'stop' }),
+      chatResponse('好的，我记住了。')
+    ])
+    const result = await client(fetchImpl).chatText({
+      messages: [{ role: 'user', content: '从今天开始你就是我的专属秘书了' }]
+    })
+    expect(result.text).toBe('好的，我记住了。')
+    expect(fetchImpl.calls).toBe(2)
+    // 重试是原样重发：第二次的 messages 与第一次完全一致，不加任何提示语
+    expect(JSON.stringify(fetchImpl.bodies[1].messages)).toBe(
+      JSON.stringify(fetchImpl.bodies[0].messages)
+    )
+  })
+
   it('AI_PARSE_FAILED 的 message 用的是登记在 copy.ts 里的那句', async () => {
     const fetchImpl = fakeFetch([chatResponse('不是 JSON')])
     try {
