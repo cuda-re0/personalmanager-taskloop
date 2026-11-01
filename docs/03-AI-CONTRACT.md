@@ -138,6 +138,7 @@ export interface AiProvider {
 5. 每次调用把 `tokens_in/out/latency_ms` 写回 `messages`，方便后期看成本。**`tokens_out` 必须包含推理 token**：上游把 `reasoning_tokens` 算在 `completion_tokens` 里，只记 `content` 的估算值会少算一半以上（实测一次 172 tokens 里有 151 是推理）。
 6. API Key 从安全存储读，**绝不进日志、不进 DB 明文、不进 git**。
 7. **任何 provider 返回的内容都要过 zod 校验。** 将来接 harness 时同样不能免检——它不是可信边界。
+8. **推理档位按用途分配（v0.52）。** 建任务（parse）传 `reasoning_effort: 'low'`；其余（review / probe / 记忆 / 摘要 / 汇率）**不传这个字段**，走上游默认 `max`。`glm-5.3-flash` **不支持关闭思考**（传 `disabled` 直接报错），只能降档。传了 `low` 的调用若首次输出没过 schema，**重试那一次自动升到 `high`**——同档再来一次多半还是同样的错。实测依据见 §9.1 末段。
 
 ---
 
@@ -500,6 +501,16 @@ src/main/ai/prompts/
 - **`content` 才是答案**，`reasoning_content` 必须丢弃，不许拼进 JSON 解析。
 - **`max_tokens` 必须给够**：实测 `max_tokens: 32` 时 32 个 token 全被推理吃掉，`content` 返回**空字符串**，`finish_reason: "length"`。建任务场景一律 `max_tokens: 10000`（v0.51 从 2048 上调：2048 对 `glm-5.3-flash` 不够，实测日志 `finish_reason=length（content 0 字符，out=2048 tokens）`，同一句话时而成功时而失败），并检查 `finish_reason`——为 `length` 时按 `AI_PARSE_FAILED` 处理，**不要重试**（重试也是同样的截断）。
 - `usage.completion_tokens_details.reasoning_tokens` 存在，计费与耗时都在这里。
+
+**推理档位实测（v0.52，同一句建任务输入「下周三下午三点开组会…」）**：
+
+| `reasoning_effort` | 耗时 | completion | 其中 reasoning | JSON 合法 |
+|---|---|---|---|---|
+| 不传（默认 `max`） | 82.6s | 4811 | 4527 | ✅ |
+| `high` | 10.9s | 505 | 331 | ✅ |
+| `low` | **7.4s** | 424 | **159** | ✅ |
+
+**慢的根因不是 prompt 长**（prompt 恒为 2783 token，预填充只占一两秒），是默认档把 94% 的输出预算花在思考上。`low` 档五类边界输入判定全部正确：复杂日期换算（「下个月第一个周一」→ 12-07）、闲聊（`chat`）、完成回报（`review_task`）、信息不足（`due=null` + `confidence 0.45` + `missing_info` 两条）、超 3 件（只记 3 件并问要不要补）。
 
 ### 9.2 `response_format: { type: 'json_object' }` 可用
 
