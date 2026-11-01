@@ -17,12 +17,13 @@ import { AiAbortedError } from './provider'
  * 所有实测口径都落在这个文件里（03 §9）：
  * - `glm-5.3-flash` 是**推理模型**：响应里 `reasoning_content` 与 `content` 并列，
  *   **只有 `content` 是答案**，`reasoning_content` 一律丢弃（§9.1）。
- * - `max_tokens` 一律 2048。给小了推理会把预算吃光，`content` 返回空串且
- *   `finish_reason: "length"`；这种截断重试也是同样的截断，所以**不重试**，直接
- *   `AI_PARSE_FAILED`（§9.1、开工词 §2.2）。
+ * - `max_tokens` 一律 10000（v0.51 从 2048 上调）。给小了推理会把预算吃光，
+ *   `content` 返回空串且 `finish_reason: "length"`；这种截断重试也是同样的截断，
+ *   所以**不重试**，直接 `AI_PARSE_FAILED`（§9.1、开工词 §2.2）。
  * - `response_format: json_object` 可用，但仍保留剥围栏兜底（§9.2）。
  * - 图片走 `image_url` + `data:<mime>;base64,…`（§9.3）。
- * - 超时 60s，`AbortController` 可控（§3.1 第 4 条）。
+ * - 超时 180s（v0.51 从 60s 上调，和 max_tokens 是配套的：10000 token 按实测
+ *   约 75 token/s 要 130s+），`AbortController` 可控（§3.1 第 4 条）。
  * - `tokens_out` 用上游 `completion_tokens`（含 `reasoning_tokens`），不许自己数
  *   `content.length`（§3.1 第 5 条）。
  *
@@ -30,8 +31,8 @@ import { AiAbortedError } from './provider'
  */
 
 export const GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-export const AI_TIMEOUT_MS = 60_000
-export const AI_MAX_TOKENS = 2048
+export const AI_TIMEOUT_MS = 180_000
+export const AI_MAX_TOKENS = 10_000
 /** 重试时把上一次的坏输出拼回去，截断到这个长度足够模型自修，也不会把 prompt 撑爆 */
 const ECHO_LIMIT = 2000
 /** 错误 detail 里上游响应的截断长度（开工词 §4.9 同一口径：不打印完整响应体） */
@@ -290,7 +291,7 @@ export class GlmClient implements AiProvider {
       timedOut = true
       controller.abort()
     }, this.timeoutMs)
-    // 用户取消（关窗口/点取消）→ 立即中断，不等到 60s
+    // 用户取消（关窗口/点取消）→ 立即中断，不等到超时
     const onOuterAbort = (): void => controller.abort()
     if (opts.signal?.aborted) controller.abort()
     opts.signal?.addEventListener('abort', onOuterAbort, { once: true })

@@ -79,7 +79,7 @@ function isConfigured(): boolean {
   return readKey() !== null
 }
 
-/** chat 的重量级参数（03 §4.3.2）：非推理模型，比 chatJson 的 60s 短 */
+/** chat 的重量级参数（03 §4.3.2）：非推理模型，比 chatJson 的 180s 短 */
 const CHAT_TIMEOUT_MS = 30_000
 
 interface CachedClient {

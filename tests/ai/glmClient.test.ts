@@ -142,11 +142,11 @@ describe('GlmClient 解析与重试', () => {
     }
   })
 
-  it('请求体：max_tokens 固定 2048、带 response_format、temperature 可覆盖', async () => {
+  it('请求体：max_tokens 固定 10000、带 response_format、temperature 可覆盖', async () => {
     const fetchImpl = fakeFetch([chatResponse(VALID)])
     await runChat(fetchImpl)
     const body = fetchImpl.bodies[0] as { max_tokens: number; response_format: unknown }
-    expect(body.max_tokens).toBe(2048)
+    expect(body.max_tokens).toBe(10000)
     expect(body.response_format).toEqual({ type: 'json_object' })
   })
 
