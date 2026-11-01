@@ -19,7 +19,7 @@ import * as settingRepo from '../db/repositories/settingRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import { GlmClient } from '../ai/glmClient'
 import { AI_COPY } from '../ai/copy'
-import { readKey } from '../ai/config'
+import { readKey, writeKey } from '../ai/config'
 import {
   buildParseRequest,
   toTaskDrafts,
@@ -694,6 +694,27 @@ export interface HealthResult {
  * 设置里显示一行状态不该等一次网络往返。
  */
 export function keyStatus(): { configured: boolean } {
+  return { configured: isConfigured() }
+}
+
+/**
+ * 写 Key（v0.47 设置抽屉）。
+ *
+ * 副作用只有写文件：不广播、不落库、不发网络请求、不触发任何 AI 管线。
+ * `readKey()` 每次都重读文件，所以写完立即生效，不必重启。
+ *
+ * 两条硬约束：**任何日志、异常 detail、错误 message 里都不许出现 key**（本函数没有
+ * 任何 `console.*`）；两句错误 message 原样对应 04 §1.1 的文案表，别改字。
+ */
+export function setKey(key: string): { configured: boolean } {
+  const trimmed = key.trim()
+  if (trimmed.length === 0) {
+    throw appError('INVALID_INPUT', 'API Key 不能为空')
+  }
+  // 加密不可用时 writeKey 拒绝落明文并返回 false，此时文件没被写，不需要回滚
+  if (!writeKey(trimmed)) {
+    throw appError('INVALID_INPUT', 'API Key 保存失败')
+  }
   return { configured: isConfigured() }
 }
 

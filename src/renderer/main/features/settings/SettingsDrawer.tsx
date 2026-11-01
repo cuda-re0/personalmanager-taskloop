@@ -311,10 +311,13 @@ function MemoryBlock({ data }: { data: SettingsData }): ReactElement {
 }
 
 /* ------------------------------------------------------------------ *
- * ③ AI（三行只读，没有输入框、没有修改入口）
+ * ③ AI（前两行模型 + 一行 Key 状态只读，下面一行可填 Key）
  * ------------------------------------------------------------------ */
 
 function AiBlock({ data }: { data: SettingsData }): ReactElement {
+  // 草稿是纯 UI 状态：抽屉一关就该消失，所以留在组件里，不进 useSettingsData
+  const [keyDraft, setKeyDraft] = useState('')
+
   // 还没拿到 keyStatus 时留空——不猜「未配置」，那是在说一个我们还没问过的答案
   let keyText = ''
   if (data.configured !== null) keyText = data.configured ? '已配置' : '未配置'
@@ -334,6 +337,29 @@ function AiBlock({ data }: { data: SettingsData }): ReactElement {
       <div className="settings-kv">
         <span className="settings-kv-key">API Key</span>
         <span className="settings-kv-value">{keyText}</span>
+      </div>
+
+      <div className="settings-add-row">
+        <input
+          className="settings-input"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={keyDraft}
+          onChange={e => setKeyDraft(e.target.value)}
+        />
+        <button
+          type="button"
+          className="settings-add"
+          disabled={keyDraft.trim().length === 0 || data.keySaving}
+          onClick={() => {
+            void data.saveKey(keyDraft).then(ok => {
+              if (ok) setKeyDraft('')
+            })
+          }}
+        >
+          保存
+        </button>
       </div>
 
       {data.aiError !== null && (

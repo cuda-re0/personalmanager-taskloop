@@ -29,13 +29,14 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 56 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 57 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
  * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**、
  * **v0.37 起 persona 两条 + memory 四条**、**v0.44 起 ai.keyStatus**、
- * **v0.45 起 points.spend / spendUndo / spendMonth 三条**、**v0.46 起 app.showMain**，
+ * **v0.45 起 points.spend / spendUndo / spendMonth 三条**、**v0.46 起 app.showMain**、
+ * **v0.47 起 ai.setKey**，
  * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34、
- * kickoff/45、kickoff/46）；
+ * kickoff/45、kickoff/46、kickoff/47）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -105,7 +106,7 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 56 条
+ * WIRED：本轮接通的 57 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
@@ -399,13 +400,15 @@ const TABLE: Row[] = [
   row(CH.msg.send, g.msgSend, input => aiService.send(input)),
   row(CH.msg.retry, g.msgRetry, input => aiService.retry(input)),
 
-  /* ---------------- ai（5：W4 四条 + v0.44 keyStatus） ---------------- */
+  /* ---------------- ai（6：W4 四条 + v0.44 keyStatus + v0.47 setKey） ---------------- */
   row(CH.ai.confirmDraft, g.aiConfirmDraft, input => aiService.confirmDraft(input)),
   row(CH.ai.rejectDrafts, g.aiRejectDrafts, input => aiService.rejectDrafts(input)),
   row(CH.ai.review, g.aiReview, input => aiService.review(input)),
   row(CH.ai.health, g.aiHealth, () => aiService.health()),
   // 设置抽屉只显示一行状态：走 keyStatus 而不是 health——后者会 await 一次多模态探测
   row(CH.ai.keyStatus, g.keyStatus, () => aiService.keyStatus()),
+  // v0.47：唯一副作用是写文件，不广播、不落库、不发网络请求
+  row(CH.ai.setKey, g.setKey, input => aiService.setKey(input.key)),
 
   /* ---------------- points（6） ---------------- */
   row(CH.points.balance, g.balance, () => pointsService.balance()),

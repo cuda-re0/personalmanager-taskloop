@@ -33,6 +33,8 @@ export interface SettingsData {
   models: SettingsModels
   /** `null` = 还没拿到 `ai.keyStatus`：这一行先不写字，不猜「未配置」 */
   configured: boolean | null
+  /** 正在写 `ai-key.bin`（保存按钮 `disabled`） */
+  keySaving: boolean
   saving: boolean
   /** 正在删除的那行记忆 id（该行按钮 `disabled`） */
   busyId: string | null
@@ -50,6 +52,8 @@ export interface SettingsData {
   removeMemory(id: string): void
   /** 返回 `false` = 没加成功；`true` 时由调用方把底部输入框置空 */
   addMemory(contentMd: string, kind: MemoryKind): Promise<boolean>
+  /** 返回 `true` = 已写入 `ai-key.bin`；`true` 时由调用方把输入框置空 */
+  saveKey(key: string): Promise<boolean>
 }
 
 /** 还没拉到人物卡时的表单初值：四个字段都空、语气按第一项，`saved` 仍是 `null`（于是不可保存） */
@@ -65,6 +69,7 @@ export function useSettingsData(): SettingsData {
   const [memories, setMemories] = useState<Memory[]>([])
   const [models, setModels] = useState<SettingsModels>({ task: '', chat: '' })
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [keySaving, setKeySaving] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [personaError, setPersonaError] = useState<string | null>(null)
@@ -226,6 +231,31 @@ export function useSettingsData(): SettingsData {
     }
   }, [])
 
+  /**
+   * 写 Key（v0.47）：状态只认返回值里的 `configured`，不硬编码 true。
+   * **key 不许进任何一条日志**——这里最多报调用失败本身。
+   */
+  const saveKey = useCallback(async (key: string): Promise<boolean> => {
+    setAiError(null)
+    setKeySaving(true)
+    try {
+      const res = await window.api.ai.setKey(key)
+      if (!mounted.current) return false
+      if (!res.ok) {
+        setAiError(res.error.message)
+        return false
+      }
+      setConfigured(res.data.configured)
+      return true
+    } catch (e) {
+      console.error('[settings] ai.setKey 调用失败', e)
+      if (mounted.current) setAiError(e instanceof Error ? e.message : String(e))
+      return false
+    } finally {
+      if (mounted.current) setKeySaving(false)
+    }
+  }, [])
+
   return useMemo(
     () => ({
       form,
@@ -233,6 +263,7 @@ export function useSettingsData(): SettingsData {
       memories,
       models,
       configured,
+      keySaving,
       saving,
       busyId,
       personaError,
@@ -245,7 +276,8 @@ export function useSettingsData(): SettingsData {
       save,
       updateMemory,
       removeMemory,
-      addMemory
+      addMemory,
+      saveKey
     }),
     [
       form,
@@ -253,6 +285,7 @@ export function useSettingsData(): SettingsData {
       memories,
       models,
       configured,
+      keySaving,
       saving,
       busyId,
       personaError,
@@ -264,7 +297,8 @@ export function useSettingsData(): SettingsData {
       save,
       updateMemory,
       removeMemory,
-      addMemory
+      addMemory,
+      saveKey
     ]
   )
 }

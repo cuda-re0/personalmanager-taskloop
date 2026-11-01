@@ -88,7 +88,8 @@ const api: Api = {
     review: input => invoke<ReviewVerdict>(CH.ai.review, input),
     health: () =>
       invoke<{ configured: boolean; model: string; multimodal: boolean | null }>(CH.ai.health),
-    keyStatus: () => invoke<{ configured: boolean }>(CH.ai.keyStatus)
+    keyStatus: () => invoke<{ configured: boolean }>(CH.ai.keyStatus),
+    setKey: (key: string) => invoke<{ configured: boolean }>(CH.ai.setKey, { key })
   },
 
   points: {

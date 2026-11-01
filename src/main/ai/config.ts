@@ -15,7 +15,7 @@ import { app, safeStorage } from 'electron'
  * 三条纪律：
  * - **任何日志、异常 detail 里都不许出现 key**，连前 6 位都不许（03 §9.7 末句）。
  *   本文件唯一的 console 输出是一条不含 key 的降级警告。
- * - `writeKey()` 只导出、**不注册 IPC**：v1 没有设置页，加了没人调（开工词 §4.3）。
+ * - `writeKey()` 自身不注册通道：v0.47 起统一由 `ai.setKey` 经 `aiService.setKey` 调用（04 §10）。
  * - electron 的 `app` / `safeStorage` 在本项目测试宿主（`ELECTRON_RUN_AS_NODE`）下是
  *   `undefined` 或字符串路径，所以每一处用法都要先判类型——模块顶层不许碰，
  *   否则所有 import 到这里的测试文件都会在 import 阶段炸掉。
@@ -138,7 +138,8 @@ export function readKey(): string | null {
 /**
  * 写 Key（`userData/ai-key.bin`，safeStorage 加密）。
  *
- * 只留给将来的设置页：**不许注册成 IPC**。加密不可用时**不落明文**——写一个明文 key 文件
+ * v0.47 起由 `ai.setKey` 调用（经 `aiService.setKey` 转一手）。本文件仍不直接注册通道。
+ * 加密不可用时**不落明文**——写一个明文 key 文件
  * 比没有这个功能更糟，因此只警告一次并跳过（返回 false 让调用方知道没写成功）。
  */
 export function writeKey(key: string): boolean {

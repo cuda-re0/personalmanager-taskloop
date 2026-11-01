@@ -11,9 +11,9 @@ function channelStrings(node: unknown): string[] {
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 56 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain）', () => {
-    expect(WIRED_CHANNELS.length).toBe(56)
-    expect(new Set(WIRED_CHANNELS).size).toBe(56)
+  it('WIRED 有 57 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain、v0.47 起 ai.setKey）', () => {
+    expect(WIRED_CHANNELS.length).toBe(57)
+    expect(new Set(WIRED_CHANNELS).size).toBe(57)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)

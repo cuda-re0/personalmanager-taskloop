@@ -275,6 +275,8 @@ export const g = {
   aiHealth: z.object({}).optional(),
   // v0.44：无入参，与 quit / persona.get 同款
   keyStatus: z.undefined(),
+  // v0.47：只拦类型与长度上限，**不写 .min(1)**——空串的可读文案由 service 给
+  setKey: z.object({ key: z.string().max(200) }),
   // 附件（v0.36）：`add` 只校验形状，白名单 mime 与大小上限仍归 attachmentService
   //（`sourcePath` / `base64` 二选一由服务判：两个都给以 sourcePath 为准，都不给抛 INVALID_INPUT）
   attachmentAdd: z.object({
@@ -374,6 +376,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.ai.review]: g.aiReview,
   [CH.ai.health]: g.aiHealth,
   [CH.ai.keyStatus]: g.keyStatus,
+  [CH.ai.setKey]: g.setKey,
   [CH.attachment.add]: g.attachmentAdd,
   [CH.attachment.get]: g.attachmentGet,
   [CH.persona.get]: g.personaGet,

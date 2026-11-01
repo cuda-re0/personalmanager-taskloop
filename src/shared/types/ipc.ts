@@ -265,6 +265,8 @@ export interface Api {
      * 不该为此花一次带图请求，也不该让这一行挂在网络往返上。
      */
     keyStatus(): Promise<IpcResult<{ configured: boolean }>>
+    /** v0.47：写入 key（`userData/ai-key.bin`，safeStorage 加密），返回写入后重算的状态 */
+    setKey(key: string): Promise<IpcResult<{ configured: boolean }>>
   }
 
   points: {

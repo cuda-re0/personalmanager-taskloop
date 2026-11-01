@@ -53,7 +53,9 @@ export const CH = {
     review: 'ai:review',
     health: 'ai:health',
     /** v0.44（设置抽屉）：只读「有没有 key」，**不发网络请求、不做多模态探测** */
-    keyStatus: 'ai:keyStatus'
+    keyStatus: 'ai:keyStatus',
+    /** v0.47（设置抽屉）：写 `userData/ai-key.bin`，唯一副作用是写文件 */
+    setKey: 'ai:setKey'
   },
   points: {
     balance: 'points:balance',
