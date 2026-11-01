@@ -24,6 +24,17 @@ const container = document.getElementById('root')
 if (!container) throw new Error('#root not found')
 
 /**
+ * 全局拖放兜底（v0.57）：只负责"别让浏览器把文件当成导航目标"。
+ *
+ * 少了这两行，把文件拖到没有接收者的地方（右栏空白、日历、任务列表）时 Chromium 会
+ * 当成整页导航，Electron 里表现为整窗被 file:// 页面替换（白屏）。
+ * **不处理任何上传**：组件内的 `onDrop` 先执行、自己 preventDefault 并处理文件，
+ * 冒泡到这里时已经被消费。
+ */
+window.addEventListener('dragover', event => event.preventDefault())
+window.addEventListener('drop', event => event.preventDefault())
+
+/**
  * 主窗布局（04 §2）：顶栏 56px + 下面两栏（左会话区弹性 + 右栏 460px）。
  * 右栏四区块：①「当前任务」（W5）、②「日历」（W6B）、③④「积分 / 明细」（W6）。
  * 外层 flex 列容器与 app-shell 的 flex:1 是 W9 挂顶栏时唯一的布局改动；

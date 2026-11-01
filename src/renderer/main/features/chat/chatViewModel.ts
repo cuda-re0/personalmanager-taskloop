@@ -298,3 +298,16 @@ export function toEvidenceViews(
   })
   return views
 }
+
+/**
+ * 拖放进来的文件 → 要按顺序上传的数组（v0.57，证据区拖放）。
+ *
+ * 泛型而不是 `FileList`：测试环境没有 DOM，`tsconfig.test.json` 也没有 DOM lib。
+ * 收不收只看调用方给的两个条件（能不能加 + 是否正忙），**顺序原样保留**——
+ * 串行上传依赖这个顺序。
+ */
+export function filesFromDrop<T>(files: ArrayLike<T> | null, canAccept: boolean): T[] {
+  if (!canAccept) return []
+  if (files === null || files.length === 0) return []
+  return Array.from(files)
+}

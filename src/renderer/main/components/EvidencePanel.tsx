@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
-import type { ReactElement } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { DragEvent, ReactElement } from 'react'
 import type { EvidenceView } from '../features/chat/chatTypes'
-import { mimeExt } from '../features/chat/chatViewModel'
+import { filesFromDrop, mimeExt } from '../features/chat/chatViewModel'
 
 interface Props {
   evidence: EvidenceView[]
@@ -15,7 +15,8 @@ interface Props {
   canAdd: boolean
   /** 数字递增即打开文件选择——卡片动作区的 `[补证据]` 与行末 `[+]` 共用这一个 input */
   openSignal: number
-  onPick(file: File): void
+  /** 拿到的 Promise 会被拖放路径 await（v0.57：多文件串行上传） */
+  onPick(file: File): Promise<unknown> | void
   onOpen(url: string): void
 }
 
@@ -64,13 +65,59 @@ export function EvidencePanel({
   onOpen
 }: Props): ReactElement {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  /** 拖放高亮（v0.57）：只在"能收且不忙"时亮 */
+  const [over, setOver] = useState(false)
+  /** 上一轮串行上传还没跑完时，再拖进来的整批丢弃（不排队） */
+  const droppingRef = useRef(false)
 
   useEffect(() => {
     if (openSignal > 0) inputRef.current?.click()
   }, [openSignal])
 
+  const accept = canAdd && !busy
+
+  /** 始终 preventDefault：不这么做浏览器就不认这里是放置区 */
+  const handleDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = accept ? 'copy' : 'none'
+  }
+
+  const handleDragEnter = (): void => {
+    if (accept) setOver(true)
+  }
+
+  /** 划过子元素也会触发 dragleave：还在容器内就不清高亮，否则会闪 */
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    const next = event.relatedTarget as Node | null
+    if (next !== null && event.currentTarget.contains(next)) return
+    setOver(false)
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    setOver(false)
+    const files = filesFromDrop(event.dataTransfer.files, accept)
+    if (files.length === 0) return
+    if (droppingRef.current) return
+    droppingRef.current = true
+    void (async () => {
+      try {
+        // 逐个串行：现有链路一次只收一个文件
+        for (const file of files) await onPick(file)
+      } finally {
+        droppingRef.current = false
+      }
+    })()
+  }
+
   return (
-    <div className="review-evidence">
+    <div
+      className={`review-evidence${over && accept ? ' review-evidence--over' : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <span className="review-evidence-label">证据</span>
       {evidence.map(item => (
         <EvidenceChip item={item} key={item.key} onOpen={onOpen} />
@@ -93,7 +140,7 @@ export function EvidencePanel({
               const file = event.target.files?.[0]
               // 清掉 value，同一个文件再选一次也能触发 onChange
               event.target.value = ''
-              if (file) onPick(file)
+              if (file) void onPick(file)
             }}
             ref={inputRef}
             type="file"

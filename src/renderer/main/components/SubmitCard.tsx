@@ -70,10 +70,11 @@ export function SubmitCard({
     return () => window.clearTimeout(timer)
   }, [error])
 
-  const runAction = (fn: () => Promise<string | null>): void => {
-    if (disabled) return
+  // v0.57：返回值可 await——证据区多文件拖放要串行，`undefined` 会让 await 立即通过
+  const runAction = (fn: () => Promise<string | null>): Promise<void> => {
+    if (disabled) return Promise.resolve()
     setLocalBusy(true)
-    void fn()
+    return fn()
       .then(message => {
         if (message) setError(message)
       })

@@ -608,6 +608,14 @@
   border-top: 1px solid var(--border);
 }
 
+/* 拖放落点高亮（v0.57）：用 outline 不用 border，避免改变布局高度 */
+.review-evidence--over {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+  background: var(--accent-weak);
+}
+
 .review-evidence-label {
   color: var(--text-faint);
   font-size: 12px;
