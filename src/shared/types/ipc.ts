@@ -239,6 +239,13 @@ export interface Api {
       mode?: ChatMode
     }): Promise<IpcResult<{ userMessage: Message; assistantMessageId: string }>>
     retry(input: { messageId: string }): Promise<IpcResult<void>>
+    /**
+     * 撤回 / 编辑（v0.48）：删掉这条 user 消息及其引起的后续（到下一个 user 之前），
+     * 草稿卡上已确认的任务一并软删。**不广播消息删除事件**，渲染层按 `removedIds` 自己过滤。
+     */
+    remove(input: {
+      messageId: string
+    }): Promise<IpcResult<{ removedIds: string[]; removedTaskIds: string[] }>>
     list(input: { before?: string; limit?: number }): Promise<IpcResult<Message[]>>
   }
 

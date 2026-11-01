@@ -645,6 +645,8 @@ export interface AttachmentRow {
   message_id: string | null
   task_id: string | null
   kind: string
+  /** v0.49：显示名（005 迁移）。老行为空串 */
+  name: string
   rel_path: string
   mime: string
   bytes: number
@@ -665,7 +667,8 @@ export const ATTACHMENT_COLUMNS = [
   'width',
   'height',
   'sha256',
-  'created_at'
+  'created_at',
+  'name'
 ] as const
 
 /** `Attachment.url` 由主进程拼成自定义协议（02 §2）；DB 只存 rel_path */
@@ -673,6 +676,7 @@ export function mapAttachment(row: AttachmentRow): Attachment {
   return {
     id: row.id,
     kind: row.kind as Attachment['kind'],
+    name: row.name,
     url: `app://attach/${row.id}`,
     mime: row.mime,
     bytes: row.bytes,

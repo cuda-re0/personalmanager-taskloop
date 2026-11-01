@@ -258,12 +258,16 @@ export const g = {
   }),
   // msg.send / msg.retry（W4）：单条输入上限 4000 字、附件最多 4 张（03 §5）
   // v0.37：加 `mode`，省略按 'chat'；主进程不从文本推断模式
+  // v0.49：`text` **故意不写 .min(1)**——只发图（空文本 + 附件）是设计内的消息，
+  // 空文本的判定归 aiService（那里才给得出可读文案，守卫只有通用句）
   msgSend: z.object({
-    text: z.string().min(1).max(4000),
+    text: z.string().max(4000),
     attachmentIds: z.array(z.string()).max(4).optional(),
     mode: chatModeSchema
   }),
   msgRetry: z.object({ messageId: z.string().min(1) }),
+  // v0.48：撤回/编辑共用同一条通道，形状与 msgRetry 一致
+  msgRemove: z.object({ messageId: z.string().min(1) }),
   // ai.*（W4，02 §3.4）
   aiConfirmDraft: z.object({ messageId: z.string().min(1), localId: z.string().min(1) }),
   aiRejectDrafts: z.object({
@@ -371,6 +375,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.msg.list]: g.msgList,
   [CH.msg.send]: g.msgSend,
   [CH.msg.retry]: g.msgRetry,
+  [CH.msg.remove]: g.msgRemove,
   [CH.ai.confirmDraft]: g.aiConfirmDraft,
   [CH.ai.rejectDrafts]: g.aiRejectDrafts,
   [CH.ai.review]: g.aiReview,

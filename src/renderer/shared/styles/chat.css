@@ -81,8 +81,23 @@
   justify-content: flex-start;
 }
 
-.bubble {
+/* 气泡 + 操作行（v0.49 §5.4）：宽度上限从 .bubble 上移到这里，操作行才不会比气泡宽 */
+.msg-stack {
+  display: flex;
+  flex-direction: column;
   max-width: 78%;
+}
+
+.msg-stack--user {
+  align-items: flex-end;
+}
+
+.msg-stack--assistant {
+  align-items: flex-start;
+}
+
+.bubble {
+  max-width: 100%;
   padding: 8px 12px;
   border-radius: 14px;
   font-size: 14px;
@@ -101,35 +116,117 @@
   padding: 6px 2px;
 }
 
-.bubble-images {
-  display: grid;
-  gap: 4px;
+/* ---------------- 附件胶囊（v0.49） ---------------- */
+
+.msg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 6px;
 }
 
-.bubble-images--1 {
-  grid-template-columns: 1fr;
-  max-width: 200px;
+.msg-chips:last-child {
+  margin-bottom: 0;
 }
 
-.bubble-images--2 {
-  grid-template-columns: 1fr 1fr;
-  max-width: 240px;
+.msg-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  max-width: 220px;
 }
 
-.bubble-images--3,
-.bubble-images--4 {
-  grid-template-columns: 1fr 1fr;
-  max-width: 240px;
+.msg-chip-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
 }
 
-.bubble-image {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+.msg-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.msg-chip-name {
+  font-size: 12px;
+  color: var(--text-sub);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-chip-pop {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  padding: 4px;
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--bg-sub);
+  background: var(--bg);
+  box-shadow: var(--shadow-float);
+  z-index: 6;
+}
+
+.msg-chip:hover .msg-chip-pop {
+  display: block;
+}
+
+.msg-chip-pop img {
+  display: block;
+  max-width: 260px;
+  max-height: 200px;
+  border-radius: 4px;
+}
+
+/* ---------------- 操作行（v0.49 §5.4）：常驻，不做 hover 才显示 ---------------- */
+
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0 2px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.msg-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-act {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.msg-act svg {
+  width: 14px;
+  height: 14px;
+}
+
+.msg-act:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 /* ---------------- markdown ---------------- */

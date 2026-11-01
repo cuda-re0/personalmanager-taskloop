@@ -2,6 +2,7 @@ import initSql from './001_init.sql?raw'
 import ledgerReversedSql from './002_ledger_reversed.sql?raw'
 import chatSql from './003_chat.sql?raw'
 import spendSql from './004_spend.sql?raw'
+import attachmentNameSql from './005_attachment_name.sql?raw'
 
 /**
  * 迁移清单。只增不改（01 §5）。
@@ -17,5 +18,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 1, name: '001_init', sql: initSql },
   { version: 2, name: '002_ledger_reversed', sql: ledgerReversedSql },
   { version: 3, name: '003_chat', sql: chatSql },
-  { version: 4, name: '004_spend', sql: spendSql }
+  { version: 4, name: '004_spend', sql: spendSql },
+  { version: 5, name: '005_attachment_name', sql: attachmentNameSql }
 ]

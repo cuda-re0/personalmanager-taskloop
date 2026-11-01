@@ -12,9 +12,11 @@ import type {
 } from '../../shared/types/domain'
 import type { AppErrorCode } from '../../shared/types/ipc'
 import { broadcast } from '../bus'
+import { tx } from '../db/connection'
 import { addDays, todayLocalDay } from '../db/localDay'
 import { AppErrorException, appError } from '../db/errors'
 import * as occurrenceService from '../db/occurrenceService'
+import * as messageRepo from '../db/repositories/messageRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import { GlmClient } from '../ai/glmClient'
@@ -249,11 +251,14 @@ interface TurnInput {
  */
 export function send(input: SendInput): SendResult {
   const text = typeof input.text === 'string' ? input.text.trim() : ''
-  if (text.length === 0) {
-    throw appError('INVALID_INPUT', '请求参数格式不正确', { detail: 'text 为空' })
+  // 附件要先截断再判空（v0.49）：顺序反了这里永远拿到空数组，纯图消息会被误判成空消息
+  const attachmentIds = (input.attachmentIds ?? []).slice(0, 4)
+  if (text.length === 0 && attachmentIds.length === 0) {
+    throw appError('INVALID_INPUT', '请求参数格式不正确', {
+      detail: 'text 与 attachmentIds 同时为空'
+    })
   }
 
-  const attachmentIds = (input.attachmentIds ?? []).slice(0, 4)
   const created = messageService.appendMessage({
     role: 'user',
     kind: 'text',
@@ -298,6 +303,85 @@ export function retry(input: { messageId: string }): void {
   void runTurn(locateTurn(input.messageId)).catch(e => {
     console.error('[ai] 重试轮次异常逃逸', e)
   })
+}
+
+/**
+ * 撤回范围（v0.48）：起始下标 + 到**下一条 user 之前**。纯函数，不碰 DB（便于测试）。
+ *
+ * `end` 是**开区间**：下一条 user 的下标，或列表末尾。按下标切片而不是按时间戳——
+ * 同一毫秒落库的三条消息按时间比较会漏。`startIndex` 越界返回空范围，不抛。
+ */
+export function turnRangeOf(
+  list: { role: Message['role'] }[],
+  startIndex: number
+): { start: number; end: number } {
+  if (startIndex < 0 || startIndex >= list.length) return { start: startIndex, end: startIndex }
+  for (let i = startIndex + 1; i < list.length; i += 1) {
+    if (list[i].role === 'user') return { start: startIndex, end: i }
+  }
+  return { start: startIndex, end: list.length }
+}
+
+export interface RemoveTurnResult {
+  removedIds: string[]
+  removedTaskIds: string[]
+}
+
+/**
+ * `msg.remove`（v0.48）：撤回 / 编辑的**唯一**后端。
+ *
+ * 删的是「这一轮」：从这条 user 消息起，到下一个 user 之前（含占位 assistant、错误气泡、
+ * 主进程补的回复、草稿卡）。草稿卡上已经确认成任务的那些**软删**（流水与打卡记录保留）——
+ * 否则用户撤回了建任务的请求，右栏 ① 里那个任务还杵在那儿。
+ *
+ * 三条硬约束：
+ * - **不广播消息删除事件**：这一单不开 `message.removed`，渲染层按返回值自己过滤。
+ * - **不删附件磁盘文件**：文件留在 `userData/attachments/`，W11 统一清理。
+ * - **不动 `chat_state`**：摘要里提到已撤内容是接受的陈旧数据。
+ *
+ * 只接受 user 的 text 消息：撤回别人说的话没有语义；assistant 占位/错误消息由这一轮一起带走。
+ */
+export function removeTurn(input: { messageId: string }): RemoveTurnResult {
+  const list = messageService.listMessages({ limit: 60 })
+  const index = list.findIndex(m => m.id === input.messageId)
+  if (index === -1) throw appError('NOT_FOUND', '消息不存在', { detail: `id=${input.messageId}` })
+
+  const target = list[index]
+  if (target.role !== 'user' || target.kind !== 'text') {
+    throw appError('INVALID_INPUT', '请求参数格式不正确', {
+      detail: `只能撤回自己发的文字消息，这条是 role=${target.role} kind=${target.kind}`
+    })
+  }
+
+  const { start, end } = turnRangeOf(list, index)
+  const turn = list.slice(start, end)
+  const removedIds = turn.map(m => m.id)
+
+  // 草稿卡里已经确认成任务的那些：撤回这一轮就连任务一起软删
+  const taskIds = new Set<string>()
+  for (const message of turn) {
+    if (message.meta.kind !== 'task_draft') continue
+    for (const draft of message.meta.drafts) {
+      const marker = draft as TaskDraft & { promotedTaskId?: unknown }
+      if (typeof marker.promotedTaskId === 'string') taskIds.add(marker.promotedTaskId)
+    }
+  }
+
+  tx(() => {
+    for (const taskId of taskIds) {
+      try {
+        taskService.removeTask(taskId)
+      } catch (e) {
+        // 任务已经被删过是正常情况（同一张卡两个任务、其中一个用户先删了）
+        console.warn('[ai] 撤回时软删任务失败，继续', taskId, e instanceof Error ? e.message : e)
+      }
+    }
+    messageRepo.removeMany(removedIds)
+  })
+
+  for (const taskId of taskIds) broadcast({ type: 'task.removed', taskId })
+
+  return { removedIds, removedTaskIds: [...taskIds] }
 }
 
 /**

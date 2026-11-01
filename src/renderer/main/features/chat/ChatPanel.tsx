@@ -52,13 +52,16 @@ export function ChatPanel(): ReactElement {
           messages={data.visibleMessages}
           onLoadMore={data.loadMore}
           reviewViews={data.reviewViews}
+          runningUserId={data.runningUserId}
           tail={tail}
         />
       )}
       <ChatInput
         mode={data.mode}
-        onSend={(text, attachments) => data.send(text, attachments, data.mode)}
+        onPendingTextUsed={data.consumeCompose}
+        onSend={(text, files) => data.send(text, files, data.mode)}
         onToggleMode={data.toggleMode}
+        pendingText={data.composeText}
         sending={data.sending}
       />
     </section>

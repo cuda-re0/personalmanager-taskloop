@@ -19,6 +19,7 @@ import {
 } from '../attachments/paths'
 import {
   MAX_ATTACHMENT_BYTES,
+  displayName,
   extForMime,
   kindForMime,
   normalizeMime
@@ -184,7 +185,7 @@ function writeAtomically(absPath: string, tag: string, payload: Payload): void {
  * 返回的 `Attachment.url` 是 `app://attach/<id>`（由 `mapAttachment` 拼，渲染层不拼字符串）。
  */
 export function add(input: AddAttachmentInput): Attachment {
-  const name = typeof input?.name === 'string' ? input.name : ''
+  const rawName = typeof input?.name === 'string' ? input.name : ''
   const rawMime = typeof input?.mime === 'string' ? input.mime : ''
   const mime = normalizeMime(rawMime)
   extForMime(mime) // 白名单外直接 UNSUPPORTED_MIME，后面所有步骤都假定 mime 合法
@@ -205,7 +206,7 @@ export function add(input: AddAttachmentInput): Attachment {
   if (!isStored(absPath, payload.size)) writeAtomically(absPath, id, payload)
 
   console.log(
-    `[attachment] add ${logName(name) || '(未命名)'} → ${relPath} (${mime}, ${payload.size}B)`
+    `[attachment] add ${logName(rawName) || '(未命名)'} → ${relPath} (${mime}, ${payload.size}B)`
   )
 
   return attachmentRepo.insert({
@@ -219,7 +220,9 @@ export function add(input: AddAttachmentInput): Attachment {
     width: null,
     height: null,
     sha256,
-    createdAt: nowIso()
+    createdAt: nowIso(),
+    // 落库的是**清洗后**的名字（v0.49 §2.3）；日志仍用 logName，两者用途不同
+    name: displayName(rawName, mime)
   })
 }
 

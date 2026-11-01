@@ -75,6 +75,10 @@ export interface ChatActions {
   confirmDraft(localId: string): void
   rejectDraft(localId: string): void
   retry(messageId: string): void
+  /** 撤回后把原文填回输入框（v0.48）：删掉这条 user 消息及其引起的后续 */
+  editMessage(messageId: string): void
+  /** 撤回（v0.48）：与 `editMessage` 同一条链路，只是不回填输入框 */
+  recallMessage(messageId: string): void
   openTask(taskId: string): void
   snoozeReminder(reminderId: string): void
   /** 选完文件调：内部 `attachment.add` → `task.addEvidence`。失败返回 AppError.message 原文 */
@@ -119,6 +123,14 @@ export interface ChatData {
   /** 证据附件元数据（`Attachment.url/kind/mime`），待提交卡渲染缩略图要用 */
   attachmentById: Record<string, Attachment>
   sending: boolean
+  /**
+   * 撤回/编辑后要填回输入框的原文（v0.48）；`null` = 没有待填。
+   * `ChatInput` 消费后立刻调 `consumeCompose` 清空，否则下次挂载会再填一次。
+   */
+  composeText: string | null
+  consumeCompose(): void
+  /** 正在跑的那一轮的 user 消息 id（v0.48）：这条消息不给「撤回 / 编辑」按钮 */
+  runningUserId: string | null
   hasMore: boolean
   loadingMore: boolean
   actions: ChatActions
@@ -130,9 +142,10 @@ export interface ChatData {
   /** 模式按钮点击：`task` ↔ `chat` */
   toggleMode(): void
   /**
-   * 发一条消息。`mode` 由调用方从 `mode` 状态透传（主进程不猜内容）；
-   * 省略时按 `'chat'`（02 §3.3）。
+   * 发一条消息（v0.49）：`files` 是原始 `File`，上传在主进程；
+   * 返回 `true` 表示已交给主进程（输入框可清空），`false` 表示失败（输入框保留）。
+   * `mode` 由调用方从 `mode` 状态透传（主进程不猜内容）；省略时按 `'chat'`（02 §3.3）。
    */
-  send(text: string, attachments: Attachment[], mode?: ChatMode): void
+  send(text: string, files: File[], mode?: ChatMode): Promise<boolean>
   loadMore(): void
 }

@@ -22,6 +22,8 @@ interface Props {
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
   actions: ChatActions
+  /** 正在跑的那一轮的 user 消息 id（v0.48），逐条透传给 `MessageItem` */
+  runningUserId: string | null
   hasMore: boolean
   loadingMore: boolean
   onLoadMore(): void
@@ -72,6 +74,7 @@ export function MessageList({
   draftViews,
   reviewViews,
   actions,
+  runningUserId,
   hasMore,
   loadingMore,
   onLoadMore,
@@ -208,6 +211,7 @@ export function MessageList({
               draftViews={draftViews}
               message={message}
               reviewViews={reviewViews}
+              runningUserId={runningUserId}
             />
           </Row>
         ))}

@@ -13,6 +13,8 @@ interface Props {
   draftViews: Record<string, DraftView>
   reviewViews: Record<string, ReviewView>
   actions: ChatActions
+  /** 正在跑的那一轮的 user 消息 id（v0.48）：这条不给「撤回 / 编辑」按钮 */
+  runningUserId: string | null
 }
 
 /**
@@ -23,7 +25,8 @@ export const MessageItem = memo(function MessageItem({
   message,
   draftViews,
   reviewViews,
-  actions
+  actions,
+  runningUserId
 }: Props): ReactElement | null {
   const meta = message.meta
   switch (meta.kind) {
@@ -60,7 +63,16 @@ export const MessageItem = memo(function MessageItem({
         />
       )
     case 'none':
-    default:
-      return <TextBubble message={message} />
+    default: {
+      // 撤回 / 编辑只给自己发的、且不是正在跑的那一轮（48 §5.5）
+      const editable = message.role === 'user' && message.id !== runningUserId
+      return (
+        <TextBubble
+          message={message}
+          onEdit={editable ? () => actions.editMessage(message.id) : undefined}
+          onRecall={editable ? () => actions.recallMessage(message.id) : undefined}
+        />
+      )
+    }
   }
 })

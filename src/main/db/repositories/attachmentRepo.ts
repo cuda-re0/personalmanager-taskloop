@@ -31,6 +31,8 @@ export interface AttachmentInsert {
   height?: number | null
   sha256: string
   createdAt: string
+  /** v0.49 显示名；**可选**，省略即空串（老测试的 insert 不用逐个补） */
+  name?: string
 }
 
 function insertParams(a: AttachmentInsert): SqlValue[] {
@@ -45,7 +47,8 @@ function insertParams(a: AttachmentInsert): SqlValue[] {
     a.width ?? null,
     a.height ?? null,
     a.sha256,
-    a.createdAt
+    a.createdAt,
+    a.name ?? ''
   ]
 }
 

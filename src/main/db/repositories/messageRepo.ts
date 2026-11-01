@@ -1,5 +1,5 @@
 import type { Message, MessageKind, MessageMeta, MessageStatus } from '../../../shared/types/domain'
-import { getDb } from '../connection'
+import { getDb, tx } from '../connection'
 import { appError, wrapWriteError } from '../errors'
 import { MESSAGE_COLUMNS, mapMessage, messageInsertParams } from '../mappers'
 import type { MessageInsert, MessageRow, SqlValue } from '../mappers'
@@ -149,6 +149,32 @@ export function listRecentText(limit = 20, excludeId?: string): Message[] {
 export function countAll(): number {
   const row = getDb().prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }
   return row.n
+}
+
+/**
+ * 按 id 删一条（v0.48 撤回/编辑）。不存在返回 `false`，**不抛**——
+ * 撤回要删的是一个范围，范围内某条刚好已不在，不该让整次撤回失败。
+ * 硬删：表里没有 `deleted_at` 列，软删无从表达；附件行靠 messages 的 CASCADE 一并清掉。
+ */
+export function removeById(id: string): boolean {
+  return getDb().prepare('DELETE FROM messages WHERE id = ?').run(id).changes > 0
+}
+
+/**
+ * 按 id 列表批量硬删，返回实际删掉的行数（v0.48）。
+ *
+ * **不校验存在性**：调用方（`aiService.removeTurn`）已经算好了范围，这里只负责删。
+ * 整批在一个事务里——删到一半失败会留下"半个撤回"，用户按了编辑却少了中间几条。
+ * `ids` 为空直接返回 0：空 IN 语句是语法错误。
+ */
+export function removeMany(ids: string[]): number {
+  if (ids.length === 0) return 0
+  const stmt = getDb().prepare('DELETE FROM messages WHERE id = ?')
+  return tx(() => {
+    let changes = 0
+    for (const id of ids) changes += stmt.run(id).changes
+    return changes
+  })
 }
 
 /**

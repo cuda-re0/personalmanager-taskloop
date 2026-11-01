@@ -128,6 +128,19 @@ export function mimeExt(mime: string | null): string {
 }
 
 /**
+ * 消息时间 → 本地 `HH:mm`（v0.49 §5.5）。非法 / 空串 → `''`，调用方据此决定这一格进不进 DOM。
+ *
+ * **不许**在 UTC 串上切时分（`toISOString()` 的前 16 位是 UTC），那会和用户眼里的时间差 8 小时。
+ * 必须走 `Date` 再取本地字段（与 `dueHintToLocal` 同一个理由）。
+ */
+export function formatClock(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
  * dueHint 的合法形状（02 §1）：完整 ISO8601，必须带年月日与时分。
  *
  * 读侧先验形状再交给 Date。V8 会把 '10-30 18:00' 静默当成 2001 年（实测，不报错）：

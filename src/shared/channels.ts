@@ -40,6 +40,8 @@ export const CH = {
   msg: {
     send: 'msg:send',
     retry: 'msg:retry',
+    /** v0.48：撤回/编辑共用——按轮切片、软删任务、不广播消息删除事件 */
+    remove: 'msg:remove',
     list: 'msg:list'
   },
   attachment: {

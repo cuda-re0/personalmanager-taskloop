@@ -5,6 +5,7 @@ import type { Message, MessageMeta, ReviewVerdict } from '../../src/shared/types
 import {
   draftPointsOf,
   dueHintToLocal,
+  formatClock,
   latestNeedEvidenceHint,
   latestReviewGaps,
   localToDueHint,
@@ -219,5 +220,19 @@ describe('latestReviewGaps：待提交卡的未完成项清单（42 §3）', () 
   it('两个任务各一张卡 → 各自独立，互不覆盖', () => {
     const list = [reviewOf('a1', 't1', PARTIAL(['A 的一条'])), reviewOf('b1', 't2', PARTIAL(['B 的一条']))]
     expect(latestReviewGaps(list)).toEqual({ t1: ['A 的一条'], t2: ['B 的一条'] })
+  })
+})
+
+describe('formatClock：消息时间 → 本地 HH:mm（49 §5.5）', () => {
+  it('合法 ISO 与本地字段一致（不许写死时分，测试机时区会变）', () => {
+    const iso = '2026-10-30T05:54:00.000Z'
+    const d = new Date(iso)
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    expect(formatClock(iso)).toBe(`${pad(d.getHours())}:${pad(d.getMinutes())}`)
+  })
+
+  it('非法串与空串返回空串：调用方据此把那一格整条移出 DOM', () => {
+    expect(formatClock('not-a-time')).toBe('')
+    expect(formatClock('')).toBe('')
   })
 })

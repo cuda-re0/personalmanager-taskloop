@@ -90,7 +90,8 @@ describe('guards（zod 形状校验）', () => {
       text: '写周报',
       mode: 'task'
     })
-    expectErrorCode(() => parseInput(g.msgSend, { text: '' }), 'INVALID_INPUT')
+    // v0.49：空文本**通过守卫**（纯图消息），空文本的判定归 aiService
+    expect(parseInput(g.msgSend, { text: '' })).toEqual({ text: '', mode: 'chat' })
     expectErrorCode(() => parseInput(g.msgSend, { text: 'x', attachmentIds: ['a', 'b', 'c', 'd', 'e'] }), 'INVALID_INPUT')
     // rejectDrafts 至少给一个 localId
     expectErrorCode(() => parseInput(g.aiRejectDrafts, { messageId: 'm1', localIds: [] }), 'INVALID_INPUT')

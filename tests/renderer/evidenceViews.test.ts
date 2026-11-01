@@ -12,6 +12,7 @@ function attachmentOf(id: string): Attachment {
   return {
     id,
     kind: 'image',
+    name: '证据.png',
     url: `app://attach/${id}`,
     mime: 'image/png',
     bytes: 1024,

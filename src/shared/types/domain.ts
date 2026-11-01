@@ -177,6 +177,8 @@ export type MessageMeta =
 export interface Attachment {
   id: string
   kind: 'image' | 'file'
+  /** v0.49：用户给的文件名（清洗后），气泡胶囊显示用。老行为空串 → 渲染层按 mime 兜底 */
+  name: string
   url: string // 主进程已转成 `app://attach/<id>` 自定义协议，渲染层直接用
   mime: string
   bytes: number

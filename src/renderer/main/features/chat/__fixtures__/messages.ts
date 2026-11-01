@@ -25,6 +25,7 @@ export const FIXTURE_ATTACHMENTS: Attachment[] = [
   {
     id: 'att-a',
     kind: 'image',
+    name: 'IMG_2041.png',
     url: mockImage('IMG_2041'),
     mime: 'image/svg+xml',
     bytes: 20480,
@@ -34,6 +35,7 @@ export const FIXTURE_ATTACHMENTS: Attachment[] = [
   {
     id: 'att-b',
     kind: 'image',
+    name: 'IMG_2042.png',
     url: mockImage('IMG_2042'),
     mime: 'image/svg+xml',
     bytes: 18432,
@@ -43,6 +45,7 @@ export const FIXTURE_ATTACHMENTS: Attachment[] = [
   {
     id: 'att-c',
     kind: 'file',
+    name: '回访记录.pdf',
     url: 'app://attach/att-c',
     mime: 'application/pdf',
     bytes: 348160,

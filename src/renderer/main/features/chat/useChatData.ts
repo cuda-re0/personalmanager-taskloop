@@ -195,6 +195,8 @@ export function useChatData(): ChatData {
   const [pendingList, setPendingList] = useState<Task[]>([])
   const [submittingTasks, setSubmittingTasks] = useState<Record<string, Task>>({})
   const [sending, setSending] = useState(false)
+  /** 撤回/编辑要填回输入框的原文（v0.48）；null = 没有待填 */
+  const [composeText, setComposeText] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(() => bulkCount() === 0)
   const olderPool = useRef<Message[]>(bulkCount() === 0 ? makeOlderMessages(60) : [])
   const seq = useRef(0)
@@ -733,12 +735,48 @@ export function useChatData(): ChatData {
     }
   }, [])
 
+  /**
+   * 撤回 / 编辑共用的**唯一**实现（v0.48 §5.5 + v0.49 §5.6）：只删一次、只在编辑时回填。
+   *
+   * `messages` 必须在依赖数组里：回填要读这一轮的原文。不要为了"稳定"改成 ref——
+   * ref 拿到的是上一次渲染的文本。
+   */
+  const removeTurn = useCallback(
+    async (messageId: string, fillBack: boolean): Promise<void> => {
+      const target = messages.find(m => m.id === messageId)
+      const res = await window.api.msg.remove({ messageId })
+      if (!res.ok) {
+        console.error('[chat] msg.remove 失败', res.error)
+        return
+      }
+      setMessages(prev => prev.filter(m => !res.data.removedIds.includes(m.id)))
+      if (fillBack) setComposeText(target ? target.contentMd : '')
+    },
+    [messages]
+  )
+
+  const recallMessage = useCallback(
+    (messageId: string) => {
+      void removeTurn(messageId, false)
+    },
+    [removeTurn]
+  )
+
+  const editMessage = useCallback(
+    (messageId: string) => {
+      void removeTurn(messageId, true)
+    },
+    [removeTurn]
+  )
+
   const actions = useMemo<ChatActions>(
     () => ({
       patchDraft,
       confirmDraft,
       rejectDraft,
       retry,
+      editMessage,
+      recallMessage,
       openTask,
       snoozeReminder,
       addEvidence,
@@ -752,6 +790,8 @@ export function useChatData(): ChatData {
       confirmDraft,
       rejectDraft,
       retry,
+      editMessage,
+      recallMessage,
       openTask,
       snoozeReminder,
       addEvidence,
@@ -763,34 +803,59 @@ export function useChatData(): ChatData {
   )
 
   /**
-   * 真发一条消息（v0.37）：只打 `msg.send`，**不插乐观气泡**——
+   * 真发一条消息（v0.37）：**先上传附件、再发消息**，不插乐观气泡——
    * user / assistant 两条消息都由主进程 `message.appended` 推回来，插一份本地副本
    * 就会变成两个气泡（v0.39 踩过一次）。
    *
-   * `sending` 由 `ai.status` 收口：`thinking` 置真、`idle` 置假（失败也发 idle）。
-   * 附件本单不做上传，所以 `attachmentIds` 恒不传；只有附件没有文字的消息直接不发，
-   * 免得主进程吃一个 `INVALID_INPUT` 让用户看到一个空转的细环。
+   * 返回值只表达「输入框能不能清空」：上传或发送任一步失败都返回 `false`，
+   * 由 `ChatInput` 把文字与预览留在框里。成功分支**不复位 `sending`**——
+   * 转圈由主进程 `ai.status`（thinking → idle）收口，本地提前复位会让转圈闪一下。
+   *
+   * 渲染层不做 mime 白名单、不做体积校验：25 MiB 上限与五个 mime 全在
+   * `attachmentService`，重复校验只会把可读文案换成通用句。
    */
   const send = useCallback(
-    (text: string, _attachments: Attachment[], nextMode: ChatMode = mode) => {
+    async (text: string, files: File[], nextMode: ChatMode = mode): Promise<boolean> => {
       const body = text.trim()
-      if (body.length === 0) return
+      if (body.length === 0 && files.length === 0) return false
       setSending(true)
-      void window.api.msg
-        .send({ text: body, mode: nextMode })
-        .then(res => {
-          if (!res.ok) {
+      try {
+        const ids: string[] = []
+        for (const file of files.slice(0, 4)) {
+          const base64 = await readFileAsBase64(file)
+          const added = await window.api.attachment.add({
+            name: file.name,
+            mime: file.type,
+            base64
+          })
+          if (!added.ok) {
+            console.error('[chat] attachment.add 失败', added.error)
             setSending(false)
-            console.error('[chat] msg.send 失败', res.error)
+            return false
           }
+          ids.push(added.data.id)
+        }
+        const sent = await window.api.msg.send({
+          text: body,
+          mode: nextMode,
+          ...(ids.length > 0 ? { attachmentIds: ids } : {})
         })
-        .catch((e: unknown) => {
+        if (!sent.ok) {
+          console.error('[chat] msg.send 失败', sent.error)
           setSending(false)
-          console.error('[chat] msg.send 调用失败', e)
-        })
+          return false
+        }
+        return true
+      } catch (e: unknown) {
+        console.error('[chat] 发送失败', e)
+        setSending(false)
+        return false
+      }
     },
     [mode]
   )
+
+  const consumeCompose = useCallback(() => setComposeText(null), [])
 
   const loadMore = useCallback(() => {
     const pool = olderPool.current
@@ -849,6 +914,26 @@ export function useChatData(): ChatData {
   /** 待提交卡的未完成项清单（v0.42）：taskId → 最近一张审核卡列的 gaps */
   const reviewGaps = useMemo(() => latestReviewGaps(messages), [messages])
 
+  /**
+   * 正在跑的那一轮的 user 消息 id（v0.48）：这一条不给「撤回 / 编辑」按钮，
+   * 免得用户在 AI 还在想的时候把这一轮抽走。
+   *
+   * 为什么不用 `sending` 算：`sending` 只管 `msg.send` 的提交，`msg.retry` 不设它；
+   * 跑动状态的真值只有消息自己的 `status`。
+   */
+  const runningUserId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message.role !== 'assistant') continue
+      if (message.status !== 'pending' && message.status !== 'streaming') continue
+      for (let j = i - 1; j >= 0; j -= 1) {
+        if (messages[j].role === 'user') return messages[j].id
+      }
+      return null
+    }
+    return null
+  }, [messages])
+
   return {
     messages,
     visibleMessages,
@@ -860,6 +945,9 @@ export function useChatData(): ChatData {
     submittingIds,
     attachmentById,
     sending,
+    composeText,
+    consumeCompose,
+    runningUserId,
     hasMore,
     // 本地 mock 是同步的；W2 换成真接口后这里接 loading 态
     loadingMore: false,
