@@ -614,9 +614,19 @@ export function useChatData(): ChatData {
     })
   }, [])
 
+  /**
+   * 重试（v0.50 §2）：只调主进程，**不碰本地状态**。
+   *
+   * 转圈由主进程 `ai.status`（thinking → idle）驱动，所以不设 `sending`——`sending` 只管
+   * 输入框提交，混用会让输入框在重试期间错误地禁用。消息状态由 `message.patch` 推回，
+   * 本地预改会和服务端的 `failed` 打架（用户看到的就是"点了没反应还骗人"）。
+   */
   const retry = useCallback((messageId: string) => {
-    // TODO(W2): 换成 api.msg.retry({ messageId })
-    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, status: 'sent' as const } : m)))
+    void window.api.msg.retry({ messageId })
+      .then(res => {
+        if (!res.ok) console.error('[chat] msg.retry 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[chat] msg.retry 调用失败', e))
   }, [])
 
   const openTask = useCallback((_taskId: string) => {

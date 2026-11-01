@@ -1,5 +1,6 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
+import { installContextMenu } from './contextMenu'
 import * as hudService from './services/hudService'
 import type { HudDisplayArea, HudDisplaysPort, HudWindowPort, Rect } from './services/hudService'
 
@@ -55,6 +56,9 @@ export function createMainWindow(options: { show?: boolean } = {}): BrowserWindo
     webPreferences
   })
   mainWindow = win
+
+  // 输入框右键菜单（v0.50 §3.2）：只挂主窗，HUD 没有输入框
+  installContextMenu(win)
 
   win.once('ready-to-show', () => {
     if (showOnReady) win.show()
