@@ -3,8 +3,8 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * 日历层（04 §4② v0.28）结构不变量：点天 → ③④ 积分面板整块被日历层就地替换；
- * 再点同一天关闭回积分面板；行点击只高亮不关闭；完成情况只用勾的形状承载。
+ * 日历层（04 §4②）结构不变量：点天 → ③④ 积分面板整块被日历层就地替换；
+ * 再点同一天关闭回积分面板；行点击只高亮不关闭；行只呈现限时 / 活动（每日任务不进日历）。
  */
 
 const INDEX_SOURCE = readFileSync(resolve(process.cwd(), 'src/renderer/main/index.tsx'), 'utf8')
@@ -83,11 +83,12 @@ describe('右栏比例配额（04 §4① v0.29）', () => {
 const dayViewCode = stripComments(DAYVIEW_SOURCE)
 
 describe('日历层组件（CalendarDayView）', () => {
-  it('行 = 完成勾 + 标题：勾复用 ① 的样式类，pending 空心 / done 实心', () => {
-    expect(dayViewCode).toMatch(/row\.done \? 'task-check task-check--on' : 'task-check'/)
-    // 映射在 useCalendarData 的纯函数里：pending/done 之外的行不显示
-    expect(HOOK_SOURCE).toMatch(/filter\(o => o\.status === 'pending' \|\| o\.status === 'done'\)/)
-    expect(HOOK_SOURCE).toMatch(/done: o\.status === 'done'/)
+  it('行 = 时刻 · 标题 · 类型 · 分值；已完成整行降透明，不再画勾', () => {
+    expect(dayViewCode).toMatch(/calendar-row-time/)
+    expect(dayViewCode).toMatch(/TYPE_LABEL\[row\.type\]/)
+    expect(dayViewCode).toMatch(/fmtPoints\(row\.points\)/)
+    expect(dayViewCode).toMatch(/row\.status === 'done' \? ' calendar-row--done' : ''/)
+    expect(dayViewCode).not.toMatch(/task-check/)
   })
 
   it('完成情况只用图形：可见文字里没有「已完成/未完成/暂无任务」', () => {
@@ -109,11 +110,16 @@ describe('日历层组件（CalendarDayView）', () => {
 const hookCode = stripComments(HOOK_SOURCE)
 
 describe('零请求原则（没选日子不发请求）', () => {
-  it('listByRange 调用点唯一，且在 useDayOccurrences 的挂载 effect 里', () => {
+  it('dayDetail 调用点唯一，且在 useDayTasks 的挂载 effect 里', () => {
     // hook 只被 CalendarDayView 调用（该组件仅在 dayDetail 非空时渲染），没挂载就没有调用
-    expect(hookCode.match(/\.listByRange\(/g)).toHaveLength(1)
-    expect(hookCode).toMatch(/useEffect\(\(\) => \{[\s\S]*?\.listByRange\(/)
+    expect(hookCode.match(/\.dayDetail\(/g)).toHaveLength(1)
+    expect(hookCode).toMatch(/useEffect\(\(\) => \{[\s\S]*?\.dayDetail\(/)
     expect(hookCode).toMatch(/\}, \[day, rev\]\)/)
-    expect(dayViewCode).toMatch(/useDayOccurrences\(day\)/)
+    expect(dayViewCode).toMatch(/useDayTasks\(day\)/)
+  })
+
+  it('日历层不拉 occurrence：每日任务不进日历（04 §4② 与红点同口径）', () => {
+    expect(hookCode).not.toMatch(/listByRange/)
+    expect(hookCode).not.toMatch(/occurrence\./)
   })
 })

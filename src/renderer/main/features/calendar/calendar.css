@@ -162,9 +162,21 @@
   min-height: 40px;
 }
 
-/* 勾是状态显示不是打卡控件（打卡在 ①），指针样式收回 */
-.calendar-dayview .task-check {
-  cursor: inherit;
+/* 时刻 / 类型 / 分值：右列与左列都是小字弱色，标题占满中间并省略 */
+.calendar-row-time {
+  flex: 0 0 auto;
+  min-width: 38px;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-row-type,
+.calendar-row-points {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
 }
 
 .calendar-row {
@@ -187,7 +199,7 @@
   background: var(--bg-hover);
 }
 
-/* 完成情况只由勾的形状承载（空心/实心），已完成行整行降透明度，不加文字、不加删除线 */
+/* 已完成整行降透明度，不加文字、不加删除线 */
 .calendar-row--done {
   opacity: 0.55;
 }

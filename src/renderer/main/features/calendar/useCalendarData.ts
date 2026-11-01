@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DayIndexEntry, Occurrence } from '@shared/types/domain'
+import type { DayIndexEntry, DayTaskItem } from '@shared/types/domain'
 import type { DomainEvent } from '@shared/types/events'
-import { indexByDay, monthKey, shiftMonth } from './calendarModel'
+import { indexByDay, monthKey, shiftMonth, sortDayDetail } from './calendarModel'
 
 /**
  * 右栏②「日历」的数据入口（04 §4②）。
@@ -109,39 +109,21 @@ export function useCalendarData(): CalendarData {
 }
 
 /* ------------------------------------------------------------------ *
- * 日历层（04 §4② v0.28）：选中日当天的任务 + 完成情况
+ * 日历层（04 §4②）：选中日当天的限时 / 活动任务
  * ------------------------------------------------------------------ */
 
-/** 日历层的一行：勾状态 + 任务标题 */
-export interface DayViewRow {
-  occurrenceId: string
-  taskId: string
-  title: string
-  done: boolean
-}
-
 /**
- * listByRange 结果 → 日历层行数据。勾状态映射：pending→空心、done→实心（04 §4② v0.28）。
- * missed/skipped 不显示（v0.27 同口径：用户只关心今天要做什么、做完了什么）。
- * 标题用联表带出的 taskTitle，单次请求拿全，不二次查询。
+ * 选中那一天的 `calendar.dayDetail`（挂载 / 换日拉一次；打开期间任务事件触发刷新）。
+ *
+ * **只用 dayDetail，不用 occurrence.listByRange**：04 §4② 写死了「日历只呈现限时与活动，
+ * 每日任务不进日历」，混进来会让日视图只剩打卡。更要紧的是口径一致——红点走 `dayIndex`
+ * （只统计 deadline/event），日视图若走 occurrence，就会出现「3 号有红点、点开却什么都没有」。
+ *
+ * 排序用 `sortDayDetail` 兜底（主进程已按 due_at 升序给，这里只防同刻抖动）。
+ * 只在 CalendarDayView 挂载时调用——没选日子组件不存在，天然零请求。
  */
-export function dayViewRows(list: Occurrence[]): DayViewRow[] {
-  return list
-    .filter(o => o.status === 'pending' || o.status === 'done')
-    .map(o => ({
-      occurrenceId: o.id,
-      taskId: o.taskId,
-      title: o.taskTitle ?? '',
-      done: o.status === 'done'
-    }))
-}
-
-/**
- * 选中那一天的 occurrence 行（挂载 / 换日拉一次；打开期间打卡等事件触发刷新）。
- * 只在 CalendarDayView 挂载时使用——没选日子组件不存在，天然零请求。
- */
-export function useDayOccurrences(day: string): DayViewRow[] {
-  const [rows, setRows] = useState<DayViewRow[]>([])
+export function useDayTasks(day: string): DayTaskItem[] {
+  const [rows, setRows] = useState<DayTaskItem[]>([])
   /** 事件触发的刷新序号：进 token 使已发请求过期 */
   const [rev, setRev] = useState(0)
   const issuedRef = useRef('')
@@ -152,26 +134,24 @@ export function useDayOccurrences(day: string): DayViewRow[] {
     latestRef.current = token
     if (issuedRef.current === token) return
     issuedRef.current = token
-    void window.api.occurrence
-      .listByRange({ from: day, to: day })
+    void window.api.calendar
+      .dayDetail({ day })
       .then(res => {
         if (latestRef.current !== token) return
         if (!res.ok) {
-          console.error('[calendar] occurrence.listByRange 失败', res.error)
+          console.error('[calendar] calendar.dayDetail 失败', res.error)
           setRows([])
           return
         }
-        setRows(dayViewRows(res.data))
+        setRows(sortDayDetail(res.data))
       })
-      .catch((e: unknown) => console.error('[calendar] occurrence.listByRange 调用失败', e))
+      .catch((e: unknown) => console.error('[calendar] calendar.dayDetail 调用失败', e))
   }, [day, rev])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const off = window.api.onEvent((e: DomainEvent) => {
       switch (e.type) {
-        case 'occurrence.created':
-        case 'occurrence.updated':
         case 'task.created':
         case 'task.updated':
         case 'task.removed':
