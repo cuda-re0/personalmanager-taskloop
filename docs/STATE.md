@@ -54,6 +54,10 @@
 > 实现：`SettingsData.quit()`（fire-and-forget，不 await、不置状态、失败只 `console.error`）→ `window.api.app.quit()`；抽屉底部一个 `退出程序` 按钮（危险色描边、hover 反色）。**零新增 IPC / preload / 类型改动**——`CH.app.quit` 从 v0.46 起就 WIRED 且已暴露，本单只是补入口。`registry.ts` 的 quit handler 加**硬兜底**：`app.quit()` 后 800ms 仍未退就 `app.exit(0)`（`app.quit()` 会被任意窗口 close 里的 `preventDefault` 中止，而 `before-quit` 只 clearInterval 两个 sweeper，强杀无泄漏）。基线 781 → **68 / 782，1 红仍是 chatBrief 时间炸弹**；白名单 5 文件（4 代码 + 1 测试），无越界。
 > **本轮还揪出一个一直存在的流程漏洞**：用户在真机上看到「+20 没变化」，实际是**绿色版 `dist/taskloop/resources/app/out` 停留在 15:16 的旧构建**（`deadlineBase` / `duePrecisionOf` / `DUE_LOCAL_DAY_SQL` 全 0 命中），而 `out/` 早就是新的——51/52/53 三单从没进过他跑的那个目录。**以后凡是让用户真机验证前，必须先比对 `out/` 与 `dist/taskloop/resources/app/out`，不一致就先同步再说结论**；否则会把"产物没更新"误判成"代码没生效"。
 
+> **v0.55b（`kickoff/55`，同日更正）**：**日历日视图改回 `calendar.dayDetail`**。用户报「怎么只显示每日任务呢，不应该是只不显示每日任务吗」——点 11-01 只有「23点前睡觉」，而红点在 3/10/13/17 号。**根因是 04 §4② 自相矛盾**：第 500 行（v0.28）写「沿用 `occurrence.listByRange`」，第 510 行写「日历只呈现限时与活动」。实现照前者做，日视图只剩每日打卡；而红点走 `dayIndex`（SQL 写死 `type IN ('deadline','event')`），于是「有红点、点开却空」。`calendar.dayDetail` 自做完起**零调用方**，纯死通道。
+> 改：`useDayOccurrences` → `useDayTasks`（`calendar.dayDetail` + `sortDayDetail` 兜底），行 = **时刻 · 标题 · 类型 · 分值**（无时刻不渲染时刻位），已完成整行降透明、**不再画勾**；删 `DayViewRow`/`dayViewRows` 与 `.calendar-dayview .task-check` 死规则。测试增「日历层不拉 occurrence」一条。04 第 500 行改写并注明冲突。基线 782 → **68 / 783**（1 红仍是 chatBrief 时间炸弹）。
+> 教训：**同一份文档里，一处写数据源、另一处写呈现范围，两句必须互相印证**；只读其中一句就实现，会做出与红点口径相反的东西，而且不报错、不红测试。
+
 ## 一、进度
 
 | 线 | 内容 | 状态 | 落点 |
