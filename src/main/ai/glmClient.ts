@@ -151,7 +151,17 @@ export class GlmClient implements AiProvider {
     let lastContent = ''
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const outcome = await this.request(messages, opts)
+      // v0.52：首次按调用方给的推理档跑；没过 schema 要重试时升到 high——同样的档位
+      // 再来一次，多半还是同样的错。调用方没指定档位（review 等）时两次都不发该字段。
+      const outcome = await this.request(messages, {
+        ...opts,
+        reasoningEffort:
+          opts.reasoningEffort === undefined
+            ? undefined
+            : attempt === 0
+              ? opts.reasoningEffort
+              : 'high'
+      })
       lastContent = outcome.content
 
       // 截断 → 直接失败，不重试：同样的 token 预算会得到同样的截断（开工词 §2.2）
@@ -301,7 +311,9 @@ export class GlmClient implements AiProvider {
       messages,
       temperature: opts.temperature ?? 0.3,
       max_tokens: this.maxTokens,
-      response_format: { type: 'json_object' }
+      response_format: { type: 'json_object' },
+      // v0.52：不传就不发这个字段，保持上游默认（max）。`glm-5.3-flash` 不支持 disabled
+      ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {})
     }
 
     let response: Response

@@ -492,7 +492,11 @@ async function runTurn(input: TurnInput): Promise<void> {
 
     const { data, usage, latencyMs } = await provider.chatJson({
       messages: request.messages,
-      schema: ParseResultSchema
+      schema: ParseResultSchema,
+      // v0.52：建任务的判定规则在 prompt 里写得很死，浅推理就够。实测默认档 82.6s →
+      // 7.4s，五类边界输入（复杂日期换算 / 闲聊 / 完成回报 / 信息不足 / 超 3 件）判定一致。
+      // 首次没过 schema 时 glmClient 会把重试那次升到 high。
+      reasoningEffort: 'low'
     })
 
     const drafts: TaskDraft[] = toTaskDrafts(data, cfg)

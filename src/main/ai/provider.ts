@@ -27,6 +27,17 @@ export interface ChatJsonOptions<T> {
   temperature?: number
   /** 失败后**总共**重试几次。不传按 1 次（03 §3.1 第 2 条：只重试 1 次） */
   maxRetries?: number
+  /**
+   * 上游推理深度（v0.52，03 §3.1 v0.52）。
+   *
+   * 不传 = 不发这个字段 = 上游默认 `max`（深度推理）。`glm-5.3-flash` **不支持关闭思考**
+   * （传 `disabled` 直接报错），只能降档。实测同一句建任务输入：默认档 82.6s / 推理 4527
+   * token，`low` 档 7.4s / 推理 159 token，判定结果一致。
+   *
+   * **只给建任务（parse）传 `low`**；复习判分要更细的判断，保持默认。
+   * 传了 `low` 时若首次输出没过 schema，重试那一次会自动升到 `high`（`glmClient` 内部实现）。
+   */
+  reasoningEffort?: 'low' | 'high' | 'max'
   signal?: AbortSignal
 }
 

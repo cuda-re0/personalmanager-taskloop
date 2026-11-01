@@ -116,6 +116,38 @@ describe('GlmClient 解析与重试', () => {
     expect(String(retryBody.messages[retryBody.messages.length - 1].content)).toContain('没有通过校验')
   })
 
+  it('reasoningEffort：传了就发这个字段，不传就不发（保持上游默认 max）', async () => {
+    const withLow = fakeFetch([chatResponse(VALID)])
+    await client(withLow).chatJson({
+      messages: [{ role: 'user', content: 'x' }],
+      schema: ParseResultSchema,
+      reasoningEffort: 'low'
+    })
+    expect(withLow.bodies[0].reasoning_effort).toBe('low')
+
+    const plain = fakeFetch([chatResponse(VALID)])
+    await runChat(plain)
+    expect('reasoning_effort' in plain.bodies[0]).toBe(false)
+  })
+
+  it('传了 low 但首次没过 schema → 重试那一次升到 high；没传的调用方两次都不发', async () => {
+    const bad = chatResponse(JSON.stringify({ intent: 'create_task', reply: 'x' })) // 缺 tasks
+    const upgraded = fakeFetch([bad, chatResponse(VALID)])
+    await client(upgraded).chatJson({
+      messages: [{ role: 'user', content: 'x' }],
+      schema: ParseResultSchema,
+      reasoningEffort: 'low'
+    })
+    expect(upgraded.bodies[0].reasoning_effort).toBe('low')
+    expect(upgraded.bodies[1].reasoning_effort).toBe('high')
+
+    // review 等不传档位的调用方：重试也不该冒出这个字段（行为与 v0.51 一致）
+    const untouched = fakeFetch([bad, chatResponse(VALID)])
+    await runChat(untouched)
+    expect('reasoning_effort' in untouched.bodies[0]).toBe(false)
+    expect('reasoning_effort' in untouched.bodies[1]).toBe(false)
+  })
+
   it('status 映射：401 → AI_NOT_CONFIGURED、429 → AI_RATE_LIMITED、500 → AI_UPSTREAM_ERROR', async () => {
     const unauthorized = fakeFetch([errorResponse(401, '{"error":"bad key"}')])
     expect(await codeOf(() => runChat(unauthorized))).toBe('AI_NOT_CONFIGURED')
