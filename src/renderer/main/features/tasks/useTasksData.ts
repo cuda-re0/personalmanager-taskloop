@@ -72,6 +72,8 @@ export interface TasksActions {
   reorder(taskId: string, beforeId: string | null): void
   /** 右栏① 顶部「+」手动建任务（v0.21）。成功返回 true，表单据此收起 */
   createManual(input: { type: TaskType; title: string; patch?: TaskPatch }): Promise<boolean>
+  /** 改活动任务的日期（v0.59）。失败走行内红字，成功由 task.updated 事件驱动刷新 */
+  updateTask(taskId: string, patch: TaskPatch): void
 }
 
 export interface TasksData {
@@ -277,6 +279,21 @@ export function useTasksData(): TasksData {
   }, [])
 
   /**
+   * 改活动任务的日期（v0.59）。
+   *
+   * 不做乐观写回、不加 busy：成功后 `task.updated` 会把新值刷回来（含主进程那边的提醒重建）。
+   * 失败用行内红字，文案取 `AppError.message` 原样，不在这里另写句子。
+   */
+  const updateTask = useCallback((taskId: string, patch: TaskPatch): void => {
+    void window.api.task
+      .update({ id: taskId, patch })
+      .then(res => {
+        if (!res.ok) setNotice({ taskId, message: res.error.message })
+      })
+      .catch((e: unknown) => console.error('[tasks] task.update 调用失败', e))
+  }, [])
+
+  /**
    * 提交完成（02 §3.2 / 01 §3 / v0.38）。
    *
    * **计分路径只做一步**：`transition({to:'pending_review'})`。任务进「待提交」，会话末尾
@@ -433,7 +450,8 @@ export function useTasksData(): TasksData {
       completeOccurrence,
       cancelComplete,
       reorder,
-      createManual
+      createManual,
+      updateTask
     }),
     [
       expand,
@@ -444,7 +462,8 @@ export function useTasksData(): TasksData {
       completeOccurrence,
       cancelComplete,
       reorder,
-      createManual
+      createManual,
+      updateTask
     ]
   )
 

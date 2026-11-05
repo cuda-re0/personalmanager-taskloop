@@ -8,6 +8,7 @@ import { appError } from '../db/errors'
 import { monthBounds, addDays, isoToLocalDay, todayLocalDay } from '../db/localDay'
 import * as occurrenceService from '../db/occurrenceService'
 import * as attachmentRepo from '../db/repositories/attachmentRepo'
+import * as reminderRepo from '../db/repositories/reminderRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as settingRepo from '../db/repositories/settingRepo'
 import * as messageService from '../services/messageService'
@@ -16,8 +17,12 @@ import * as personaService from '../services/personaService'
 import * as attachmentService from '../services/attachmentService'
 import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
+import * as reminderService from '../services/reminderService'
+import * as sensorService from '../services/sensorService'
 import * as taskService from '../services/taskService'
 import * as hudService from '../services/hudService'
+import { applyUpdate, checkUpdate } from '../update/updateService'
+import { clearQueuedNotice } from '../notify/notifyWindow'
 import { showMainWindow } from '../windowManager'
 import { runEnvelope } from './envelope'
 import { g, parseInput } from './guards'
@@ -29,14 +34,15 @@ import { g, parseInput } from './guards'
  * 测试传假实现就能把整张表跑起来。`src/main/ipc/index.ts` 的
  * `registerIpcHandlers()` 只是 `createHandlers(ipcMain)`。
  *
- * **只接 WIRED 里的 58 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
+ * **只接 WIRED 里的 66 条**（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、
  * W9 起 hud 四条（v0.30 删 setExpanded）、v0.32 起 hud.dragBegin / hud.dragTo、v0.19 起 task.undo 接通、
  * **W4 起 msg 两条 + ai 四条**、**v0.36 起 attachment.add / attachment.get 两条**、
  * **v0.37 起 persona 两条 + memory 四条**、**v0.44 起 ai.keyStatus**、
  * **v0.45 起 points.spend / spendUndo / spendMonth 三条**、**v0.46 起 app.showMain**、
- * **v0.47 起 ai.setKey**、**v0.48 起 msg.remove**，
+ * **v0.47 起 ai.setKey**、**v0.48 起 msg.remove**、**v0.58 起 reminder 五条**、**v0.60 起 app.checkUpdate**、
+ * **v0.61 起 task.removeEvidence**、**v0.62 起 hud.sensors**，
  * 见 kickoff/09、kickoff/11、kickoff/13、kickoff/14、kickoff/16、kickoff/33、kickoff/34、
- * kickoff/45、kickoff/46、kickoff/47、kickoff/48）；
+ * kickoff/45、kickoff/46、kickoff/47、kickoff/48、kickoff/58）；
  * NOT_WIRED 一律不注册（不放假 handler、不返假数据），
  * 渲染层调到会收到 Electron 的 "No handler registered"——那是开发期错误，不该被伪装成业务错误。
  */
@@ -52,12 +58,8 @@ export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
 
 export const NOT_WIRED: Record<string, { owner: NotWiredOwner }> = {
   // W4：AI 接入的六条已接通（msg.send / msg.retry / ai.*），不在表内
-  // W8：提醒（reminders 表在 W8 前恒为空；cancel/snooze 的事件类型也由 W8 一并补）
-  [CH.reminder.listByTask]: { owner: 'W8' },
-  [CH.reminder.listUpcoming]: { owner: 'W8' },
-  [CH.reminder.cancel]: { owner: 'W8' },
-  [CH.reminder.snooze]: { owner: 'W8' },
-  [CH.reminder.syncForTask]: { owner: 'W8' },
+  // W8：提醒五条已随 v0.58 接通（listByTask / listUpcoming / cancel / snooze / syncForTask），
+  // 只剩 testChannel 一条——外部渠道（mail / webhook）还没做，不能放个假 handler 假装能测
   [CH.reminder.testChannel]: { owner: 'W8' },
   // W9：通知渠道 + 悬浮窗（悬浮窗五条已随 W9 接通，不在表内）
   [CH.channel.list]: { owner: 'W9' },
@@ -106,11 +108,11 @@ function row<G extends z.ZodType>(
 }
 
 /* ------------------------------------------------------------------ *
- * WIRED：本轮接通的 57 条
+ * WIRED：本轮接通的 66 条
  * ------------------------------------------------------------------ */
 
 const TABLE: Row[] = [
-  /* ---------------- app（5） ---------------- */
+  /* ---------------- app（6） ---------------- */
   // 返回的就是当前全量快照，**不广播**（02 §3.2b 的例外条款）
   row(CH.app.getBootstrap, g.getBootstrap, (): Bootstrap => {
     const today = todayLocalDay()
@@ -162,8 +164,17 @@ const TABLE: Row[] = [
     // clearInterval 两个 sweeper——进程都没了，不存在泄漏。
     setTimeout(() => app.exit(0), 800)
   }),
+  // v0.60：手动更新检查。`applying` 为真时**不在这里**立刻重启——留 2 秒让渲染层
+  // 把「正在更新」画出来，否则按钮状态永远是上一次的
+  row(CH.app.checkUpdate, g.checkUpdate, async () => {
+    // v0.60c：这条通道只被设置页那个按钮调用，属于人工触发——`manual` 会跳过
+    // attemptedVersion 拦截（自动路径仍被拦），标记照写
+    const result = await checkUpdate({ manual: true })
+    if (result.applying) setTimeout(() => applyUpdate(), 2000)
+    return result
+  }),
 
-  /* ---------------- task（11） ---------------- */
+  /* ---------------- task（12） ---------------- */
   row(CH.task.list, g.list, input => taskService.listTasks(input)),
   row(CH.task.get, g.get, input => {
     // requireById 抛 NOT_FOUND「任务不存在」
@@ -202,6 +213,8 @@ const TABLE: Row[] = [
     broadcast({ type: 'message.patch', messageId: input.messageId, patch: { meta: message.meta } })
     // createTask 已 bump tasks_created，把最新当日统计推出去（对齐 createManual 的既有模式）
     broadcast({ type: 'daystats.changed', day: statsRepo.getDay(today) })
+    // v0.58：新任务落库后立刻物化提醒行，不等下一次启动
+    reminderService.syncForTask(task.id)
     return task
   }),
   row(CH.task.update, g.update, input => {
@@ -213,6 +226,9 @@ const TABLE: Row[] = [
       task: after,
       changed: before ? diffKeys(before, after) : []
     })
+    // v0.58：改完无脑重建一次（不判断改了哪个字段：due_at / 偏移 / 状态任一变化都会影响排期，
+    // 逐项判断多一条分支就多一处漏判）
+    reminderService.syncForTask(after.id)
     return after
   }),
   row(CH.task.transition, g.transition, input => {
@@ -223,6 +239,9 @@ const TABLE: Row[] = [
       task: after,
       changed: before ? diffKeys(before, after) : []
     })
+    // v0.58b：状态变了就重建提醒行——done / missed 之后 `planReminders` 返回空数组，
+    // 不重建的话已经完成的任务到点照样弹窗
+    reminderService.syncForTask(after.id)
     return after
   }),
   /* ---------------- task.complete（1，W6） ---------------- */
@@ -242,6 +261,8 @@ const TABLE: Row[] = [
       today: pointsService.todayStat()
     })
     broadcastDayStats(todayLocalDay())
+    // v0.58b：完成之后不再有 active 提醒行（planReminders 对非 todo/doing 返回空数组）
+    reminderService.syncForTask(task.id)
     return { task, entry }
   }),
   /* ---------------- task.undo（1，v0.19） ---------------- */
@@ -264,11 +285,23 @@ const TABLE: Row[] = [
     const doneDay = before.completedAt === null ? null : isoToLocalDay(before.completedAt)
     if (doneDay !== null) broadcastDayStats(doneDay)
     if (doneDay !== todayLocalDay()) broadcastDayStats(todayLocalDay())
+    // v0.58b：撤销回到 todo，重新排一次未来的提醒（过去的按 §3.1 第 5 条丢掉，不补回）
+    reminderService.syncForTask(task.id)
     return { task, entry }
   }),
   row(CH.task.addEvidence, g.addEvidence, input => {
     const before = taskService.getTask(input.id)
     const after = taskService.addEvidence(input.id, input.evidence)
+    broadcast({
+      type: 'task.updated',
+      task: after,
+      changed: before ? diffKeys(before, after) : []
+    })
+    return after
+  }),
+  row(CH.task.removeEvidence, g.removeEvidence, input => {
+    const before = taskService.getTask(input.id)
+    const after = taskService.removeEvidence(input.id, input.index)
     broadcast({
       type: 'task.updated',
       task: after,
@@ -311,6 +344,8 @@ const TABLE: Row[] = [
     }
     // createTask 里 bumpTasksCreated 了，把最新的当日统计推出去
     broadcast({ type: 'daystats.changed', day: statsRepo.getDay(todayLocalDay()) })
+    // v0.58：手工建的任务同样立刻物化提醒行
+    reminderService.syncForTask(task.id)
     return task
   }),
   row(CH.task.remove, g.remove, input => {
@@ -467,7 +502,7 @@ const TABLE: Row[] = [
   }),
   row(CH.points.spendMonth, g.spendMonth, () => pointsService.spendMonth()),
 
-  /* ---------------- hud（6：W9 四条 + v0.32 dragBegin / dragTo） ---------------- */
+  /* ---------------- hud（7：W9 四条 + v0.32 dragBegin / dragTo + v0.62 sensors） ---------------- */
   // 状态与坐标全在 hudService：handler 只做入参校验 + 转发，不在这里算 bounds。
   // setMode 的 `hud.mode.changed` 广播也在 hudService 里（同一处改动同一个广播，避免漏发）。
   row(CH.hud.setMode, g.hudSetMode, input => hudService.setMode(input.mode)),
@@ -479,6 +514,8 @@ const TABLE: Row[] = [
   ),
   row(CH.hud.setVisible, g.hudSetVisible, input => hudService.setVisible(input.visible)),
   row(CH.hud.getState, g.hudGetState, () => hudService.getState()),
+  // v0.62：温度现取现回，缓存与失败兜底都在 sensorService，这里不判断值
+  row(CH.hud.sensors, g.hudSensors, () => sensorService.readSensors()),
 
   /* ---------------- attachment（2，v0.36 · W7 证据） ---------------- */
   // 附件没有域事件：加完只回 Attachment，审核卡靠动作返回后重取任务拿到新证据。
@@ -500,7 +537,30 @@ const TABLE: Row[] = [
   row(CH.memory.update, g.memoryUpdate, input =>
     memoryService.update(input.id, { contentMd: input.contentMd, kind: input.kind })
   ),
-  row(CH.memory.remove, g.memoryRemove, input => memoryService.remove(input.id))
+  row(CH.memory.remove, g.memoryRemove, input => memoryService.remove(input.id)),
+
+  /* ---------------- reminder（5，v0.58 · W8A） ---------------- */
+  // 五条都是薄转发：重建 / 查询 / 取消 / 稍后 / 手动同步。本单只有站内渠道，
+  // `reminder.testChannel` 因此仍留在 NOT_WIRED（外部渠道没做，不放假 handler）。
+  row(CH.reminder.listByTask, g.reminderListByTask, input =>
+    reminderRepo.listByTask(input.taskId)
+  ),
+  row(CH.reminder.listUpcoming, g.reminderListUpcoming, input =>
+    reminderRepo.listUpcoming(input?.limit)
+  ),
+  row(CH.reminder.cancel, g.reminderCancel, input => {
+    reminderRepo.cancel(input.id)
+  }),
+  row(CH.reminder.snooze, g.reminderSnooze, input => {
+    const fireAt = new Date(Date.now() + input.minutes * 60_000).toISOString()
+    const updated = reminderRepo.snooze(input.id, fireAt)
+    // 队列里若还留着这条的旧副本，关掉当前窗口后会立刻再弹一次——稍后提醒就白点了
+    clearQueuedNotice(input.id)
+    return updated
+  }),
+  row(CH.reminder.syncForTask, g.reminderSyncForTask, input =>
+    reminderService.syncForTask(input.taskId)
+  )
 ]
 
 /** 已接通的通道名（代码里的数据，供覆盖测试用） */

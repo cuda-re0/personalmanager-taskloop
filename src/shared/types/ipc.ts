@@ -18,6 +18,7 @@ import type {
   PointEntry,
   Quality,
   Reminder,
+  ReminderLevel,
   ReviewVerdict,
   Task,
   TaskCreatePatch,
@@ -84,10 +85,42 @@ export interface Bootstrap {
  */
 export type HudMode = 'ball' | 'panel'
 
+/** 悬浮条读数（v0.62）：null = 这一路拿不到（LHM 没起 / 传感器缺失 / 读到的值不合法） */
+export interface SensorReading {
+  /** CPU Package 温度，整数摄氏度 */
+  cpu: number | null
+  /** GPU Core 温度，整数摄氏度 */
+  gpu: number | null
+  /** 采集时刻（ISO），渲染层不用它，排障时看日志 */
+  at: string
+}
+
 /** 面板尺寸（`hud.size`；null = 用默认 360×480） */
 export interface HudSize {
   width: number
   height: number
+}
+
+/**
+ * 提醒窗口的负载（v0.58，58 §3.6）。
+ *
+ * 四个显示值全部由**主进程**算好再推下去：渲染层自己再算一遍会在读秒边界上分叉
+ * （一个说 `1h`、一个说 `59m`），而两个进程各有一套时钟。
+ *
+ * `reminderId` 是 58 §3.6 的负载表之外多出来的一项——`snooze` 要求「清掉队列里同一条
+ * 提醒」，队列里装的就是这份负载，没有 id 就只能整队清空或一个都不清，两种都不对。
+ */
+export interface NotifyPayload {
+  level: ReminderLevel
+  title: string
+  /** 剩余时间：`1h` / `明天` / `2d`（`@shared/format` 的 `fmtRemaining`） */
+  remainLabel: string
+  /** `限时` / `活动`（`@shared/taskRules` 的 `TYPE_LABEL`） */
+  typeLabel: string
+  /** 截止时刻：`11-01 22:00` / `11-01` / `2026-11` */
+  dueLabel: string
+  /** 这条提醒的 id：`snooze` 时按它把队列里的副本剔掉 */
+  reminderId: string
 }
 
 /** webhook 渠道配置（非敏感部分；token 存 safeStorage，不在此） */
@@ -106,12 +139,19 @@ export interface WebhookConfig {
  * 表里不含任何密钥（API Key / webhook token 只存 `safeStorage`），因此全量可暴露给渲染层。
  */
 export interface AppSettings {
+  /** `name` 是**预留字段，未启用**：全仓无一处读取，换供应商只认 `ai.baseUrl`（v0.59b） */
   'ai.provider': { name: 'zhipu'; model: string }
   /**
    * 聊天模型（v0.37，第 18 个 key）：`chat` 管线与记忆提取用它，与上面那个**分开**。
    * 默认 `glm-4.7-flashx`（纯文本、**强制思考**、便宜）。注意推理 token 与正文共享 `max_tokens`；`chatJson` 仍走 `ai.provider.model`。
    */
   'ai.chat.model': string
+  /**
+   * AI 接口地址（v0.59b，第 20 个 key）：存的是**基址**，**不含** `/chat/completions`，
+   * 完整 URL 由 `glmClient` 的 `endpointOf()` 拼出；用户把路径一起填进来时也认（幂等）。
+   * 这是换供应商的**唯一开关**——`ai.provider.name` 至今是死字段，本版不启用。
+   */
+  'ai.baseUrl': string
   'hud.mode': HudMode
   'hud.displayId': number | null
   'hud.position': { x: number | null; y: number | null }
@@ -173,6 +213,19 @@ export interface SpendMonth {
   weekStart: string
 }
 
+/**
+ * 更新自检结果（v0.60）。主进程与渲染层共用这一个形状。
+ *
+ * `latest` 是 `updates/latest.json` 里读到的版本号（读不到为 `null`）；
+ * `applying` 为真 = **本次会安装**（标记已写盘，随后重启），不是"发现了新版本"。
+ */
+export interface CheckResult {
+  current: string
+  latest: string | null
+  hasUpdate: boolean
+  applying: boolean
+}
+
 export interface Api {
   app: {
     getBootstrap(): Promise<IpcResult<Bootstrap>>
@@ -183,6 +236,8 @@ export interface Api {
     openExternal(input: { url: string }): Promise<IpcResult<void>>
     showMain(): Promise<IpcResult<void>>
     quit(): Promise<IpcResult<void>>
+    /** v0.60：查一次本机 `updates/`；自动检查也走它，只是入口不同 */
+    checkUpdate(): Promise<IpcResult<CheckResult>>
   }
 
   task: {
@@ -201,6 +256,12 @@ export interface Api {
     /** 24h 内撤销完成（02 §3.2）：非 done 任务按同态 no-op 返回，entry 恒 null */
     undo(input: { id: string }): Promise<IpcResult<{ task: Task; entry: PointEntry | null }>>
     addEvidence(input: { id: string; evidence: Evidence }): Promise<IpcResult<Task>>
+    /**
+     * 删掉一条证据（v0.61，只给待提交卡用）。`index` 是 `task.evidence` 的**数组下标**，
+     * 越界一律 `INVALID_INPUT`；删完可以是空数组（那时 `[提交]` 自然回到禁用态）。
+     * 只删这条引用，`userData` 里的附件文件不删。
+     */
+    removeEvidence(input: { id: string; index: number }): Promise<IpcResult<Task>>
     setRequiresEvidence(input: { id: string; value: boolean }): Promise<IpcResult<Task>>
     reorder(input: { id: string; beforeId: string | null }): Promise<IpcResult<void>>
     createManual(input: {
@@ -331,6 +392,8 @@ export interface Api {
     dragTo(input: { x: number; y: number; end: boolean }): Promise<IpcResult<void>>
     setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
     getState(): Promise<IpcResult<{ mode: HudMode; displayId: number; visible: boolean }>>
+    /** v0.62：CPU / GPU 温度。拿不到的一路给 null，不抛错 */
+    sensors(): Promise<IpcResult<SensorReading>>
   }
 
   /**
@@ -356,6 +419,14 @@ export interface Api {
     add(input: { contentMd: string; kind: MemoryKind }): Promise<IpcResult<Memory>>
     update(input: { id: string; contentMd?: string; kind?: MemoryKind }): Promise<IpcResult<Memory>>
     remove(input: { id: string }): Promise<IpcResult<void>>
+  }
+
+  /**
+   * 提醒窗口（v0.58）：主进程 → notify 渲染入口的单向推送，返回取消订阅函数。
+   * 只有 notify 入口会用到；别的窗口订阅了也永远收不到（主进程只往提醒窗口 send）。
+   */
+  notify: {
+    onShow(cb: (payload: NotifyPayload) => void): () => void
   }
 
   /** 唯一事件入口，返回取消订阅函数 */

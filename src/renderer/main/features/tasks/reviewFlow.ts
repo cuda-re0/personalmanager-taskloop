@@ -1,4 +1,4 @@
-import type { Message, ReviewVerdict, Task } from '@shared/types/domain'
+import type { Message, ReviewVerdict, Task, TaskType } from '@shared/types/domain'
 import type { Api } from '@shared/types/ipc'
 import { dueInstant } from '@shared/due'
 
@@ -50,15 +50,21 @@ function isOverdue(dueAt: string | null, now: Date): boolean {
 
 /**
  * verdict + 任务 → 下一步动作。**纯函数**，`now` 显式传入，测试直接调。
+ *
+ * 活动（`type === 'event'`）的 `fail` **无条件**判 `missed`，不看 `dueAt`：
+ * 活动看的是结果，不及格 / 没拿奖就是没完成（v0.9 活动达标门槛），
+ * 与"有没有超期"无关。`type` 做成可选是为了兼容只传 `{ dueAt }` 的老调用与测试，
+ * `undefined` 视同非活动，照旧走超期判定。
  */
 export function decideReview(
   verdict: ReviewVerdict,
-  task: Pick<Task, 'dueAt'>,
+  task: Pick<Task, 'dueAt'> & { type?: TaskType },
   now: Date
 ): ReviewDecision {
   if (verdict.verdict === 'pass') return 'complete'
   if (verdict.verdict === 'need_evidence') return 'stay'
-  // partial / fail：流转一致，只有卡片展示不同
+  if (task.type === 'event' && verdict.verdict === 'fail') return 'missed'
+  // partial / fail（非活动）：流转一致，只有卡片展示不同
   return isOverdue(task.dueAt, now) ? 'missed' : 'revive'
 }
 

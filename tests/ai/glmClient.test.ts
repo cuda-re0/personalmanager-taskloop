@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GlmClient, stripFence } from '../../src/main/ai/glmClient'
+import { GlmClient, endpointOf, stripFence } from '../../src/main/ai/glmClient'
 import { ParseResultSchema } from '../../src/main/ai/schema'
 import { AI_COPY } from '../../src/main/ai/copy'
 import { chatResponse, errorResponse, fakeFetch } from './helpers'
@@ -61,6 +61,20 @@ describe('stripFence（剥 markdown 围栏）', () => {
     expect(stripFence('```json{"a":1}```')).toBe('{"a":1}')
     // 不是围栏的形态原样返回，不猜
     expect(stripFence('{"a":"```"}')).toBe('{"a":"```"}')
+  })
+})
+
+describe('endpointOf（基址 → 完整请求地址，v0.59b）', () => {
+  it('别家基址补上 /chat/completions', () => {
+    expect(endpointOf('https://api.deepseek.com')).toBe('https://api.deepseek.com/chat/completions')
+  })
+
+  it('尾斜杠先削掉，不出现 //chat', () => {
+    expect(endpointOf('https://api.deepseek.com/')).toBe('https://api.deepseek.com/chat/completions')
+  })
+
+  it('已经带 /chat/completions 的原样返回（幂等，不拼第二次）', () => {
+    expect(endpointOf('https://x/v1/chat/completions')).toBe('https://x/v1/chat/completions')
   })
 })
 

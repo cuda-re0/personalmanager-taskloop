@@ -7,6 +7,7 @@ import {
   localDayOf,
   pendingCount,
   ratioLabel,
+  tempLabel,
   todayPointsLabel,
   weekdayLabel
 } from '../../src/renderer/hud/hudModel'
@@ -215,6 +216,13 @@ describe('长条上的星期（v0.31）', () => {
     for (const [day, label] of days) {
       expect(weekdayLabel(new Date(`${day}T12:00:00`))).toBe(label)
     }
+  })
+})
+
+describe('长条上的温度（v0.62）', () => {
+  it('有值给 `62°`，拿不到给 `--`', () => {
+    expect(tempLabel(62)).toBe('62°')
+    expect(tempLabel(null)).toBe('--')
   })
 })
 

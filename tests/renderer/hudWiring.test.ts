@@ -188,14 +188,25 @@ describe('长条态（v0.31：132×40 胶囊 / 拖 vs 点）', () => {
     expect(ruleBody(CSS, '.hud-ball {')).toMatch(/border-radius:\s*999px/)
   })
 
-  it('内容三段：环 / 完成数比 / 星期，另铺一层整条热区', () => {
-    for (const cls of ['hud-bar-ring', 'hud-bar-ratio', 'hud-bar-week', 'hud-hit']) {
+  it('内容三段：环 / 完成数比 / 温度 / 星期悬停，另铺一层整条热区', () => {
+    for (const cls of [
+      'hud-bar-ring',
+      'hud-bar-ratio',
+      'hud-bar-side',
+      'hud-bar-temps',
+      'hud-bar-week',
+      'hud-hit'
+    ]) {
       expect(BALL).toContain(cls)
     }
     expect(ruleBody(CSS, '.hud-hit {')).toMatch(/inset:\s*0/)
+    expect(BALL).toMatch(/tempLabel\(data\.sensors\.cpu\)/)
     expect(BALL).toMatch(/weekdayLabel\(new Date\(\)\)/)
     expect(BALL).toMatch(/ratioLabel\(data\.done, data\.total\)/)
     expect(BALL).toMatch(/data\.actions\.setMode\('panel'\)/)
+    // v0.64：悬停切换靠这三条规则，缺一条就会叠在一起或悬停后空白
+    expect(CSS).toMatch(/\.hud-ball:hover\s+\.hud-bar-week/)
+    expect(CSS).toMatch(/\.hud-ball:hover\s+\.hud-bar-temps/)
   })
 
   it('v0.30 的 56px 圆球痕迹删净：旧常量全树 0 命中', () => {

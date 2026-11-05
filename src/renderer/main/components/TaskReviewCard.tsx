@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactElement } from 'react'
 import { fmtPoints } from '@shared/format'
 import type { ReviewVerdict } from '@shared/types/domain'
@@ -32,6 +33,9 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openSignal, setOpenSignal] = useState(0)
+  // v0.74：说明输入口。只给可动作的卡——旧卡只读，写了也只有一张不会被重审的证据
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [note, setNote] = useState('')
   const { task, planned, evidence, needEvidenceCount, leadLabel, isLatest } = view
   const isNeed = verdict.verdict === 'need_evidence'
   // 旧卡只读：同一任务补证据后重审会产生新的一条消息，旧卡若还能点会连发多份请求
@@ -93,9 +97,64 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
         openSignal={openSignal}
       />
 
+      {noteOpen ? (
+        <div className="note-editor">
+          <textarea
+            autoFocus
+            className="note-input"
+            maxLength={200}
+            onChange={event => setNote(event.target.value)}
+            placeholder="写一句说明"
+            rows={2}
+            value={note}
+          />
+          <div className="note-actions">
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                setNoteOpen(false)
+                setNote('')
+              }}
+              type="button"
+            >
+              取消
+            </button>
+            <button
+              className="btn btn--primary"
+              disabled={busy || note.trim().length === 0}
+              onClick={() =>
+                void runAction(async () => {
+                  const message = await actions.addTextEvidence(task.id, note)
+                  // 成功才收起；失败保持打开且不清空——用户刚写的字不能丢
+                  if (message === null) {
+                    setNote('')
+                    setNoteOpen(false)
+                  }
+                  return message
+                })
+              }
+              type="button"
+            >
+              确认
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {actionable ? (
         <div className="review-actions">
-          {/* v0.38 §8：need_evidence 卡最左加 [取消] —— 回 doing，不发分 */}
+          {/* v0.74：说明入口只在 actionable 卡上；旧卡不给，写了也不会重审 */}
+          <button
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() => {
+              setNoteOpen(true)
+            }}
+            type="button"
+          >
+            写说明
+          </button>
+          {/* v0.38 §8：need_evidence 卡加 [取消] —— 回 doing，不发分（v0.74 起左边多一颗 [写说明]） */}
           <button
             className="btn btn--ghost"
             disabled={busy}
@@ -138,11 +197,14 @@ export function TaskReviewCard({ view, verdict, actions }: Props): ReactElement 
 
       {error !== null ? <p className="review-error">{error}</p> : null}
 
-      {opened ? (
-        <div className="lightbox" onClick={() => setOpened(null)} role="presentation">
-          <img alt="" className="lightbox-img" src={opened} />
-        </div>
-      ) : null}
+      {opened
+        ? createPortal(
+            <div className="lightbox" onClick={() => setOpened(null)} role="presentation">
+              <img alt="" className="lightbox-img" src={opened} />
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

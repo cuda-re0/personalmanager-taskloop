@@ -265,6 +265,14 @@ export function addEvidence(id: string, evidence: Evidence): Task {
   return taskRepo.appendEvidence(id, evidence, nowIso())
 }
 
+/**
+ * 删掉一条证据（v0.61，只给待提交卡上的 × 用）。
+ * 允许删到 0 条；附件文件留在 `userData` 里不清理（本单不碰附件存储层）。
+ */
+export function removeEvidence(id: string, index: number): Task {
+  return taskRepo.removeEvidenceAt(id, index, nowIso())
+}
+
 export function setReminderOffsets(
   id: string,
   offsets: number[],
@@ -579,6 +587,16 @@ function completeWithPoints(
   return tx(() => {
     const task = taskRepo.requireById(id)
     assertCompletable(task)
+
+    // 活动达标门槛（v0.9）：结果不达标没有"完成"这条路——不入账、不写 done，
+    // 由审核链路判 missed。错误码用 CONFLICT 而非 INVALID_INPUT：入参本身合法，
+    // 是这个任务不该走到完成。两条出口分工：noPoints 是"完成了但不发分"，
+    // 与"压根没完成"不是一回事，所以这条只在计分出口里拦。
+    if (task.type === 'event' && result === 'below') {
+      throw appError('CONFLICT', '活动结果不达标不能完成，应判失败', {
+        detail: 'type=event, result=below'
+      })
+    }
 
     // 证据闸门（01 §3）：任务上已存的证据也算，缺了停在原地，不靠 UI 拦。
     // 错误码是 EVIDENCE_REQUIRED（02 §1/§3.2、04 §1.1）：状态与入参都合法，只是缺资料。

@@ -88,18 +88,19 @@ describe('W9 四条 hud 通道（假 ipc + 假窗口 + 内存库）', () => {
     closeTestDb()
   })
 
-  it('六条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
+  it('七条都注册了（setExpanded 不再存在），且不再是 NOT_WIRED', () => {
     for (const ch of [
       CH.hud.setMode,
       CH.hud.moveTo,
       CH.hud.dragBegin,
       CH.hud.dragTo,
       CH.hud.setVisible,
-      CH.hud.getState
+      CH.hud.getState,
+      CH.hud.sensors
     ]) {
       expect(wired.has(ch)).toBe(true)
     }
-    expect(wired.size).toBe(58)
+    expect(wired.size).toBe(66)
   })
 
   it('hud.getState 返回 { mode, displayId, visible }，不含 expanded', () => {

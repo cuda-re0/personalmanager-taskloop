@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
-import { TAP_TOLERANCE, completionRatio, ratioLabel, weekdayLabel } from './hudModel'
+import { TAP_TOLERANCE, completionRatio, ratioLabel, tempLabel, weekdayLabel } from './hudModel'
 import type { HudData } from './useHudData'
 
 /**
  * 长条态（04 §5.2 v0.31：132×40 胶囊；手势见 §5.2.2）。窗口尺寸由主进程定，这里只画。
  *
  * 形态值仍叫 `ball`（`hud.mode` 存的是形态标识，改值域要动旧库归一与契约）——
- * 视觉上从 56×56 圆球换成长条：左侧 20×20 进度环 → 完成数/总数 → 星期。
+ * 视觉上从 56×56 圆球换成长条：左侧 20×20 进度环 → 完成数/总数 → 温度（v0.62）。
  *
  * 手势（用户裁决「点按点击，长按拖动」，v0.33 改按下即预备）：
  * 整条**不用** `-webkit-app-region: drag`——drag 区收不到任何鼠标事件，做不到「既点又拖」。
@@ -23,7 +23,7 @@ import type { HudData } from './useHudData'
  * 位移一律取 `screenX/screenY` 差值：窗口自己也在动，`clientX` 会漂。
  * 拖动中**不判形态**（形态只由主进程在松手时判一次），窗口也就不会在拖动中途变大。
  *
- * 文案：环只表达比例，数字是 `ratioLabel()`、星期是 `weekdayLabel()`，
+ * 文案：环只表达比例，数字是 `ratioLabel()`、温度是 `tempLabel()`、星期是 `weekdayLabel()`（悬停切换，见 hud.css），
  * 组件里没有一个汉字字面量（04 §5.3 的文字白名单）。
  */
 
@@ -186,7 +186,13 @@ export function HudBall({ data }: { data: HudData }): ReactElement {
         </svg>
       </span>
       <span className="hud-bar-ratio">{ratioLabel(data.done, data.total)}</span>
-      <span className="hud-bar-week">{weekdayLabel(new Date())}</span>
+      <span className="hud-bar-side">
+        <span className="hud-bar-temps">
+          <span className="hud-bar-temp">{tempLabel(data.sensors.cpu)}</span>
+          <span className="hud-bar-temp hud-bar-temp--gpu">{tempLabel(data.sensors.gpu)}</span>
+        </span>
+        <span className="hud-bar-week">{weekdayLabel(new Date())}</span>
+      </span>
       {/* 整条热区：承接 pointer 事件（点击只由 pointerup 判定，这里不挂点击处理器） */}
       <button
         type="button"

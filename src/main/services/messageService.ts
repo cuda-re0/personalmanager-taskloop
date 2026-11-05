@@ -1,4 +1,10 @@
-import type { Attachment, Message, MessageMeta, MessageStatus } from '../../shared/types/domain'
+import type {
+  Attachment,
+  ChatMode,
+  Message,
+  MessageMeta,
+  MessageStatus
+} from '../../shared/types/domain'
 import { nowIso } from '../db/localDay'
 import { newId } from '../db/ids'
 import type { MessageInsert } from '../db/mappers'
@@ -18,6 +24,8 @@ export interface AppendMessageInput {
   meta?: MessageMeta
   linkedTaskId?: string | null
   status?: MessageStatus
+  /** v0.73：发送模式；省略即 NULL（老语义） */
+  mode?: ChatMode | null
   tokensIn?: number | null
   tokensOut?: number | null
   latencyMs?: number | null
@@ -34,6 +42,7 @@ export function appendMessage(input: AppendMessageInput): Message {
     meta: input.meta ?? { kind: 'none' },
     linkedTaskId: input.linkedTaskId ?? null,
     status: input.status ?? 'sent',
+    mode: input.mode ?? null,
     tokensIn: input.tokensIn ?? null,
     tokensOut: input.tokensOut ?? null,
     latencyMs: input.latencyMs ?? null,

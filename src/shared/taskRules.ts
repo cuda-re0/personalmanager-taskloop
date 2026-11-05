@@ -31,6 +31,19 @@ export function isDifficultyAllowed(type: TaskType, difficulty: Difficulty): boo
 }
 
 /**
+ * 类型标签。三个词来自 04 §4① 的分组标题，不是新文案。
+ *
+ * v0.58 起从渲染层 `chatViewModel` 上移到共享层：提醒窗口的负载由**主进程**拼
+ * （`NotifyPayload.typeLabel`），主进程不能引渲染进程的模块。渲染层仍从
+ * `chatViewModel` 拿到同一个常量（那里是 re-export，不是副本）。
+ */
+export const TYPE_LABEL: Record<TaskType, string> = {
+  daily: '每日',
+  deadline: '限时',
+  event: '活动'
+}
+
+/**
  * 切换任务类型时把难度归位到最近的合法档。
  *
  * 平手取**低**档：切一下类型就白涨几十分，用户会以为系统算错了。

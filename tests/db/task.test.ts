@@ -271,6 +271,29 @@ describe('tasks 建/查/改', () => {
     )
     expect(taskService.requireTask(task.id).evidence).toHaveLength(0)
   })
+
+  it('evidence 按下标删一条：其余顺序不变，删到空数组也允许（v0.61）', () => {
+    const task = taskService.createTask({ type: 'deadline', title: '写论文', requiresEvidence: true })
+    const a: Evidence = { kind: 'text', text: 'A', addedAt: NOW }
+    const b: Evidence = { kind: 'text', text: 'B', addedAt: NOW }
+    const c: Evidence = { kind: 'text', text: 'C', addedAt: NOW }
+    taskService.addEvidence(task.id, a)
+    taskService.addEvidence(task.id, b)
+    taskService.addEvidence(task.id, c)
+
+    expect(taskService.removeEvidence(task.id, 1).evidence).toEqual([a, c])
+    taskService.removeEvidence(task.id, 0)
+    expect(taskService.removeEvidence(task.id, 0).evidence).toHaveLength(0)
+  })
+
+  it('evidence 下标越界被拒（INVALID_INPUT），原证据不动', () => {
+    const task = taskService.createTask({ type: 'deadline', title: '写论文' })
+    const only: Evidence = { kind: 'text', text: 'A', addedAt: NOW }
+    taskService.addEvidence(task.id, only)
+
+    expectErrorCode(() => taskService.removeEvidence(task.id, 1), 'INVALID_INPUT')
+    expect(taskService.requireTask(task.id).evidence).toEqual([only])
+  })
 })
 
 describe('tasks 状态机', () => {

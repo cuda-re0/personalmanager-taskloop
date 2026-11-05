@@ -83,7 +83,7 @@ function isConfigured(): boolean {
 const CHAT_TIMEOUT_MS = 60_000
 
 interface CachedClient {
-  /** `apiKey|model|timeout` —— 任何一项变了就重建，配置改完下一轮就生效 */
+  /** `apiKey|model|baseUrl|用途` —— 任何一项变了就重建，配置改完下一轮就生效 */
   key: string
   client: AiProvider
 }
@@ -111,9 +111,11 @@ function parseProvider(): AiProvider {
   if (injectedProvider !== null) return injectedProvider
   const apiKey = requireApiKey()
   const model = settingRepo.get('ai.provider').model
-  const key = `${apiKey}|${model}|parse`
+  // v0.59b：地址进了缓存 key，否则用户改完地址下一轮仍拿旧 client，表现为「保存了没生效」
+  const baseUrl = settingRepo.get('ai.baseUrl')
+  const key = `${apiKey}|${model}|${baseUrl}|parse`
   if (parseClient === null || parseClient.key !== key) {
-    parseClient = { key, client: new GlmClient({ apiKey, model }) }
+    parseClient = { key, client: new GlmClient({ apiKey, model, baseUrl }) }
   }
   return parseClient.client
 }
@@ -122,11 +124,12 @@ function chatProvider(): AiProvider {
   if (injectedProvider !== null) return injectedProvider
   const apiKey = requireApiKey()
   const model = settingRepo.get('ai.chat.model')
-  const key = `${apiKey}|${model}|chat`
+  const baseUrl = settingRepo.get('ai.baseUrl')
+  const key = `${apiKey}|${model}|${baseUrl}|chat`
   if (chatClient === null || chatClient.key !== key) {
     chatClient = {
       key,
-      client: new GlmClient({ apiKey, model, timeoutMs: CHAT_TIMEOUT_MS })
+      client: new GlmClient({ apiKey, model, baseUrl, timeoutMs: CHAT_TIMEOUT_MS })
     }
   }
   return chatClient.client
@@ -263,7 +266,9 @@ export function send(input: SendInput): SendResult {
     role: 'user',
     kind: 'text',
     contentMd: text,
-    status: 'sent'
+    status: 'sent',
+    // v0.73：模式落库，渲染层分层直接读标签，不再靠「这一轮有没有卡」猜
+    mode: input.mode ?? 'chat'
   })
   if (attachmentIds.length > 0) messageService.attachFiles(created.id, attachmentIds)
   const userMessage = messageService.requireMessage(created.id)
@@ -274,7 +279,8 @@ export function send(input: SendInput): SendResult {
     role: 'assistant',
     kind: 'text',
     contentMd: '',
-    status: 'pending'
+    status: 'pending',
+    mode: input.mode ?? 'chat'
   })
   broadcastAppended(assistant)
 
@@ -409,6 +415,10 @@ function locateTurn(messageId: string): TurnInput {
     })
   }
   const userMessage = list[userIndex]
+  // v0.73：模式已落库，重试直接读那条 user 消息的标签（当初按什么模式发的就按什么模式重跑）。
+  // 老行 mode 为 NULL，沿用历史行为 'task'——反过来当 'chat' 会让「重试失败的建任务」
+  // 静默失去草稿卡，比"重试拿到任务回复"更糟。
+  const mode: ChatMode = userMessage.mode ?? 'task'
 
   const existing = list
     .slice(userIndex + 1, index)
@@ -422,7 +432,8 @@ function locateTurn(messageId: string): TurnInput {
       role: 'assistant',
       kind: 'text',
       contentMd: '',
-      status: 'pending'
+      status: 'pending',
+      mode
     })
     broadcastAppended(created)
     assistantMessageId = created.id
@@ -433,10 +444,7 @@ function locateTurn(messageId: string): TurnInput {
     assistantMessageId,
     text: userMessage.contentMd,
     attachmentIds: messageService.listAttachments(userMessage.id).map(item => item.id),
-    // `retry` 没有 mode 入参（02 §3.3 只给 send 加了 mode），历史行为就是重建任务，
-    // 所以这里固定 'task'。要按轮次记住模式得给 messages 表加列——那是另一张单的事；
-    // 反过来写成 'chat' 会让「重试失败的建任务」静默失去草稿卡，比"重试拿到任务回复"更糟。
-    mode: 'task'
+    mode
   }
 }
 
@@ -452,13 +460,14 @@ function locateTurn(messageId: string): TurnInput {
  * 这与开工词 §4.8「同一条 assistant 消息原地 patch」不同，是为满足数据契约做的必要偏离，
  * 已列进交付报告。渲染层按 `meta.kind` 分派（04 §3.1），两条消息的顺序天然是"回复在前"。
  */
-function appendDraftMessage(drafts: TaskDraft[]): void {
+function appendDraftMessage(drafts: TaskDraft[], mode: ChatMode): void {
   const message = messageService.appendMessage({
     role: 'assistant',
     kind: 'task_draft',
     contentMd: '',
     meta: { kind: 'task_draft', drafts },
-    status: 'sent'
+    status: 'sent',
+    mode
   })
   broadcastAppended(message)
 }
@@ -494,7 +503,7 @@ async function runTurn(input: TurnInput): Promise<void> {
       messages: request.messages,
       schema: ParseResultSchema,
       // v0.52：建任务的判定规则在 prompt 里写得很死，浅推理就够。实测默认档 82.6s →
-      // 7.4s，五类边界输入（复杂日期换算 / 闲聊 / 完成回报 / 信息不足 / 超 3 件）判定一致。
+      // 7.4s，五类边界输入（复杂日期换算 / 闲聊 / 完成回报 / 信息不足 / 超 10 件）判定一致。
       // 首次没过 schema 时 glmClient 会把重试那次升到 high。
       reasoningEffort: 'low'
     })
@@ -510,9 +519,9 @@ async function runTurn(input: TurnInput): Promise<void> {
     })
 
     // 草稿卡片必须单独一条消息，原因在 `appendDraftMessage` 的注释里（kind 列是判别式，改不了）
-    if (drafts.length > 0) appendDraftMessage(drafts)
+    if (drafts.length > 0) appendDraftMessage(drafts, input.mode)
   } catch (e) {
-    handleTurnFailure(e, input.assistantMessageId)
+    handleTurnFailure(e, input.assistantMessageId, input.mode)
   } finally {
     // 失败也必须发 idle，否则 UI 的转圈永远不停（开工词 §4.8）
     broadcast({ type: 'ai.status', phase: 'idle', messageId: input.assistantMessageId })
@@ -529,7 +538,7 @@ async function runTurn(input: TurnInput): Promise<void> {
  * 开工词写的 `status: 'aborted'` 在契约里并不存在；不改共享类型的前提下用 `failed`
  * 表达"这一轮没有结果"，且**不落 error 消息**——两处语义就此分开。
  */
-function handleTurnFailure(e: unknown, assistantMessageId: string): void {
+function handleTurnFailure(e: unknown, assistantMessageId: string, mode: ChatMode): void {
   if (isAbortError(e)) {
     patchAssistant(assistantMessageId, { status: 'failed' })
     return
@@ -553,7 +562,9 @@ function handleTurnFailure(e: unknown, assistantMessageId: string): void {
       code: error.code,
       message: error.message,
       retryable: error.retryable
-    }
+    },
+    // 跟随本轮的模式：这一轮是按什么模式发的，错误气泡就属于哪一层
+    mode
   })
   broadcastAppended(message)
 }
@@ -660,7 +671,9 @@ function appendReviewMessage(task: Task, verdict: ReviewVerdict): void {
     contentMd: verdict.reason,
     linkedTaskId: task.id,
     meta: { kind: 'task_review', taskId: task.id, verdict },
-    status: 'sent'
+    status: 'sent',
+    // 审核卡是任务审核的产物，与用户当时用的输入模式无关，恒为 'task'
+    mode: 'task'
   })
   broadcastAppended(message)
 }

@@ -128,7 +128,7 @@ describe('resultFactor：活动任务的结果档', () => {
   const rows: { result: EventResult | null; expected: number }[] = [
     { result: 'exceeded', expected: 1.2 },
     { result: 'met', expected: 1.0 },
-    { result: 'below', expected: 0.85 },
+    { result: 'below', expected: 1.0 },
     { result: null, expected: 1.0 }
   ]
 
@@ -220,10 +220,10 @@ describe('computeAwardedPoints · 活动（planned = 20，不看完成度）', (
     ).toBe(24)
   })
 
-  it('不佳 → 17（20 × 0.85）', () => {
+  it('below 不可达 → 兜底按 1.0 计（20 × 1.0）', () => {
     expect(
       computeAwardedPoints({ type: 'event', planned: 20, quality: 'met', overdueDays: 0, result: 'below' })
-    ).toBe(17)
+    ).toBe(20)
   })
 
   it("quality 传 'partial' 或 'met' 结果相同（活动由 result 表达）", () => {
@@ -236,8 +236,8 @@ describe('computeAwardedPoints · 活动（planned = 20，不看完成度）', (
 
   it('活动不按逾期扣分（日期事前固定）', () => {
     expect(
-      computeAwardedPoints({ type: 'event', planned: 20, quality: 'met', overdueDays: 5, result: 'below' })
-    ).toBe(17)
+      computeAwardedPoints({ type: 'event', planned: 20, quality: 'met', overdueDays: 5, result: 'met' })
+    ).toBe(20)
   })
 
   it('result 缺省按 met 计', () => {
@@ -312,8 +312,8 @@ describe('上下限：上限 1.4 倍、下限 1 分', () => {
 })
 
 describe('常量与每日任务（02 §5.1 / §5.3）', () => {
-  it("RUBRIC_VERSION === 'v0.8'", () => {
-    expect(RUBRIC_VERSION).toBe('v0.8')
+  it("RUBRIC_VERSION === 'v0.9'", () => {
+    expect(RUBRIC_VERSION).toBe('v0.9')
   })
 
   it('QUALITY_FACTOR：0.6 / 1.0 / 1.15', () => {

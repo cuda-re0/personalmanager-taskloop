@@ -131,6 +131,19 @@ export function replaceEvidence(id: string, evidence: Evidence[], updatedAt: str
   return updateColumns(id, { evidence_json: JSON.stringify(evidence) }, updatedAt)
 }
 
+/**
+ * 按下标删掉一条证据（v0.61，待提交卡上的 ×）。
+ *
+ * 与 `replaceEvidence` 的两点不同：**允许删成空数组**（用户清空重选是正常动作，
+ * 空证据的后果由卡片自己承担——`[提交]` 回到禁用态），越界由这里挡成 `INVALID_INPUT`。
+ */
+export function removeEvidenceAt(id: string, index: number, updatedAt: string): Task {
+  const task = requireById(id)
+  if (index >= task.evidence.length) throw appError('INVALID_INPUT', '证据下标越界')
+  const next = task.evidence.filter((_, i) => i !== index)
+  return updateColumns(id, { evidence_json: JSON.stringify(next) }, updatedAt)
+}
+
 /** 软删 → discarded（02 §3.2 task.remove）。不做物理删除，流水与统计才解释得通。 */
 export function softRemove(id: string, updatedAt: string): void {
   const changes = getDb()

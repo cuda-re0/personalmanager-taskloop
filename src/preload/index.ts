@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CH } from '@shared/channels'
-import type { Api, AppSettings, Bootstrap, IpcResult, SpendMonth } from '@shared/types/ipc'
+import type {
+  Api,
+  AppSettings,
+  Bootstrap,
+  CheckResult,
+  IpcResult,
+  NotifyPayload,
+  SensorReading,
+  SpendMonth
+} from '@shared/types/ipc'
 import type {
   Attachment,
   DayIndexEntry,
@@ -34,7 +43,8 @@ const api: Api = {
       invoke<void>(CH.app.setSetting, input),
     openExternal: input => invoke<void>(CH.app.openExternal, input),
     showMain: () => invoke<void>(CH.app.showMain),
-    quit: () => invoke<void>(CH.app.quit)
+    quit: () => invoke<void>(CH.app.quit),
+    checkUpdate: () => invoke<CheckResult>(CH.app.checkUpdate)
   },
 
   task: {
@@ -46,6 +56,7 @@ const api: Api = {
     complete: input => invoke<{ task: Task; entry: PointEntry | null }>(CH.task.complete, input),
     undo: input => invoke<{ task: Task; entry: PointEntry | null }>(CH.task.undo, input),
     addEvidence: input => invoke<Task>(CH.task.addEvidence, input),
+    removeEvidence: input => invoke<Task>(CH.task.removeEvidence, input),
     setRequiresEvidence: input => invoke<Task>(CH.task.setRequiresEvidence, input),
     reorder: input => invoke<void>(CH.task.reorder, input),
     createManual: input => invoke<Task>(CH.task.createManual, input),
@@ -132,7 +143,8 @@ const api: Api = {
         mode: 'ball' | 'panel'
         displayId: number
         visible: boolean
-      }>(CH.hud.getState)
+      }>(CH.hud.getState),
+    sensors: () => invoke<SensorReading>(CH.hud.sensors)
   },
 
   /** 人物卡 / 长期记忆（v0.37）：本单只交付数据与 IPC，界面入口在 W12B */
@@ -146,6 +158,17 @@ const api: Api = {
     add: input => invoke<Memory>(CH.memory.add, input),
     update: input => invoke<Memory>(CH.memory.update, input),
     remove: input => invoke<void>(CH.memory.remove, input)
+  },
+
+  /** 提醒窗口（v0.58）：与 onEvent 同一套「注册监听 + 返回解绑函数」的写法 */
+  notify: {
+    onShow: cb => {
+      const listener = (_event: IpcRendererEvent, payload: NotifyPayload): void => cb(payload)
+      ipcRenderer.on(CH.notify.show, listener)
+      return () => {
+        ipcRenderer.removeListener(CH.notify.show, listener)
+      }
+    }
   },
 
   onEvent: cb => {

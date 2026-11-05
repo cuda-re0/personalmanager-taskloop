@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactElement } from 'react'
 import { fmtPoints } from '@shared/format'
 import type { Task } from '@shared/types/domain'
@@ -24,6 +25,13 @@ interface Props {
   /** 提交中（父层的 `submittingIds`）：两颗按钮与证据区一并禁用，不新增任何文字 */
   busy: boolean
   onPick(file: File): Promise<string | null>
+  /**
+   * 删一条证据（v0.61）：`index` 是 `EvidenceView.index`（`task.evidence` 的原始下标）。
+   * 失败返回原文。取消后再点完成时旧图会留在卡上，这里给用户一条撤回的路。
+   */
+  onRemove(index: number): Promise<string | null>
+  /** 写一条文字证据（v0.74）：证据区里那个「写说明」。失败返回 AppError.message 原文 */
+  onAddText(text: string): Promise<string | null>
   /** 失败返回 AppError.message 原文（成功为 null） */
   onCancel(): Promise<string | null>
   onSubmit(): Promise<string | null>
@@ -54,11 +62,16 @@ export function SubmitCard({
   gaps,
   busy,
   onPick,
+  onRemove,
+  onAddText,
   onCancel,
   onSubmit
 }: Props): ReactElement {
   const [opened, setOpened] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // v0.74：说明输入口。有附件也未必说得清「提交记录为什么不存在」，所以与选图并存
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [note, setNote] = useState('')
   // 卡片自己的动作在飞（一次一个动作）；与父层的 busy 合成同一个禁用态
   const [localBusy, setLocalBusy] = useState(false)
   const disabled = busy || localBusy
@@ -106,11 +119,66 @@ export function SubmitCard({
         evidence={evidence}
         onOpen={setOpened}
         onPick={file => runAction(() => onPick(file))}
+        onRemove={index => void runAction(() => onRemove(index))}
         openSignal={0}
       />
 
+      {noteOpen ? (
+        <div className="note-editor">
+          <textarea
+            autoFocus
+            className="note-input"
+            maxLength={200}
+            onChange={event => setNote(event.target.value)}
+            placeholder="写一句说明"
+            rows={2}
+            value={note}
+          />
+          <div className="note-actions">
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                setNoteOpen(false)
+                setNote('')
+              }}
+              type="button"
+            >
+              取消
+            </button>
+            <button
+              className="btn btn--primary"
+              disabled={disabled || note.trim().length === 0}
+              onClick={() =>
+                void runAction(async () => {
+                  const message = await onAddText(note)
+                  // 成功才收起；失败保持打开且不清空——用户刚写的字不能丢
+                  if (message === null) {
+                    setNote('')
+                    setNoteOpen(false)
+                  }
+                  return message
+                })
+              }
+              type="button"
+            >
+              确认
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="review-actions">
         {evidence.length === 0 ? <span className="submit-hint">还没有证据</span> : null}
+        <button
+          className="btn btn--ghost"
+          disabled={disabled}
+          onClick={() => {
+            setNoteOpen(true)
+          }}
+          type="button"
+        >
+          写说明
+        </button>
         <button
           className="btn btn--ghost"
           disabled={disabled}
@@ -131,11 +199,14 @@ export function SubmitCard({
 
       {error !== null ? <p className="submit-error">{error}</p> : null}
 
-      {opened ? (
-        <div className="lightbox" onClick={() => setOpened(null)} role="presentation">
-          <img alt="" className="lightbox-img" src={opened} />
-        </div>
-      ) : null}
+      {opened
+        ? createPortal(
+            <div className="lightbox" onClick={() => setOpened(null)} role="presentation">
+              <img alt="" className="lightbox-img" src={opened} />
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

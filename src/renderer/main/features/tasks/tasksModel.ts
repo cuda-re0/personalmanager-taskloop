@@ -1,5 +1,6 @@
 import type { Occurrence, Task, TaskType } from '@shared/types/domain'
-import { dueHasTime, dueInstant } from '@shared/due'
+import { dueInstant, duePrecisionOf } from '@shared/due'
+import { fmtDueLabel, fmtRemaining, toDatetimeLocal } from '@shared/format'
 import { toLocalDay as localDayOf } from '@shared/localDay'
 
 /**
@@ -100,29 +101,82 @@ export function groupTasks(
 
 /**
  * 行右侧的剩余时间（04 §4①：限时 `2h` / `明天` / `逾期`，活动 `7d`）。
- * 字段值格式化，不是界面文案；天数整除显示，不产出积分值。
+ *
+ * 实现已上移到 `@shared/format` 的 `fmtRemaining`（v0.58）：主进程算提醒窗口负载时
+ * 用的是同一份，别在这里另写一套。本函数保留原签名，调用点与测试不必改。
  */
 export function remainingLabel(task: Task, now: Date): string {
-  if (task.type !== 'deadline' && task.type !== 'event') return ''
-  if (!task.dueAt) return ''
-  const due = dueInstant(task.dueAt)
-  if (due === null) return ''
-  const diffHours = (due.getTime() - now.getTime()) / 3600000
-  if (diffHours < 0) return '逾期'
+  return fmtRemaining(task.dueAt, task.type, now)
+}
 
-  const tomorrow = new Date(now)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const isTomorrow = task.type === 'deadline' && localDayOf(due) === localDayOf(tomorrow)
+/**
+ * 日期编辑的可用性（v0.66）；v0.75 起它只回答「这个日期能不能编辑」，
+ * 不再决定控件类型——两处编辑都是「日期 + 时间」两个框，时间可留空。
+ */
+export type DueEditKind = 'minute' | 'day'
 
-  if (dueHasTime(task.dueAt)) {
-    if (diffHours < 24) return `${Math.max(1, Math.floor(diffHours))}h`
-    if (isTomorrow) return '明天'
-    return `${Math.floor(diffHours / 24)}d`
-  }
+/** null = 不给编辑（无日期 / 月精度 / 解析不出来） */
+export function dueEditKindOf(dueAt: string | null): DueEditKind | null {
+  const precision = duePrecisionOf(dueAt)
+  if (precision === 'minute') return 'minute'
+  if (precision === 'day') return 'day'
+  return null
+}
 
-  // 没有具体时刻（day / month）：只按整天口径，不出现小时数——出现小时数等于替他编了个时刻
-  if (isTomorrow) return '明天'
-  return `${Math.max(1, Math.ceil(diffHours / 24))}d`
+/** 日期框 value：`YYYY-MM-DD`。minute 取本地日期，day 取原串前 10 位；month / null → '' */
+export function dueDateValueOf(dueAt: string | null): string {
+  const precision = duePrecisionOf(dueAt)
+  if (precision === 'minute') return toDatetimeLocal(dueAt).slice(0, 10)
+  // day 的串本身就是本地日历日，绕一道 Date 会在西半球串到前一天
+  if (precision === 'day') return (dueAt as string).slice(0, 10)
+  return ''
+}
+
+/** 时间框 value：`HH:mm`。day / month / null → ''（没有时刻就是空，不许补 23:59） */
+export function dueTimeValueOf(dueAt: string | null): string {
+  if (duePrecisionOf(dueAt) !== 'minute') return ''
+  return toDatetimeLocal(dueAt).slice(11, 16)
+}
+
+/**
+ * 日期 + 时间 → 写库的 dueAt：time 为空 → date 原样返回（day 精度）；否则本地解析后 toISOString()（minute 精度）。
+ *
+ * `day` 的串本身就是本地日历日，转一道 Date 再 toISOString 会串成前一天
+ * （`2026-11-05` 变 `2026-11-04T16:00:00.000Z`），所以时间留空时必须原样写回；
+ * 出现时间框就补一个 23:59 是错的——用户没填就是没填。
+ */
+export function duePatchOfParts(date: string, time: string): string {
+  if (date === '') return ''
+  if (time === '') return date
+  // `YYYY-MM-DDTHH:mm` 不带时区 → 按本地时区解析，与 toDatetimeLocal 同一口径
+  return new Date(`${date}T${time}`).toISOString()
+}
+
+/** 活动的日期能否就地改（v0.65；v0.66 起限时也算）：类型 + 状态 + 有可编辑精度的日期，三条同时满足 */
+export function canEditDueOf(task: Task): boolean {
+  if (task.type !== 'event' && task.type !== 'deadline') return false
+  if (task.status !== 'todo' && task.status !== 'doing') return false
+  return dueEditKindOf(task.dueAt) !== null
+}
+
+/** 行右列的两段（v0.65）：拆开是为了让「日期」那段单独可点，拼接规则仍归 taskRightLabel */
+export function taskRightParts(task: Task, now: Date): { remaining: string; due: string } {
+  if (task.status === 'done' || task.status === 'missed') return { remaining: '', due: '' }
+  return { remaining: remainingLabel(task, now), due: fmtDueLabel(task.dueAt) }
+}
+
+/**
+ * 行右侧的一行（v0.59）：剩余在前、目标在后，` · ` 分隔（`2d · 11-03 14:00`）。
+ *
+ * 已完成 / 已判失败的行留空（与 v0.27 / v0.34 的既有口径一致）；只有一个值时不画多余的分隔符。
+ * v0.65 起两段由 `taskRightParts` 产出，本函数只负责拼——拼接规则仍然只有这一份。
+ */
+export function taskRightLabel(task: Task, now: Date): string {
+  const { remaining, due } = taskRightParts(task, now)
+  if (remaining === '' && due === '') return ''
+  if (remaining === '') return due
+  if (due === '') return remaining
+  return `${remaining} · ${due}`
 }
 
 /** 步骤是否已勾（勾选 = 状态离开 todo；完成语义归 W6/W7，见 useTasksData 注释） */

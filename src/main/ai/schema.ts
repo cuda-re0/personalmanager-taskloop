@@ -83,7 +83,7 @@ export const ParseResultSchema = z
     // 60 字是 prompt 的要求；schema 只挡"整段复述 JSON"这类失控输出，
     // 不想因为回复多了几个字就把一整批有效任务判失败
     reply: z.string().min(1, 'reply 不能为空').max(120, 'reply 最多 120 字'),
-    tasks: z.array(parsedTaskSchema).max(3, '一次最多 3 个任务')
+    tasks: z.array(parsedTaskSchema).max(10, '一次最多 10 个任务')
   })
   .strict()
 

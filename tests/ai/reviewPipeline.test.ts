@@ -87,6 +87,13 @@ describe('toVerdict：归一化（03 §4.2 / §4.7）', () => {
     expect(verdict.result).toBe('exceeded')
   })
 
+  it("event 的 result 'below' → 强制成 fail（模型返回 pass + below 也接住）", () => {
+    const verdict = toVerdict(reviewResult({ verdict: 'pass', result: 'below' }), 'event')
+    expect(verdict.verdict).toBe('fail')
+    expect(verdict.verdict).not.toBe('pass')
+    expect(verdict.result).toBe('below')
+  })
+
   it('非 event：result 恒 null（schema 已拒，这里再收一道）', () => {
     const verdict = toVerdict(reviewResult({ result: 'met' }), 'deadline')
     expect(verdict.result).toBeNull()

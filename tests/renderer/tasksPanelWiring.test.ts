@@ -105,10 +105,11 @@ describe('今日已完成行（v0.27）', () => {
     expect(SOURCE).toMatch(/const done = occurrence\.status === 'done'/)
   })
 
-  it('限时/活动 done 行：右列留空、详情无 [完成] 入口（v0.34 missed 同档、v0.38 起 pending_review 也没有）', () => {
-    expect(SOURCE).toMatch(
-      /task\.status === 'done' \|\| task\.status === 'missed' \? '' : remainingLabel\(task, now\)/
-    )
+  it('限时/活动 done 行：右列留空、详情无 [完成] 入口（v0.34 missed 同档、v0.38 起 pending_review 也没有）、v0.65 右列交给 TaskRight', () => {
+    // v0.59：右列改成「剩余 · 目标」一行，done / missed 的留空判定收进纯模型 taskRightLabel
+    // （模型侧另有 tasksModel.test 的用例覆盖）；v0.65 起右列渲染交给 TaskRight 组件
+    expect(SOURCE).toMatch(/<span className="task-remaining">/)
+    expect(SOURCE).toMatch(/<TaskRight\b/)
     expect(SOURCE).toMatch(
       /task\.type !== 'daily' &&[\s\S]{0,120}?task\.status !== 'done'[\s\S]{0,120}?task\.status !== 'missed'[\s\S]{0,120}?task\.status !== 'pending_review' \? \(/
     )

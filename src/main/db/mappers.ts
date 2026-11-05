@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  ChatMode,
   DayStat,
   Difficulty,
   Evidence,
@@ -619,6 +620,8 @@ export interface MessageRow {
   meta_json: string
   linked_task_id: string | null
   status: string
+  /** v0.73：006 迁移加的列。老行为 NULL */
+  mode: string | null
   tokens_in: number | null
   tokens_out: number | null
   latency_ms: number | null
@@ -634,6 +637,7 @@ export const MESSAGE_COLUMNS = [
   'meta_json',
   'linked_task_id',
   'status',
+  'mode',
   'tokens_in',
   'tokens_out',
   'latency_ms',
@@ -744,6 +748,8 @@ export function mapMessage(row: MessageRow, attachments: Attachment[]): Message 
     meta: mapMessageMeta(row.kind as MessageKind, row.meta_json),
     linkedTaskId: row.linked_task_id,
     status: row.status as MessageStatus,
+    // 库里若有脏值就当 null（走轮推断兜底），不用 `as ChatMode` 硬转
+    mode: row.mode === 'chat' || row.mode === 'task' ? row.mode : null,
     attachments,
     createdAt: row.created_at
   }
@@ -758,6 +764,8 @@ export interface MessageInsert {
   meta?: MessageMeta
   linkedTaskId?: string | null
   status?: MessageStatus
+  /** v0.73：发送模式；省略即 NULL（老语义），旧调用点不用改也没错 */
+  mode?: ChatMode | null
   tokensIn?: number | null
   tokensOut?: number | null
   latencyMs?: number | null
@@ -774,6 +782,7 @@ export function messageInsertParams(m: MessageInsert): SqlValue[] {
     JSON.stringify(m.meta ?? { kind: 'none' }),
     m.linkedTaskId ?? null,
     m.status ?? 'sent',
+    m.mode ?? null,
     m.tokensIn ?? null,
     m.tokensOut ?? null,
     m.latencyMs ?? null,

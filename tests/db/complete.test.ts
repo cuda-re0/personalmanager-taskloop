@@ -218,10 +218,19 @@ describe('task.complete · 活动 result（02 §3.2 v0.19）', () => {
     expect(pointsService.balance()).toBe(24)
   })
 
-  it("result: 'below' → 20 × 0.85 = 17", () => {
+  it("result: 'below' → 抛 CONFLICT（活动不达标不能完成），一分不发", () => {
     const task = eventInReview()
-    const { entry } = taskService.completeTask({ id: task.id, quality: 'met', result: 'below' })
-    expect(entry?.delta).toBe(17)
+    let thrown: unknown
+    try {
+      taskService.completeTask({ id: task.id, quality: 'met', result: 'below' })
+    } catch (e) {
+      thrown = e
+    }
+    expect((thrown as { code?: string }).code).toBe('CONFLICT')
+    expect((thrown as Error).message).toContain('活动结果不达标')
+    // 没发分：余额仍是 0，任务也没被写进 done
+    expect(pointsService.balance()).toBe(0)
+    expect(taskService.requireTask(task.id).status).toBe('reviewing')
   })
 
   it('不给 result → 按 ×1.0 结算（"没有结果信息"的合法值），quality 也不参与', () => {

@@ -132,4 +132,34 @@ describe('buildTodayBrief', () => {
     expect(brief).toContain('把第三季度的所有数据整理…')
     expect(brief).not.toContain('一份报告')
   })
+
+  it('昨天：条数按 tasksDone + occurrencesDone 合计，无记录只说没有记录，不传就整行省略', () => {
+    const base = {
+      tasks: [],
+      stat: makeStat({ tasksDone: 0, occurrencesDone: 0 }),
+      balance: 0,
+      now: NOW,
+      timeZone: TZ
+    }
+
+    // tasksDone 2 + occurrencesDone 1 = 3 条
+    const withData = buildTodayBrief({
+      ...base,
+      yesterday: makeStat({ points: 12, tasksDone: 2, occurrencesDone: 1 })
+    })
+    const doneLines = withData.split('\n')
+    expect(doneLines[doneLines.length - 1]).toBe('昨天：完成 3 条，得 12 分。')
+
+    const blank = buildTodayBrief({
+      ...base,
+      yesterday: makeStat({ points: 0, tasksDone: 0, occurrencesDone: 0 })
+    })
+    const blankLines = blank.split('\n')
+    expect(blankLines[blankLines.length - 1]).toBe('昨天没有记录。')
+
+    // 不传 yesterday：整行省略，也不留空行
+    const absent = buildTodayBrief(base)
+    expect(absent).not.toContain('昨天')
+    expect(absent.split('\n')).toHaveLength(3)
+  })
 })

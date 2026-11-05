@@ -83,7 +83,9 @@ export default defineConfig({
         input: {
           // 两个独立 HTML 入口：HUD 不与主窗共用文档
           main: resolve('src/renderer/main/index.html'),
-          hud: resolve('src/renderer/hud/index.html')
+          hud: resolve('src/renderer/hud/index.html'),
+          // v0.58：提醒窗口（横幅 / 小程序）也是独立文档，不与前两个共用
+          notify: resolve('src/renderer/notify/index.html')
         }
       }
     }

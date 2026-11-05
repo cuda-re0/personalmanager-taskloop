@@ -85,13 +85,20 @@ describe('ParseResultSchema', () => {
     ).toBe(true)
   })
 
-  it('confidence 必须 0~1，tasks 最多 3 条', () => {
+  it('confidence 必须 0~1，tasks 最多 10 条', () => {
     expect(
       ParseResultSchema.safeParse(validResult({ tasks: [validTask({ confidence: 1.2 })] })).success
     ).toBe(false)
     expect(
-      ParseResultSchema.safeParse(validResult({ tasks: [validTask(), validTask(), validTask(), validTask()] })).success
+      ParseResultSchema.safeParse(
+        validResult({ tasks: Array.from({ length: 11 }, () => validTask()) })
+      ).success
     ).toBe(false)
+    expect(
+      ParseResultSchema.safeParse(
+        validResult({ tasks: Array.from({ length: 10 }, () => validTask()) })
+      ).success
+    ).toBe(true)
   })
 
   it('intent 只认四个枚举值，"create_task|review_task" 不通过', () => {

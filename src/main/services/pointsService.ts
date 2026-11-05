@@ -55,6 +55,14 @@ export function todayStat(): DayStat {
   return statsRepo.getDay(todayLocalDay())
 }
 
+/**
+ * 指定本地日历日的统计（v0.67：聊天简报取「昨天」用）。
+ * 纯转发：不新增表、不加缓存，`todayStat()` 也不必改成调它。
+ */
+export function dayStatOf(day: string): DayStat {
+  return statsRepo.getDay(day)
+}
+
 /** settings['points.*'] → rubric 的配置对象（02 §5.1） */
 export function pointsConfig(): PointsConfig {
   return {

@@ -52,14 +52,54 @@
   stroke-width: 2.5;
 }
 
-.hud-bar-ratio,
-.hud-bar-week {
+.hud-bar-ratio {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+/* v0.64：长条右侧一格。平时温度、悬停星期，两种内容右边缘对齐；
+   固定 min-width 是为了切换时左边不跟着跳（温度比星期宽） */
+.hud-bar-side {
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 40px;
+}
+
+/* v0.64：星期回来了，但只在悬停时露脸。12px / text-sub 沿用 v0.31 的旧值 */
 .hud-bar-week {
+  display: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-sub);
+}
+
+.hud-ball:hover .hud-bar-temps {
+  display: none;
+}
+
+.hud-ball:hover .hud-bar-week {
+  display: inline;
+}
+
+/* 两个数字之间只留 3px，与 N/M 的 6px 拉开层次 */
+.hud-bar-temps {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.hud-bar-temp {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* GPU 弱化一档，与原来的星期同色：不加任何文字也能区分前后两路 */
+.hud-bar-temp--gpu {
   color: var(--text-sub);
 }
 
@@ -186,7 +226,7 @@
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1.5px solid var(--text-faint);
+  border: 1.5px solid var(--text-sub);
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
@@ -196,9 +236,10 @@
   border-color: var(--accent);
 }
 
+/* v0.67：与主窗 .task-check--on 同口径——实心用弱色，完成的比没完成的淡 */
 .hud-check.is-done {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--text-faint);
+  background: var(--text-faint);
   cursor: default;
 }
 

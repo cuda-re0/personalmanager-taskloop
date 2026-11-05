@@ -21,6 +21,8 @@ import { buildRows, composeHudBg, localDayOf, type HudRow } from './hudModel'
 const ACTIVE_STATUS = new Set(['todo', 'doing', 'reviewing', 'pending_review'])
 /** 行内红字停留时长：`AppError.message` 原样展示，够看清即可（与主窗同口径） */
 const ERROR_TTL_MS = 4000
+/** 温度轮询间隔（v0.62）：LHM 自己约 1 秒刷一次，再密也只是问同一份采样 */
+const SENSORS_POLL_MS = 2000
 const DEFAULT_THEME_BG = '#ffffff'
 
 interface Snapshot {
@@ -34,6 +36,8 @@ interface Snapshot {
   background: string | null
   /** `hud.opacity`：0.3–1 */
   opacity: number
+  /** v0.62：两路温度，`null` = 那一路拿不到（只由 `hud.sensors` 轮询覆盖） */
+  sensors: { cpu: number | null; gpu: number | null }
 }
 
 const EMPTY: Snapshot = {
@@ -43,7 +47,8 @@ const EMPTY: Snapshot = {
   tasks: [],
   points: 0,
   background: null,
-  opacity: 1
+  opacity: 1,
+  sensors: { cpu: null, gpu: null }
 }
 
 /** 行内错误：哪一行 + `AppError.message` 原文 */
@@ -84,6 +89,8 @@ export interface HudData {
   /** 设置页 `<input type="color">` 的值：`hud.background` 为空时取主题底色 */
   background: string
   opacity: number
+  /** v0.62：长条上的 CPU / GPU 温度；拿不到的一路是 null（渲染成 `--`） */
+  sensors: { cpu: number | null; gpu: number | null }
   actions: HudActions
 }
 
@@ -155,6 +162,8 @@ export function useHudData(): HudData {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const [rowError, setRowError] = useState<HudRowError | null>(null)
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** v0.62：温度通道挂了只提示一次，不在界面上显示任何错误 */
+  const sensorsWarned = useRef(false)
   const themeBg = useMemo(readThemeBg, [])
 
   const showError = useCallback((rowId: string, message: string): void => {
@@ -240,7 +249,8 @@ export function useHudData(): HudData {
           tasks: mergeTodayFinished(tasks, finished.ok ? finished.data : []),
           points: today.points,
           background: settings['hud.background'],
-          opacity: settings['hud.opacity']
+          opacity: settings['hud.opacity'],
+          sensors: EMPTY.sensors
         })
       })
       .catch((e: unknown) => console.error('[hud] 首载失败', e))
@@ -251,6 +261,50 @@ export function useHudData(): HudData {
       if (errorTimer.current) clearTimeout(errorTimer.current)
     }
   }, [])
+
+  /**
+   * 温度轮询（v0.62）：只在长条态拉——面板态不显示温度，白拉一次 HTTP。
+   * 每次只覆盖 `sensors`，失败置两个 null（界面显示 `--`），不碰其它字段。
+   */
+  useEffect(() => {
+    if (snapshot.mode !== 'ball') return
+
+    let alive = true
+    const pull = (): void => {
+      void window.api.hud
+        .sensors()
+        .then(res => {
+          if (!alive) return
+          if (!res.ok) {
+            if (!sensorsWarned.current) {
+              sensorsWarned.current = true
+              console.warn('[hud] hud.sensors 失败', res.error)
+            }
+            setSnapshot(prev => ({ ...prev, sensors: { cpu: null, gpu: null } }))
+            return
+          }
+          setSnapshot(prev => ({
+            ...prev,
+            sensors: { cpu: res.data.cpu, gpu: res.data.gpu }
+          }))
+        })
+        .catch((e: unknown) => {
+          if (!alive) return
+          if (!sensorsWarned.current) {
+            sensorsWarned.current = true
+            console.warn('[hud] hud.sensors 调用失败', e)
+          }
+          setSnapshot(prev => ({ ...prev, sensors: { cpu: null, gpu: null } }))
+        })
+    }
+
+    pull()
+    const timer = setInterval(pull, SENSORS_POLL_MS)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [snapshot.mode])
 
   /** IPC 失败时用主进程真值回弹（形态可能已被主进程改过） */
   const refreshMode = useCallback((): void => {
@@ -378,6 +432,7 @@ export function useHudData(): HudData {
     hudBg,
     background: snapshot.background ?? themeBg,
     opacity: snapshot.opacity,
+    sensors: snapshot.sensors,
     actions: { setMode, completeRow, addTask, setBackground, setOpacity, showMain, close }
   }
 }

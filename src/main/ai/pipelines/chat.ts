@@ -7,6 +7,7 @@ import * as memoryService from '../../services/memoryService'
 import * as personaService from '../../services/personaService'
 import * as pointsService from '../../services/pointsService'
 import * as taskService from '../../services/taskService'
+import { addDays, todayLocalDay } from '../../db/localDay'
 import { buildTodayBrief } from '../../services/chatBrief'
 import { runMemoryExtract } from './memory'
 import { maybeSummarize } from './summarize'
@@ -55,10 +56,21 @@ export function identitySection(persona: Persona): string {
   return parts.join('')
 }
 
+/**
+ * 记忆段末尾的使用指引（v0.67，70 §C2）：只告诉模型「怎么用」，不改条目数、不动上限。
+ * 记忆为空时整段是 null，这句话**不单独出现**。
+ */
+const MEMORY_USAGE_HINT =
+  '这些是你已经知道的事。合适的时候自然地提一句，别一次全倒出来，也不要把这份清单念一遍。'
+
 /** 记忆段：一条都没有时整段省略（03 §4.3.1 第 2 段） */
 export function memorySection(memories: readonly Memory[]): string | null {
   if (memories.length === 0) return null
-  return ['关于对方，你记得这些：', ...memories.map(item => `- ${item.contentMd}`)].join('\n')
+  return [
+    '关于对方，你记得这些：',
+    ...memories.map(item => `- ${item.contentMd}`),
+    MEMORY_USAGE_HINT
+  ].join('\n')
 }
 
 /** 历史摘要段：`summary_md` 非空时才有（03 §4.3.1 第 4 段） */
@@ -70,7 +82,7 @@ export function summarySection(summaryMd: string): string | null {
 export interface ChatSystemInput {
   persona: Persona
   memories: readonly Memory[]
-  /** `buildTodayBrief()` 的三行 */
+  /** `buildTodayBrief()` 的三到四行 */
   brief: string
   /** `chat_state.summary_md` */
   summaryMd: string
@@ -144,10 +156,14 @@ export interface ChatTurnInput {
 export async function runChat(input: ChatTurnInput): Promise<void> {
   const persona = personaService.get()
   const memories = memoryService.list().slice(0, CHAT_MEMORY_LIMIT)
+  // 「昨天」按**本地日历**往前一天算（`addDays` 走 UTC 午夜算术）：跨月、跨年都对，
+  // 不能用 `Date.now() - 86400000` 那种毫秒减法（夏令时/边界会串天）。
+  const yesterdayStat = pointsService.dayStatOf(addDays(todayLocalDay(), -1))
   const brief = buildTodayBrief({
     tasks: taskService.listTasks({ status: ['todo', 'doing', 'pending_review', 'reviewing'] }),
     stat: pointsService.todayStat(),
-    balance: pointsService.balance()
+    balance: pointsService.balance(),
+    yesterday: yesterdayStat
   })
   const state = chatStateRepo.get()
   const recent = messageService.recentChatMessages(CHAT_HISTORY_LIMIT, {

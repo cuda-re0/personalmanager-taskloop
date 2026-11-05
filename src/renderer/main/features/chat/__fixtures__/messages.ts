@@ -247,6 +247,8 @@ function msg(seed: Partial<Message> & Pick<Message, 'id' | 'role' | 'kind'>): Me
     meta: { kind: 'none' },
     linkedTaskId: null,
     status: 'sent',
+    // v0.73：演示数据当作老行（无模式标签），走轮推断兜底
+    mode: null,
     attachments: [],
     createdAt: `${DAY}T01:00:00.000Z`,
     ...seed

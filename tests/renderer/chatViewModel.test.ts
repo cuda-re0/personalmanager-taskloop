@@ -108,6 +108,7 @@ function msgOf(id: string, meta: MessageMeta, role: Message['role'] = 'assistant
     meta,
     linkedTaskId: null,
     status: 'sent',
+    mode: null,
     attachments: [],
     createdAt: '2026-10-31T00:00:00.000Z'
   }

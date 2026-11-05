@@ -64,7 +64,17 @@ describe('guards（zod 形状校验）', () => {
 
   it('未接的通道没有守卫（不放假 handler 的一部分）', () => {
     // v0.36 起 attachment.add / attachment.get 已随 W7 接通，不再是「未接」
-    expect(guards[CH.reminder.snooze]).toBeUndefined()
+    // v0.58 起 reminder 五条接通，只有 testChannel（外部渠道）仍是「未接」
+    expect(guards[CH.reminder.testChannel]).toBeUndefined()
+    for (const ch of [
+      CH.reminder.listByTask,
+      CH.reminder.listUpcoming,
+      CH.reminder.cancel,
+      CH.reminder.snooze,
+      CH.reminder.syncForTask
+    ]) {
+      expect(guards[ch], `${ch} 缺守卫`).toBeDefined()
+    }
   })
 
   it('attachment 两条都有守卫（v0.36）', () => {

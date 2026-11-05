@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { Occurrence, Task } from '@shared/types/domain'
+import { duePrecisionOf } from '@shared/due'
 import { pointsConfigOf } from '../../src/renderer/main/features/chat/chatViewModel'
 import {
+  canEditDueOf,
   compareTasks,
+  dueDateValueOf,
+  dueEditKindOf,
+  duePatchOfParts,
+  dueTimeValueOf,
   groupTasks,
   isStepChecked,
-  remainingLabel
+  remainingLabel,
+  taskRightLabel,
+  taskRightParts
 } from '../../src/renderer/main/features/tasks/tasksModel'
 
 /** 右栏①的纯模型（04 §4①）。造数器只填排序/分组/格式化用到的字段 */
@@ -184,11 +192,132 @@ describe('remainingLabel（04 §4① 剩余时间）', () => {
   })
 })
 
+describe('taskRightLabel（v0.59：剩余 · 目标 一行）', () => {
+  const now = new Date('2026-11-01T06:00:00.000Z')
+
+  it('活动 + 分钟级 due → 剩余在前、目标在后', () => {
+    const task = makeTask({
+      id: 'a',
+      type: 'event',
+      title: 'A',
+      dueAt: '2026-11-03T06:00:00.000Z'
+    })
+    expect(taskRightLabel(task, now)).toBe('2d · 11-03 14:00')
+  })
+
+  it('限时 + 日期级 due → 目标只到日期，不编一个时刻', () => {
+    const task = makeTask({ id: 'b', type: 'deadline', title: 'B', dueAt: '2026-11-02' })
+    expect(taskRightLabel(task, now)).toBe('明天 · 11-02')
+  })
+
+  it('每日任务没有 dueAt → 空', () => {
+    const task = makeTask({ id: 'c', type: 'daily', title: 'C', dueAt: null })
+    expect(taskRightLabel(task, now)).toBe('')
+  })
+
+  it('已完成的限时任务 → 空（不画分隔符、不留半个值）', () => {
+    const task = makeTask({
+      id: 'd',
+      type: 'deadline',
+      title: 'D',
+      status: 'done',
+      dueAt: '2026-11-05T06:00:00.000Z'
+    })
+    expect(taskRightLabel(task, now)).toBe('')
+  })
+})
+
+describe('canEditDueOf（v0.65）', () => {
+  it('活动与限时的 todo / doing 可改日期，其余一律不可', () => {
+    const minute = '2026-11-13T09:00:00.000Z'
+    expect(canEditDueOf(makeTask({ id: 'a', type: 'event', title: 'A', dueAt: minute }))).toBe(true)
+    expect(
+      canEditDueOf(makeTask({ id: 'b', type: 'event', title: 'B', status: 'doing', dueAt: minute }))
+    ).toBe(true)
+    expect(
+      canEditDueOf(makeTask({ id: 'c', type: 'event', title: 'C', status: 'done', dueAt: minute }))
+    ).toBe(false)
+    expect(
+      canEditDueOf(makeTask({ id: 'd', type: 'deadline', title: 'D', dueAt: '2026-11-03' }))
+    ).toBe(true)
+    expect(
+      canEditDueOf(
+        makeTask({ id: 'f', type: 'deadline', title: 'F', status: 'done', dueAt: '2026-11-03' })
+      )
+    ).toBe(false)
+    expect(canEditDueOf(makeTask({ id: 'e', type: 'daily', title: 'E' }))).toBe(false)
+  })
+})
+
+describe('dueEditKindOf / dueDateValueOf / dueTimeValueOf（v0.75）', () => {
+  it('minute 取本地日期与时刻，day 只给日期（时间必须空），month / null 两个框都空', () => {
+    expect(dueEditKindOf('2026-11-13T09:00:00.000Z')).toBe('minute')
+    expect(dueEditKindOf('2026-11-03')).toBe('day')
+    expect(dueEditKindOf('2026-11')).toBeNull()
+    expect(dueEditKindOf(null)).toBeNull()
+
+    // day 精度：日期原样、时间必须是空串（不许补 23:59，也不许绕 Date 串日）
+    expect(dueDateValueOf('2026-11-03')).toBe('2026-11-03')
+    expect(dueTimeValueOf('2026-11-03')).toBe('')
+
+    // minute 的期望值现算，换时区跑也不红
+    const minute = new Date(2026, 10, 13, 14, 30).toISOString()
+    expect(dueDateValueOf(minute)).toBe('2026-11-13')
+    expect(dueTimeValueOf(minute)).toBe('14:30')
+
+    expect(dueDateValueOf('2026-11')).toBe('')
+    expect(dueTimeValueOf('2026-11')).toBe('')
+    expect(dueDateValueOf(null)).toBe('')
+    expect(dueTimeValueOf(null)).toBe('')
+  })
+})
+
+describe('duePatchOfParts（v0.75：日期 + 时间 → 写库的 dueAt）', () => {
+  it('时间留空写回纯日期；填了时间升级成 minute；再打开不串日、不丢时刻', () => {
+    const dayOnly = duePatchOfParts('2026-11-05', '')
+    expect(dayOnly).toBe('2026-11-05')
+    expect(dayOnly.includes('T')).toBe(false)
+
+    // 期望值现算，不写死 UTC 串
+    const withTime = duePatchOfParts('2026-11-05', '14:30')
+    expect(withTime).toBe(new Date('2026-11-05T14:30').toISOString())
+    expect(duePrecisionOf(withTime)).toBe('minute')
+
+    // 往返：输入一次、再打开就串日/丢时间，这条能挡住
+    expect(dueDateValueOf(withTime)).toBe('2026-11-05')
+    expect(dueTimeValueOf(withTime)).toBe('14:30')
+  })
+})
+
+describe('taskRightParts（v0.65）', () => {
+  const now = new Date('2026-11-01T06:00:00.000Z')
+
+  it('活动任务未完成 → 两段分别给出；已完成 → 两段都空', () => {
+    const active = makeTask({
+      id: 'a',
+      type: 'event',
+      title: 'A',
+      dueAt: '2026-11-03T06:00:00.000Z'
+    })
+    expect(taskRightParts(active, now)).toEqual({ remaining: '2d', due: '11-03 14:00' })
+
+    const done = makeTask({
+      id: 'b',
+      type: 'event',
+      title: 'B',
+      status: 'done',
+      dueAt: '2026-11-03T06:00:00.000Z'
+    })
+    expect(taskRightParts(done, now)).toEqual({ remaining: '', due: '' })
+  })
+})
+
 describe('pointsConfigOf（02 §5.2b：settings 的 points.* → 完整 PointsConfig）', () => {
   it('四个字段全部取自 settings，不许只传 dailyBase', () => {
     const cfg = pointsConfigOf({
       'ai.provider': { name: 'zhipu', model: 'glm-5.3-flash' },
       'ai.chat.model': 'glm-4.7-flashx',
+      'ai.baseUrl': 'https://open.bigmodel.cn/api/paas/v4',
       'hud.mode': 'ball',
       'hud.displayId': null,
       'hud.position': { x: null, y: null },

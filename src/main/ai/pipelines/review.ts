@@ -103,21 +103,26 @@ export function buildReviewRequest(input: ReviewRequestInput): ChatMessage[] {
 /**
  * `ReviewResult`（模型输出）→ `ReviewVerdict`（业务契约，domain.ts）。
  *
- * 两处**归一化**都在这里，不在 schema 里：
+ * 三处**归一化**都在这里，不在 schema 里：
  * - `event` 的 `quality` 恒 `'met'`——活动看结果不看完成度（03 §4.7）；
  * - 非 event 的 `result` 恒 `null`——schema 已经拒了非 null，这里再收一道，
- *   免得将来有人改 schema 时忘了下游。
+ *   免得将来有人改 schema 时忘了下游；
+ * - `event` 的 `result: 'below'` 强制收成 `verdict: 'fail'`（v0.9 活动达标门槛）。
+ *   模型可能返回 `pass + below`（旧 prompt 留下的习惯），活动的不达标必须以 `fail`
+ *   收口，不能指望模型自己改——否则不及格的任务照样走 `complete`、还拿走 85% 的分。
  */
 export function toVerdict(raw: ReviewResult, type: TaskType): ReviewVerdict {
-  const scored = raw.verdict === 'pass' || raw.verdict === 'partial'
+  const verdict: ReviewVerdict['verdict'] =
+    type === 'event' && raw.result === 'below' ? 'fail' : raw.verdict
+  const scored = verdict === 'pass' || verdict === 'partial'
   const quality = scored ? (type === 'event' ? 'met' : (raw.quality ?? 'met')) : null
   return {
-    verdict: raw.verdict,
+    verdict,
     quality,
     result: type === 'event' ? (raw.result ?? null) : null,
     reason: raw.reason,
     followup: raw.followup ?? null,
     // 04 §3.3：只有 partial 会在卡面逐条列缺口，其他 verdict 一律空数组
-    gaps: raw.verdict === 'partial' ? (raw.gaps ?? []) : []
+    gaps: verdict === 'partial' ? (raw.gaps ?? []) : []
   }
 }

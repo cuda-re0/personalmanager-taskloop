@@ -71,8 +71,8 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
     closeTestDb()
   })
 
-  it('把 WIRED 全部 58 条注册进注入的 ipc', () => {
-    expect(wired.size).toBe(58)
+  it('把 WIRED 全部 66 条注册进注入的 ipc', () => {
+    expect(wired.size).toBe(66)
     for (const ch of WIRED_CHANNELS) expect(wired.has(ch)).toBe(true)
   })
 
@@ -245,6 +245,21 @@ describe('IPC handlers（假 ipc + 假 transport + 内存库）', () => {
       expect(result.error.message).toBe('未知的配置项')
     }
     expect(events).toEqual([])
+  })
+
+  it('app.setSetting 写 ai.baseUrl：非 http(s) 的地址被拒，合法值能读回（v0.59b）', () => {
+    for (const bad of ['ftp://x', 'not-a-url']) {
+      const rejected = call(CH.app.setSetting, { key: 'ai.baseUrl', value: bad })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('INVALID_INPUT')
+    }
+    // 被拒的不该落库：仍是默认值
+    const before = callOk(CH.app.getBootstrap) as Bootstrap
+    expect(before.settings['ai.baseUrl']).toBe('https://open.bigmodel.cn/api/paas/v4')
+
+    callOk(CH.app.setSetting, { key: 'ai.baseUrl', value: 'https://api.deepseek.com' })
+    const after = callOk(CH.app.getBootstrap) as Bootstrap
+    expect(after.settings['ai.baseUrl']).toBe('https://api.deepseek.com')
   })
 
   it('app.openExternal：http/https 放行并调 shell.openExternal', async () => {

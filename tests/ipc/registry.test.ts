@@ -2,21 +2,37 @@ import { describe, expect, it } from 'vitest'
 import { CH } from '@shared/channels'
 import { NOT_WIRED, WIRED_CHANNELS } from '../../src/main/ipc/registry'
 
-/** 收集 CH 的全部叶子（通道字符串本身）。`bus.event` 是单向事件通道，不是 api 方法，见下方排除说明 */
+/** 收集 CH 的全部叶子（通道字符串本身）。单向事件通道不是 api 方法，见下方排除说明 */
 function channelStrings(node: unknown): string[] {
   if (typeof node === 'string') return [node]
   return Object.values(node as Record<string, unknown>).flatMap(v => channelStrings(v))
 }
 
-const ALL_API_CHANNELS = channelStrings(CH).filter(ch => ch !== CH.bus.event)
+/**
+ * `bus.event`（主进程 → 渲染层的域事件）与 `notify.show`（v0.58，主进程 → 提醒窗口的负载）
+ * 都是**单向推送**，不是可 invoke 的 api 方法，因此不参与注册表的覆盖检查。
+ */
+const ONE_WAY_CHANNELS: readonly string[] = [CH.bus.event, CH.notify.show]
+
+const ALL_API_CHANNELS = channelStrings(CH).filter(ch => !ONE_WAY_CHANNELS.includes(ch))
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 58 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain、v0.47 起 ai.setKey、v0.48 起 msg.remove）', () => {
-    expect(WIRED_CHANNELS.length).toBe(58)
-    expect(new Set(WIRED_CHANNELS).size).toBe(58)
+  it('WIRED 有 66 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain、v0.47 起 ai.setKey、v0.48 起 msg.remove、v0.58 起 reminder 五条、v0.60 起 app.checkUpdate、v0.61 起 task.removeEvidence、v0.62 起 hud.sensors）', () => {
+    expect(WIRED_CHANNELS.length).toBe(66)
+    expect(new Set(WIRED_CHANNELS).size).toBe(66)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)
+    // v0.58：提醒五条接通（testChannel 仍留 NOT_WIRED，外部渠道没做）
+    for (const ch of [
+      CH.reminder.listByTask,
+      CH.reminder.listUpcoming,
+      CH.reminder.cancel,
+      CH.reminder.snooze,
+      CH.reminder.syncForTask
+    ]) {
+      expect(WIRED_CHANNELS).toContain(ch)
+    }
     for (const ch of [CH.occurrence.complete, CH.occurrence.undo, CH.occurrence.skip]) {
       expect(WIRED_CHANNELS).toContain(ch)
     }
@@ -68,7 +84,7 @@ describe('registry 通道覆盖', () => {
     for (const [channel, { owner }] of Object.entries(NOT_WIRED)) {
       expect(allowed.has(owner), `${channel} 的 owner=${owner} 不在归属表里`).toBe(true)
     }
-    expect(Object.keys(NOT_WIRED).length).toBe(9)
+    expect(Object.keys(NOT_WIRED).length).toBe(4)
   })
 
   it('关键归属抽查：promoteDraft 已接通（v0.14 改判 W5）、task.complete 与 occurrence 三条已接通（W6）、hud 五条已接通（W9）、task.undo 是新增通道（v0.19）、msg.*/ai.*→W4 已接通、channel.*→W9、attachment 两条已随 v0.36 接通', () => {

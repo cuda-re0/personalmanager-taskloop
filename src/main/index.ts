@@ -6,14 +6,19 @@ import {
 import { isAutoStart, seedAutoStart } from './autoStart'
 import { initDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { startReminderScheduler } from './scheduler/reminderScheduler'
 import { startReviewSweeper } from './services/reviewSweeper'
+import { ensureLhmStarted } from './services/sensorService'
 import { startFxSweeper } from './services/fxSweeper'
+import { runStartupUpdateCheck } from './update/updateService'
 import { createHudWindow, createMainWindow, showMainWindow } from './windowManager'
 
 /** 待提交超时扫描的停止函数（v0.38）：ready 后启动，退出前关掉 */
 let stopReviewSweeper: (() => void) | null = null
 /** 汇率周检查的停止函数（v0.45）：同上 */
 let stopFxSweeper: (() => void) | null = null
+/** 提醒调度器的停止函数（v0.58）：同上。窗口全关也要响，所以放主进程 */
+let stopReminderScheduler: (() => void) | null = null
 
 /**
  * 单实例锁（v0.46）：必须在 `whenReady` 之前，且放在最前面。
@@ -49,6 +54,20 @@ if (!gotLock) {
     stopReviewSweeper = startReviewSweeper()
     // 每周一换一次汇率：启动先补一次（可能跨了周一），之后 30 分钟看一次（幂等）
     stopFxSweeper = startFxSweeper()
+    // 提醒调度（v0.58）：关掉主窗只留 HUD 时也要响，所以周期扫描在主进程
+    stopReminderScheduler = startReminderScheduler()
+
+    // 启动自检更新（v0.60）：延时 8 秒，让窗口先起来、用户至少能看到界面；
+    // 只在绿色版（isPackaged）里生效，开发模式直接返回；失败静默，不弹任何东西
+    setTimeout(() => {
+      void runStartupUpdateCheck()
+    }, 8000)
+
+    // 悬浮条温度（v0.62）：LHM 是管理员程序，拉起会弹 UAC；
+    // 延后 3 秒，等窗口先画出来，避免开机自启时 UAC 抢在前台
+    setTimeout(() => {
+      void ensureLhmStarted()
+    }, 3000)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
@@ -61,6 +80,8 @@ app.on('before-quit', () => {
   stopReviewSweeper = null
   stopFxSweeper?.()
   stopFxSweeper = null
+  stopReminderScheduler?.()
+  stopReminderScheduler = null
 })
 
 app.on('window-all-closed', () => {

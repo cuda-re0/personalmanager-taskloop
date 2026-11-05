@@ -37,6 +37,11 @@ export interface DraftView {
  */
 export interface EvidenceView {
   key: string
+  /**
+   * 这条证据在 `task.evidence` 里的**原始下标**（v0.61）。
+   * 后端按它删，所以即使某些附件取不到元数据被跳过（`views` 比原数组短），也不会错位。
+   */
+  index: number
   kind: 'text' | 'attachment'
   text: string | null
   url: string | null
@@ -68,6 +73,9 @@ export interface ReviewView {
  * / `setEventResult` / `removeEvidence` 已删（pass 自动完成、驳回自动回 doing 或判 missed，
  * 结果档下拉与移除按钮都没有存在理由）。
  *
+ * v0.61：`removeEvidence` 回来了，但**只给待提交卡**——那里选错图需要撤回，
+ * 审核卡仍然不给移除按钮（那张卡上的证据是已经送审的事实）。
+ *
  * v0.38：点完成改走「待提交」，新增 `submitReview` / `cancelSubmit`（只给待提交卡用）。
  */
 export interface ChatActions {
@@ -83,6 +91,13 @@ export interface ChatActions {
   snoozeReminder(reminderId: string): void
   /** 选完文件调：内部 `attachment.add` → `task.addEvidence`。失败返回 AppError.message 原文 */
   addEvidence(taskId: string, file: File): Promise<string | null>
+  /** 写一条文字证据（v0.74）。text 先 trim，空串直接返回 null、不发请求。失败返回原文 */
+  addTextEvidence(taskId: string, text: string): Promise<string | null>
+  /**
+   * 删掉一条证据（v0.61）：`task.removeEvidence({ id, index })`。
+   * `index` 是证据视图上带下来的原始下标。失败返回原文。
+   */
+  removeEvidence(taskId: string, index: number): Promise<string | null>
   /** 补完证据后重跑 AI 审核（内部走 reviewFlow.runReview）。失败返回原文 */
   reReview(taskId: string): Promise<string | null>
   /** 连续 3 次 need_evidence 后的防死锁出口：`task.complete({ noPoints:true })` */

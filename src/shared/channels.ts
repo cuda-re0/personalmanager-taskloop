@@ -9,7 +9,9 @@ export const CH = {
     setSetting: 'app:setSetting',
     openExternal: 'app:openExternal',
     showMain: 'app:showMain',
-    quit: 'app:quit'
+    quit: 'app:quit',
+    /** v0.60：本机 `updates/` 目录自检（设置页那一行的手动入口也走它） */
+    checkUpdate: 'app:checkUpdate'
   },
   task: {
     list: 'task:list',
@@ -20,6 +22,8 @@ export const CH = {
     complete: 'task:complete',
     undo: 'task:undo',
     addEvidence: 'task:addEvidence',
+    /** v0.61：待提交卡上删掉一条选错的证据（按 `evidence` 数组下标定位） */
+    removeEvidence: 'task:removeEvidence',
     setRequiresEvidence: 'task:setRequiresEvidence',
     reorder: 'task:reorder',
     createManual: 'task:createManual',
@@ -91,11 +95,20 @@ export const CH = {
     dragBegin: 'hud:dragBegin',
     dragTo: 'hud:dragTo',
     setVisible: 'hud:setVisible',
-    getState: 'hud:getState'
+    getState: 'hud:getState',
+    /** v0.62：悬浮条温度读数（无入参，主进程现取现回，内部有 1.5s 缓存） */
+    sensors: 'hud:sensors'
   },
   /** 主进程 → 渲染进程的单向事件通道（DomainEvent） */
   bus: {
     event: 'bus:event'
+  },
+  /**
+   * 提醒窗口（v0.58）：主进程 → notify 渲染入口的单向推送，**不是**可 invoke 的 api 方法。
+   * 与 `bus.event` 同一类，因此同样不参与 IPC 注册表的覆盖检查。
+   */
+  notify: {
+    show: 'notify:show'
   },
   /** 人物卡（v0.37）：v1 只有一张，读 + 局部改 */
   persona: {

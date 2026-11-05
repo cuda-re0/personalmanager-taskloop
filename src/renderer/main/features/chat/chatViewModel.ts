@@ -13,12 +13,8 @@ import type {
 } from '@shared/types/domain'
 import type { EvidenceView } from './chatTypes'
 
-/** 类型标签。三个词来自 04 §4① 的分组标题，不是新文案。 */
-export const TYPE_LABEL: Record<TaskType, string> = {
-  daily: '每日',
-  deadline: '限时',
-  event: '活动'
-}
+/** 类型标签。定义在 `@shared/taskRules`（v0.58 上移，主进程拼提醒负载时也要用），这里只是原路转出。 */
+export { TYPE_LABEL } from '@shared/taskRules'
 
 export const TYPE_ORDER: TaskType[] = ['daily', 'deadline', 'event']
 
@@ -275,6 +271,7 @@ export function toEvidenceViews(
   evidence.forEach((item, i) => {
     if (item.kind === 'text') {
       views.push({
+        index: i,
         key: `${item.addedAt}-${i}`,
         kind: 'text',
         text: item.text,
@@ -288,6 +285,7 @@ export function toEvidenceViews(
     if (!file) return
     // v0.8：是截图还是 PDF 全看 Attachment.kind
     views.push({
+      index: i,
       key: `${item.addedAt}-${i}`,
       kind: 'attachment',
       text: null,

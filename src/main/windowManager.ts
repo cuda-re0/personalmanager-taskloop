@@ -6,10 +6,15 @@ import type { HudDisplayArea, HudDisplaysPort, HudWindowPort, Rect } from './ser
 
 const preloadPath = join(__dirname, '../preload/index.js')
 
-type RendererPage = 'main' | 'hud'
+/**
+ * 渲染入口页（v0.58 加第三项 `notify`）：每个页面对应 `src/renderer/<page>/index.html`，
+ * 构建产物是 `out/renderer/<page>/index.html`。新增页面要同时在
+ * `electron.vite.config.ts` 的 `renderer.build.rollupOptions.input` 里登记，否则打包后 404。
+ */
+type RendererPage = 'main' | 'hud' | 'notify'
 
 /** 开发期走 dev server，打包后走 out/renderer/<page>/index.html */
-function loadRenderer(win: BrowserWindow, page: RendererPage): void {
+export function loadRenderer(win: BrowserWindow, page: RendererPage): void {
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
     void win.loadURL(`${devServerUrl}/${page}/index.html`)
@@ -18,7 +23,11 @@ function loadRenderer(win: BrowserWindow, page: RendererPage): void {
   void win.loadFile(join(__dirname, `../renderer/${page}/index.html`))
 }
 
-const webPreferences = {
+/**
+ * 三个窗口共用的一份 `webPreferences`（v0.58 导出给 `notify/notifyWindow.ts`）。
+ * 提醒窗口与主窗/HUD 一样：contextIsolation 开、nodeIntegration 关、sandbox 开。
+ */
+export const webPreferences = {
   preload: preloadPath,
   contextIsolation: true,
   nodeIntegration: false,
@@ -92,11 +101,22 @@ export function getMainWindow(): BrowserWindow | null {
 export function showMainWindow(): void {
   const win = getMainWindow()
   if (!win) {
-    createMainWindow()
+    // 重建的窗是 `show: false` + 自己 `ready-to-show` 才显示，下面那四条在这个分支一次都不会
+    // 执行（58c 的漏口）；补挂一次，让"关掉主窗后到点提醒"也能落到最前（58d §1）。
+    // 两句 show() 会连着跑：`createMainWindow` 内的监听先注册，`show()` 幂等。
+    const created = createMainWindow()
+    created.once('ready-to-show', () => {
+      created.show()
+      created.moveTop()
+      created.focus()
+    })
     return
   }
   if (win.isMinimized()) win.restore()
   win.show()
+  // focus() 在 Windows 上受前台锁定限制，后台进程调用时可能只在任务栏闪一下；
+  // moveTop() 直接把窗口提到 z 序最前，不依赖前台权限（v0.63，58c §1）
+  win.moveTop()
   win.focus()
 }
 

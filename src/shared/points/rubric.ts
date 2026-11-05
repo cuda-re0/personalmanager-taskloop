@@ -12,8 +12,11 @@ import type { Difficulty, EventResult, Quality, TaskType } from '../types/domain
  *
  * v0.8（2026-11-01 用户裁决）：限时改用独立基数表 2/3/5（原 10/20/35），活动与每日不变。
  * 共用表一个字没动——只降限时，不是全表降。
+ *
+ * v0.9（2026-11-03 用户裁决）：活动结果不达标（`below`）退出计分——它一律判失败，
+ * 不再"打 0.85 折完成"。系数表本身没变，只是 `below` 这一档不可达。
  */
-export const RUBRIC_VERSION = 'v0.8'
+export const RUBRIC_VERSION = 'v0.9'
 
 export interface PointsConfig {
   difficultyBase: Record<Difficulty, number>
@@ -60,7 +63,9 @@ export function efficiencyFactor(leadHours: number | null): number {
 /** 活动任务的结果系数：考试排名、比赛名次、作品评价 */
 export function resultFactor(result: EventResult | null): number {
   if (result === 'exceeded') return 1.2
-  if (result === 'below') return 0.85
+  // `below` 不可达：活动结果不达标已判失败（v0.9），不会走到计分。
+  // 保留返回值只为类型完整，不给它任何折扣。
+  if (result === 'below') return 1
   return 1
 }
 

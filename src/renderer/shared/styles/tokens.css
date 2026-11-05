@@ -9,7 +9,7 @@
   --text-sub:      #6b6b73;
   --text-faint:    #a0a0a8;
 
-  /* 主色（用于完成/积分/正向） */
+  /* 主色（用于积分/正向/进行中；v0.67 起「完成」态不再用主色） */
   --accent:        #2f6feb;
   --accent-weak:   #eaf1fe;
   --warn:          #d98324;   /* partial */

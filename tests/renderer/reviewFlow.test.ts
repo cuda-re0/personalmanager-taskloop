@@ -67,6 +67,10 @@ describe('decideReview 的边界（§7.2）', () => {
   it('dueAt 为 null：不判失败，一律回 doing', () => {
     expect(decideReview(verdictOf('fail'), { dueAt: null }, NOW)).toBe('revive')
   })
+
+  it('活动 + fail + 未超期 → missed（活动不达标不看超期）', () => {
+    expect(decideReview(verdictOf('fail'), { ...NOT_OVERDUE, type: 'event' }, NOW)).toBe('missed')
+  })
 })
 
 /** 造一条 task_review 消息（只填本条用例关心的字段） */
@@ -80,6 +84,7 @@ function reviewMessage(id: string, taskId: string, verdict: ReviewVerdict['verdi
     meta: { kind: 'task_review', taskId, verdict: verdictOf(verdict) },
     linkedTaskId: taskId,
     status: 'sent',
+    mode: 'task',
     attachments: [],
     createdAt: '2026-10-30T12:00:00.000Z'
   }

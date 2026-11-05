@@ -8,7 +8,7 @@ import { fmtPoints } from '@shared/format'
  * 纪律：
  * - **不算分**：分值只来自 `bootstrap.today.points` 与 `points.changed` 的载荷，
  *   这里只做字符串格式化（`fmtPoints`）与计数（完成数 / 待办数），不出现任何积分运算；
- * - 界面串只用 04 已登记的：`● 3/5`、`今日 +42`、任务标题、v0.31 长条上的 `周X`——本文件不产出别的文案。
+ * - 界面串只用 04 已登记的：`● 3/5`、`今日 +42`、任务标题、v0.62 长条上的 `62°`——本文件不产出别的文案。
  */
 
 /** 行类型档（排序第二级：每日 → 限时 → 活动，04 §5.3 v0.38） */
@@ -65,6 +65,14 @@ const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 
 export function weekdayLabel(date: Date): string {
   return WEEKDAYS[date.getDay()]
+}
+
+/**
+ * 长条上的单路温度：`62°`；拿不到就是 `--`（v0.62）。
+ * 不带单位 C——长条只有 132px，`°` 已经能表达温度。
+ */
+export function tempLabel(value: number | null): string {
+  return value === null ? '--' : `${Math.round(value)}°`
 }
 
 /** `今日 +42`：正数带 `+`，负数沿用 fmtPoints 的负号，小数最多 2 位（与 04 §4③ 同口径） */

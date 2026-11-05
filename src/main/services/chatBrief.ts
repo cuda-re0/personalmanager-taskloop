@@ -6,8 +6,12 @@ import { isoToLocalDay, isoToLocalTime, todayLocalDay } from '../../shared/local
 /**
  * 「时间与今日数据段」的拼装（03 §4.3.1 第 3 段）。
  *
- * **纯函数**：入参是任务数组 + `pointsService.todayStat()` 的结果 + 余额，返回三行字符串。
- * 不查库、不读 settings、不看当前时间以外的环境——测试直接喂数据。
+ * **纯函数**：入参是任务数组 + `pointsService.todayStat()` 的结果 + 余额 +（可选）昨天的统计，
+ * 返回三到四行字符串。不查库、不读 settings、不看当前时间以外的环境——测试直接喂数据。
+ *
+ * v0.67（70 §A）：首行末尾补当前时刻（模型要说得出「都十一点了」），
+ * 末行补「昨天」一行（模型要说得出「你昨天那条又没做」）。昨天那一行**排在今日积分之后**，
+ * 保证既有的 `lines[0] / lines[1] / lines[2]` 行号断言不动。
  *
  * 三条硬规则（03 §4.3.1，逐字）：
  * - 待办最多列 5 条，超出时末尾加「等 N 条」（N 是总数）；
@@ -32,6 +36,8 @@ export interface ChatBriefInput {
   stat: DayStat
   /** `pointsService.balance()` */
   balance: number
+  /** 昨天的日统计（`pointsService.dayStatOf(前一天)`）：不传就整行省略，不补空行 */
+  yesterday?: DayStat
   /** 只给测试钉时间用 */
   now?: Date
   timeZone?: string
@@ -74,6 +80,17 @@ function itemLabel(task: Task, today: string, timeZone?: string): string {
   return `${title} · ${dueLabel(task.dueAt, today, timeZone)}${suffix}`
 }
 
+/**
+ * 「昨天」那一行（v0.67）。口径与「今天已完成」一致：`tasksDone + occurrencesDone`。
+ * 没传昨天就返回 null（整行省略），不能补个空行——空行会把行号断言全推乱。
+ */
+function yesterdayLineOf(stat: DayStat | undefined): string | null {
+  if (stat === undefined) return null
+  const done = stat.tasksDone + stat.occurrencesDone
+  if (done === 0 && stat.points === 0) return '昨天没有记录。'
+  return `昨天：完成 ${done} 条，得 ${fmtPoints(stat.points)} 分。`
+}
+
 export function buildTodayBrief(input: ChatBriefInput): string {
   const now = input.now ?? new Date()
   const timeZone = input.timeZone
@@ -87,7 +104,8 @@ export function buildTodayBrief(input: ChatBriefInput): string {
     return due !== null && due.getTime() < now.getTime()
   }).length
 
-  const head = `今天是 ${today}（${weekdayOf(today)}）。`
+  // 时刻由 `Intl` 按 timeZone 取本地时、分（各两位），**不许**把 ISO 串切片充当时刻
+  const head = `今天是 ${today}（${weekdayOf(today)}）${isoToLocalTime(now.toISOString(), timeZone)}。`
 
   let body: string
   if (pending.length === 0 && doneToday === 0) {
@@ -104,5 +122,7 @@ export function buildTodayBrief(input: ChatBriefInput): string {
   }
 
   const points = `今天已得 ${fmtPoints(input.stat.points)} 分，总积分 ${fmtPoints(input.balance)} 分。`
-  return [head, body, points].join('\n')
+  return [head, body, points, yesterdayLineOf(input.yesterday)]
+    .filter((line): line is string => line !== null)
+    .join('\n')
 }

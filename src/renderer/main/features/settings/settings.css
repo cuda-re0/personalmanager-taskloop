@@ -310,6 +310,36 @@
   text-align: right;
 }
 
+/* v0.59b：可编辑的行里 input 撑满标签之后的剩余宽度（`.settings-input` 的 width:100%
+   在 flex 行里会挤标签，故这里只改本行的占位方式，不动原选择器） */
+.settings-kv .settings-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.settings-vendor-row {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-vendor {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-vendor--on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
 /* ---------- 退出（v0.55） ---------- */
 
 .settings-quit-block {

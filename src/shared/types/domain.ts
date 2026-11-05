@@ -155,6 +155,11 @@ export interface Message {
   meta: MessageMeta // 按 kind 收窄，见下
   linkedTaskId: string | null
   status: MessageStatus
+  /**
+   * v0.73：发送这条消息时输入框的模式。
+   * null = 本迁移之前的老行，信息不存在，渲染层的分层按「轮」推断兜底。
+   */
+  mode: ChatMode | null
   attachments: Attachment[]
   createdAt: string
 }

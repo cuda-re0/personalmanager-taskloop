@@ -631,12 +631,25 @@ export function useChatData(): ChatData {
       .catch((e: unknown) => console.error('[chat] msg.retry 调用失败', e))
   }, [])
 
+  /**
+   * 点提醒行里那条消息（v0.58 §3.7）：右栏的「定位到某条任务」能力并不存在，
+   * 所以这里只把主窗叫出来，**不滚动、不高亮**——装作定位成功比不定位更糟。
+   */
   const openTask = useCallback((_taskId: string) => {
-    // TODO(W6B): 右栏 ① 滚到该任务并高亮
+    // TODO(W6B): 右栏 ① 滚到该任务并高亮（58 只叫出主窗）
+    void window.api.app
+      .showMain()
+      .catch((e: unknown) => console.error('[chat] app.showMain 调用失败', e))
   }, [])
 
-  const snoozeReminder = useCallback((_reminderId: string) => {
-    // TODO(W2): 换成 api.reminder.snooze({ id, minutes: 15 })
+  /** 稍后提醒（v0.58 §3.7）：固定 15 分钟，失败只进日志，不给用户弹任何文案 */
+  const snoozeReminder = useCallback((reminderId: string) => {
+    void window.api.reminder
+      .snooze({ id: reminderId, minutes: 15 })
+      .then(res => {
+        if (!res.ok) console.error('[chat] reminder.snooze 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[chat] reminder.snooze 调用失败', e))
   }, [])
 
   /**
@@ -678,6 +691,65 @@ export function useChatData(): ChatData {
       return e instanceof Error ? e.message : String(e)
     }
   }, [])
+
+  /**
+   * 写一条文字证据（v0.74）：用户说不清「证据为什么不存在」时的那段话。
+   *
+   * 底层早已支持 `{ kind:'text' }`——`taskService.addEvidence` 会校验非空，
+   * `reviewEvidenceOf` 会把它序列化成 `文字证据：…` 送进审核。这里只补一个发请求的口。
+   *
+   * 三条口径：
+   * - 先 `trim`，空串直接返回 `null` 且**不发请求**（省一次往返，也不会落一条空证据）。
+   * - 超 200 字按**码点**截断（`Array.from`），不按 `length`——否则会把 emoji 劈成半个。
+   * - 成功后与 `addEvidence` 一样就地更新 `taskById` / `pendingList`，不等事件回来。
+   */
+  const addTextEvidence = useCallback(
+    async (taskId: string, text: string): Promise<string | null> => {
+      try {
+        const body = text.trim()
+        if (body.length === 0) return null
+        const capped = Array.from(body).slice(0, 200).join('')
+        const added = await window.api.task.addEvidence({
+          id: taskId,
+          evidence: { kind: 'text', text: capped, addedAt: new Date().toISOString() }
+        })
+        if (!added.ok) return added.error.message
+        setTaskById(prev => ({ ...prev, [taskId]: added.data }))
+        setPendingList(prev =>
+          prev.some(t => t.id === taskId)
+            ? prev.map(t => (t.id === taskId ? added.data : t))
+            : prev
+        )
+        return null
+      } catch (e: unknown) {
+        return e instanceof Error ? e.message : String(e)
+      }
+    },
+    []
+  )
+
+  /**
+   * 删一条证据（v0.61，只给待提交卡上的 ×）：`task.removeEvidence({ id, index })`。
+   *
+   * `index` 用证据视图带下来的原始下标，不用视图数组的位置——附件元数据取不到时视图会短一截。
+   * 成功后与 `addEvidence` 一样就地更新 `taskById` / `pendingList`，卡片立刻少一格，不等事件回来。
+   */
+  const removeEvidence = useCallback(
+    async (taskId: string, index: number): Promise<string | null> => {
+      try {
+        const res = await window.api.task.removeEvidence({ id: taskId, index })
+        if (!res.ok) return res.error.message
+        setTaskById(prev => ({ ...prev, [taskId]: res.data }))
+        setPendingList(prev =>
+          prev.some(t => t.id === taskId) ? prev.map(t => (t.id === taskId ? res.data : t)) : prev
+        )
+        return null
+      } catch (e: unknown) {
+        return e instanceof Error ? e.message : String(e)
+      }
+    },
+    []
+  )
 
   /** 补完证据后重审：分流（pass 计分 / 驳回回 doing 或判 missed）全在 reviewFlow 里 */
   const reReview = useCallback(
@@ -792,6 +864,8 @@ export function useChatData(): ChatData {
       openTask,
       snoozeReminder,
       addEvidence,
+      addTextEvidence,
+      removeEvidence,
       reReview,
       markDoneWithoutPoints,
       cancelSubmit,
@@ -807,6 +881,8 @@ export function useChatData(): ChatData {
       openTask,
       snoozeReminder,
       addEvidence,
+      addTextEvidence,
+      removeEvidence,
       reReview,
       markDoneWithoutPoints,
       cancelSubmit,

@@ -132,7 +132,7 @@
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-  border: 1.5px solid var(--text-faint);
+  border: 1.5px solid var(--text-sub);
   border-radius: 50%;
   box-sizing: border-box;
   padding: 0;
@@ -144,10 +144,11 @@
   border-color: var(--accent);
 }
 
-/* 已打卡的勾选框（v0.27）：实心，按钮本身 disabled，点了没反应 ≠ disabled */
+/* 已打卡的勾选框（v0.27）：实心，按钮本身 disabled，点了没反应 ≠ disabled
+   v0.67：实心但走 --text-faint —— 完成态比未完成态淡，不抢眼（原来用 --accent 反而更醒目） */
 .task-check--on {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--text-faint);
+  background: var(--text-faint);
 }
 
 .task-check:disabled {
@@ -167,17 +168,26 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 限时/活动组的状态点 */
+/* 限时/活动组的状态点（v0.68）：未完成（todo / doing）主色蓝，完成与过期（done / missed）浅灰，待审核（reviewing）橙 */
 .task-dot {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--text-faint);
+  background: var(--text-sub);
+}
+
+.task-dot--todo {
+  background: var(--accent);
 }
 
 .task-dot--doing {
   background: var(--accent);
+}
+
+.task-dot--done,
+.task-dot--missed {
+  background: var(--text-faint);
 }
 
 .task-dot--reviewing {
@@ -189,6 +199,47 @@
   font-size: 12px;
   color: var(--text-sub);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* v0.65：行上的日期就是入口——无边框无背景，只有颜色随主题，hover 才提到 accent */
+.task-due-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.task-due-btn:hover {
+  color: var(--accent);
+}
+
+/* v0.75：编辑态是「日期 + 时间」一对框，时间可留空 */
+.task-due-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-due-inline--date {
+  width: 118px;
+}
+
+.task-due-inline--time {
+  width: 84px;
+}
+
+/* 编辑态：顶掉右列，宽度固定，不让整行随输入内容抖动 */
+.task-due-inline {
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
 }
 
 /* 组尾投放区：常态隐形，拖拽经过时给一条落点线 */
@@ -262,6 +313,35 @@
 .task-offsets {
   font-size: 12px;
   color: var(--text-faint);
+}
+
+/* 活动任务的日期时间输入（v0.59；v0.75 拆成日期 + 时间两个框） */
+.task-due-edit {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.task-due-edit-input--date {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-due-edit-input--time {
+  flex: 0 0 108px;
+  box-sizing: border-box;
+}
+
+.task-due-edit-input {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
 }
 
 .task-detail-actions,

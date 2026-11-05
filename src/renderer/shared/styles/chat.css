@@ -518,6 +518,12 @@
   border-left-color: var(--accent);
 }
 
+/* v0.63：判完通过的卡整卡变淡——任务已经 done，卡不该和旁边的消息抢眼。
+   阈值取 0.5，与任务列表 .task-row--done 同口径；need_evidence 仍要保持醒目，不在本规则内 */
+.review-card--pass {
+  opacity: 0.5;
+}
+
 .review-card--partial {
   border-left-color: var(--warn);
 }
@@ -758,21 +764,57 @@
   border-top: 1px solid var(--border);
 }
 
+/* v0.74：卡上的「写说明」——一条文字证据的输入口。只在点开时进 DOM，不占常驻高度 */
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.note-input {
+  width: 100%;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.note-input:focus {
+  border-color: var(--text-faint);
+}
+
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* 点开大图 */
 .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  /* 300：portal 到 body 之后要和设置抽屉（40/41）同层竞争，不能再用 30 */
+  z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--text);
-  opacity: 0.88;
+  /* 只让容器自己半透明：这里不能写 opacity，否则 <img> 会被一起拖进透明度体系、透出下面的文字 */
+  background: color-mix(in srgb, var(--text) 86%, transparent);
+  padding: 24px;
+  cursor: zoom-out;
 }
 
 .lightbox-img {
-  max-width: 80vw;
-  max-height: 80vh;
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  display: block;
   border-radius: var(--r-sm);
 }
 

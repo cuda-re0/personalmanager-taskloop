@@ -30,13 +30,34 @@ import { AiAbortedError } from './provider'
  * 这个文件只负责"发一次能拿到合法对象的请求"，不碰数据库、不碰消息表。
  */
 
-export const GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+/** 默认**基址**（v0.59b）：不含 `/chat/completions`，路径由 `endpointOf()` 拼 */
+export const GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4'
+/** 基址之下的补全路径；幂等判据与拼接都用它，两处必须同一个常量 */
+const ENDPOINT_PATH = '/chat/completions'
 export const AI_TIMEOUT_MS = 180_000
 export const AI_MAX_TOKENS = 10_000
 /** 重试时把上一次的坏输出拼回去，截断到这个长度足够模型自修，也不会把 prompt 撑爆 */
 const ECHO_LIMIT = 2000
 /** 错误 detail 里上游响应的截断长度（开工词 §4.9 同一口径：不打印完整响应体） */
 const BODY_LIMIT = 200
+
+/**
+ * 基址 → 完整请求地址（v0.59b）。
+ *
+ * 三步：`trim` → 去掉**尾部所有** `/` → 空串回落默认基址。然后：已以
+ * `/chat/completions` 结尾就原样返回（幂等），否则拼上去。
+ *
+ * 幂等那一条不是防御性冗余：用户把默认基址改成别家域名时很容易把路径一起留在里面，
+ * 拼成 `.../chat/completions/chat/completions` 只会得到 404，且报错看不出原因。
+ *
+ * **不做协议校验**：那是 `setSettingSchema` 的职责，这里只管拼字符串。
+ */
+export function endpointOf(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '')
+  const base = (trimmed.length === 0 ? GLM_BASE_URL : trimmed).replace(/\/+$/, '')
+  if (base.endsWith(ENDPOINT_PATH)) return base
+  return `${base}${ENDPOINT_PATH}`
+}
 
 export interface GlmClientOptions {
   apiKey: string
@@ -135,7 +156,8 @@ export class GlmClient implements AiProvider {
   constructor(options: GlmClientOptions) {
     this.apiKey = options.apiKey
     this.model = options.model
-    this.baseUrl = options.baseUrl ?? GLM_BASE_URL
+    // v0.59b：`baseUrl` 是基址（可不带路径），完整地址在这里落定
+    this.baseUrl = endpointOf(options.baseUrl ?? GLM_BASE_URL)
     this.timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
     this.maxTokens = options.maxTokens ?? AI_MAX_TOKENS
     this.fetchImpl = options.fetchImpl ?? ((...args) => fetch(...args))

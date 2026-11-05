@@ -143,10 +143,15 @@ const completeTaskSchema = z.preprocess(
  * - `hud.size`：`null` 或 `{width,height}` 有限数，夹到 280×320–720×900；
  * - `hud.background`：`null` 或 `#rrggbb`（合成 `rgba()` 时不再猜格式）。
  *
+ * v0.59b 再加两项：`ai.baseUrl`（http/https + 能 `new URL`）、`ai.chat.model`（非空）。
+ * `ai.provider` 是对象型、设置页不开放编辑，这里不校验。
+ *
  * 校验用 `superRefine` **不用 transform 里 parse**：zod v4 会原样抛出 transform 内的
  * `ZodError`（实测），那样 `safeParse` 就变成 throw，信封拿不到 `ok:false`。
  */
 const HUD_BG_PATTERN = /^#[0-9a-fA-F]{6}$/
+/** `ai.baseUrl` 的失败文案（v0.59b）：一句说清"要什么"，不解释基址与路径的区别 */
+const BASE_URL_MESSAGE = '接口地址必须是以 http:// 或 https:// 开头的完整地址'
 
 const setSettingSchema = z
   .object({ key: z.string().min(1), value: z.unknown() })
@@ -178,6 +183,32 @@ const setSettingSchema = z
       if (typeof input.value !== 'string' || !HUD_BG_PATTERN.test(input.value)) {
         fail('背景色必须是 #rrggbb')
       }
+      return
+    }
+    // v0.59b：`ai.baseUrl` 必须是能 new URL 的 http(s) 地址——拼请求地址前先把它挡住，
+    // 否则一个错串会一路走到 fetch 才炸，报错还看不出是地址写错了
+    if (input.key === 'ai.baseUrl') {
+      if (typeof input.value !== 'string' || input.value.trim().length === 0) {
+        fail(BASE_URL_MESSAGE)
+        return
+      }
+      const trimmed = input.value.trim()
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        fail(BASE_URL_MESSAGE)
+        return
+      }
+      try {
+        new URL(trimmed)
+      } catch {
+        fail(BASE_URL_MESSAGE)
+      }
+      return
+    }
+    // v0.59b：模型名只拦空串（填错名字是用户的选择，不在这里猜）
+    if (input.key === 'ai.chat.model') {
+      if (typeof input.value !== 'string' || input.value.trim().length === 0) {
+        fail('模型名不能为空')
+      }
     }
   })
   .transform(input => {
@@ -204,6 +235,8 @@ export const g = {
   quit: z.undefined(),
   // 无入参：纯粹的窗口动作（v0.46）
   showMain: z.undefined(),
+  // v0.60：无入参（preload 不带 payload，故 optional，与 aiHealth 同款）
+  checkUpdate: z.object({}).optional(),
   // task
   list: z.object({
     status: z.array(taskStatusSchema).optional(),
@@ -223,6 +256,8 @@ export const g = {
     reason: z.string().optional()
   }),
   addEvidence: z.object({ id: z.string(), evidence: evidenceSchema }),
+  // v0.61：按数组下标删一条证据。越界由 service 判，schema 只挡住负号与小数
+  removeEvidence: z.object({ id: z.string(), index: z.number().int().min(0) }),
   setRequiresEvidence: z.object({ id: z.string(), value: z.boolean() }),
   reorder: z.object({ id: z.string(), beforeId: z.string().nullable() }),
   createManual: z.object({
@@ -308,6 +343,16 @@ export const g = {
     kind: memoryKindSchema.optional()
   }),
   memoryRemove: z.object(idInput),
+  // reminder（v0.58 · W8A）：接通五条，`testChannel` 仍留 NOT_WIRED
+  // ——`limit` 与 msgList 同一条纪律（LIMIT 0 恒空、LIMIT -1 返回全表）
+  reminderListByTask: z.object({ taskId: z.string().min(1) }),
+  reminderListUpcoming: z
+    .object({ limit: z.number().int().min(1).optional() })
+    .optional(),
+  reminderCancel: z.object(idInput),
+  // minutes 必须是正整数：0 或负数会让 fire_at 落在过去，下一轮 tick 立刻又弹一次
+  reminderSnooze: z.object({ id: z.string().min(1), minutes: z.number().int().positive() }),
+  reminderSyncForTask: z.object({ taskId: z.string().min(1) }),
   // points
   balance: z.undefined(),
   ledger: z.object({
@@ -331,7 +376,9 @@ export const g = {
   hudDragTo: z.object({ x: z.number().finite(), y: z.number().finite(), end: z.boolean() }),
   hudDragBegin: z.undefined(),
   hudSetVisible: z.object({ visible: z.boolean() }),
-  hudGetState: z.undefined()
+  hudGetState: z.undefined(),
+  // v0.62：无入参，与 hudGetState 同款（preload 的 invoke(ch) 不带 payload）
+  hudSensors: z.undefined()
 }
 
 /** 校验失败 → AppErrorException(INVALID_INPUT)，由 envelope 转成 ok:false */
@@ -352,12 +399,14 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.app.openExternal]: g.openExternal,
   [CH.app.quit]: g.quit,
   [CH.app.showMain]: g.showMain,
+  [CH.app.checkUpdate]: g.checkUpdate,
   [CH.task.list]: g.list,
   [CH.task.get]: g.get,
   [CH.task.promoteDraft]: g.promoteDraft,
   [CH.task.update]: g.update,
   [CH.task.transition]: g.transition,
   [CH.task.addEvidence]: g.addEvidence,
+  [CH.task.removeEvidence]: g.removeEvidence,
   [CH.task.setRequiresEvidence]: g.setRequiresEvidence,
   [CH.task.reorder]: g.reorder,
   [CH.task.createManual]: g.createManual,
@@ -390,6 +439,11 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.memory.add]: g.memoryAdd,
   [CH.memory.update]: g.memoryUpdate,
   [CH.memory.remove]: g.memoryRemove,
+  [CH.reminder.listByTask]: g.reminderListByTask,
+  [CH.reminder.listUpcoming]: g.reminderListUpcoming,
+  [CH.reminder.cancel]: g.reminderCancel,
+  [CH.reminder.snooze]: g.reminderSnooze,
+  [CH.reminder.syncForTask]: g.reminderSyncForTask,
   [CH.points.balance]: g.balance,
   [CH.points.ledger]: g.ledger,
   [CH.points.monthStats]: g.monthStats,
@@ -404,5 +458,6 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.hud.dragBegin]: g.hudDragBegin,
   [CH.hud.dragTo]: g.hudDragTo,
   [CH.hud.setVisible]: g.hudSetVisible,
-  [CH.hud.getState]: g.hudGetState
+  [CH.hud.getState]: g.hudGetState,
+  [CH.hud.sensors]: g.hudSensors
 }

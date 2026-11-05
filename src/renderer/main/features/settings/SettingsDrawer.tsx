@@ -8,7 +8,8 @@ import {
   TONE_ORDER,
   canAddMemory
 } from './settingsModel'
-import { useSettingsData, type SettingsData } from './useSettingsData'
+import { AI_VENDORS, AI_VENDOR_PRESETS, vendorOf } from './aiVendor'
+import { useSettingsData, type SettingsData, type SettingsModels } from './useSettingsData'
 import './settings.css'
 
 /**
@@ -65,6 +66,28 @@ export function SettingsDrawer({ onClose }: Props): ReactElement {
           <PersonaBlock data={data} />
           <MemoryBlock data={data} />
           <AiBlock data={data} />
+          {/* v0.60：版本 + 手动检查更新。整抽屉唯一一处更新入口，不加任何提示/图标/tooltip */}
+          <section className="settings-block">
+            <div className="settings-kv">
+              <span className="settings-kv-key">版本</span>
+              <span className="settings-kv-value">v{data.update.version}</span>
+              <button
+                type="button"
+                className="settings-add"
+                disabled={data.update.checking}
+                onClick={() => void data.refreshUpdate()}
+              >
+                {data.update.checking
+                  ? '检查中…'
+                  : data.update.buttonNote !== null
+                    ? data.update.buttonNote
+                    : '检查更新'}
+              </button>
+              {data.update.note !== null && (
+                <span className="settings-notice">{data.update.note}</span>
+              )}
+            </div>
+          </section>
           <section className="settings-block settings-quit-block">
             <button type="button" className="settings-quit" onClick={data.quit}>
               退出程序
@@ -319,12 +342,29 @@ function MemoryBlock({ data }: { data: SettingsData }): ReactElement {
 }
 
 /* ------------------------------------------------------------------ *
- * ③ AI（前两行模型 + 一行 Key 状态只读，下面一行可填 Key）
+ * ③ AI（三行可改：任务模型 / 聊天模型 / 接口地址；第四行只读 Key 状态，下面一行可填 Key）
  * ------------------------------------------------------------------ */
 
 function AiBlock({ data }: { data: SettingsData }): ReactElement {
   // 草稿是纯 UI 状态：抽屉一关就该消失，所以留在组件里，不进 useSettingsData
   const [keyDraft, setKeyDraft] = useState('')
+
+  /**
+   * 三个可改字段的草稿（v0.59b）。**必须跟着 `data.models` 走**：保存成功后
+   * `data.models` 会换成新值，草稿若停在旧值上，下一次保存会把它又盖回去。
+   */
+  const [draft, setDraft] = useState<SettingsModels>(data.models)
+  const modelsRef = useRef(data.models)
+
+  useEffect(() => {
+    modelsRef.current = data.models
+    setDraft(data.models)
+  }, [data.models])
+
+  const dirty =
+    draft.task !== data.models.task ||
+    draft.chat !== data.models.chat ||
+    draft.baseUrl !== data.models.baseUrl
 
   // 还没拿到 keyStatus 时留空——不猜「未配置」，那是在说一个我们还没问过的答案
   let keyText = ''
@@ -335,13 +375,73 @@ function AiBlock({ data }: { data: SettingsData }): ReactElement {
       <h3 className="settings-block-title">AI</h3>
 
       <div className="settings-kv">
+        <span className="settings-kv-key">接口</span>
+        <div className="settings-vendor-row">
+          {AI_VENDORS.map(v => (
+            <button
+              key={v}
+              type="button"
+              className={
+                vendorOf(draft.baseUrl) === v
+                  ? 'settings-vendor settings-vendor--on'
+                  : 'settings-vendor'
+              }
+              onClick={() => setDraft(AI_VENDOR_PRESETS[v])}
+            >
+              {v === 'zhipu' ? '智谱' : 'DeepSeek'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-kv">
         <span className="settings-kv-key">任务模型</span>
-        <span className="settings-kv-value">{data.models.task}</span>
+        <input
+          className="settings-input"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          value={draft.task}
+          onChange={event => setDraft(prev => ({ ...prev, task: event.target.value }))}
+        />
       </div>
       <div className="settings-kv">
         <span className="settings-kv-key">聊天模型</span>
-        <span className="settings-kv-value">{data.models.chat}</span>
+        <input
+          className="settings-input"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          value={draft.chat}
+          onChange={event => setDraft(prev => ({ ...prev, chat: event.target.value }))}
+        />
       </div>
+      <div className="settings-kv">
+        <span className="settings-kv-key">接口地址</span>
+        <input
+          className="settings-input"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          value={draft.baseUrl}
+          onChange={event => setDraft(prev => ({ ...prev, baseUrl: event.target.value }))}
+        />
+      </div>
+
+      <div className="settings-save-row">
+        <button
+          type="button"
+          className="settings-save"
+          disabled={!dirty || data.aiSaving}
+          onClick={() => {
+            void data.saveAiConfig(draft).then(ok => {
+              if (ok) setDraft(modelsRef.current)
+            })
+          }}
+        >
+          保存
+        </button>
+      </div>
+
       <div className="settings-kv">
         <span className="settings-kv-key">API Key</span>
         <span className="settings-kv-value">{keyText}</span>

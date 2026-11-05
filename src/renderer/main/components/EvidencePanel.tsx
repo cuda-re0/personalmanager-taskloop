@@ -18,25 +18,48 @@ interface Props {
   /** 拿到的 Promise 会被拖放路径 await（v0.57：多文件串行上传） */
   onPick(file: File): Promise<unknown> | void
   onOpen(url: string): void
+  /**
+   * 删一条证据（v0.61）。**不传就不渲染 ×** —— 审核卡走的就是这条：
+   * 那张卡上的证据是已经送审的事实，不给撤回入口。`index` 是 `EvidenceView.index`。
+   */
+  onRemove?(index: number): void
 }
 
 /**
  * 一条证据。v0.8 起 Evidence 只有 text / attachment：图片给缩略图，
  * 其余附件（PDF 等）给类型角标（`Attachment` 没有 name，04 §3.3）。
  *
- * v0.35 裁决：**证据不可删**——主进程没有删除通道，所以这里不渲染任何移除控件。
+ * v0.35 裁决「证据不可删」在 v0.61 改为**按卡区分**：待提交卡取消/重选后旧图还挂着会干扰，
+ * 所以那里给每一条配一个 ×；审核卡仍然不渲染任何移除控件。
  */
 function EvidenceChip({
   item,
-  onOpen
+  onOpen,
+  onRemove,
+  busy
 }: {
   item: EvidenceView
   onOpen(url: string): void
+  onRemove?: (index: number) => void
+  busy: boolean
 }): ReactElement {
+  const del =
+    onRemove === undefined ? null : (
+      <button
+        className="ev-remove"
+        disabled={busy}
+        onClick={() => onRemove(item.index)}
+        type="button"
+      >
+        ×
+      </button>
+    )
+
   if (item.kind === 'attachment' && item.attachmentKind === 'image' && item.url) {
     return (
       <span className="ev-thumb">
         <img alt="" className="ev-thumb-img" onClick={() => onOpen(item.url as string)} src={item.url} />
+        {del}
       </span>
     )
   }
@@ -45,6 +68,7 @@ function EvidenceChip({
       <span className="ev-text-body">
         {item.kind === 'attachment' ? mimeExt(item.mime) : item.text}
       </span>
+      {del}
     </span>
   )
 }
@@ -62,7 +86,8 @@ export function EvidencePanel({
   canAdd,
   openSignal,
   onPick,
-  onOpen
+  onOpen,
+  onRemove
 }: Props): ReactElement {
   const inputRef = useRef<HTMLInputElement | null>(null)
   /** 拖放高亮（v0.57）：只在"能收且不忙"时亮 */
@@ -120,7 +145,7 @@ export function EvidencePanel({
     >
       <span className="review-evidence-label">证据</span>
       {evidence.map(item => (
-        <EvidenceChip item={item} key={item.key} onOpen={onOpen} />
+        <EvidenceChip busy={busy} item={item} key={item.key} onOpen={onOpen} onRemove={onRemove} />
       ))}
       {canAdd ? (
         <>
