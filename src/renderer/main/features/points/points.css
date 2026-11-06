@@ -5,11 +5,11 @@
 .points-panel {
   display: flex;
   flex-direction: column;
-  /* 比例配额（04 §4① v0.29）：吃下半块内日历（240px 定高）之外的剩余、内部滚动，
-     随下半块按比例伸缩，不再定高（v0.28 的定高口径作废）。
+  /* 比例配额（04 §4① v0.29）：吃下半块内日历之外的剩余、内部滚动，随下半块按比例伸缩。
+     下限 96px：日历压到最矮时积分区仍要露出来并且能滚，不许被挤成 0 高。
      日历层（.calendar-dayview）替换本面板时同一口径，切换不跳动。 */
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 96px;
   box-sizing: border-box;
   border-top: 1px solid var(--border);
 }

@@ -61,10 +61,10 @@ describe('③④ 槽位二选一（index.tsx）', () => {
 })
 
 describe('右栏比例配额（04 §4① v0.29）', () => {
-  it('③④ 吃下半块剩余（flex: 1 1 auto + min-height: 0），随下半块等比伸缩、不再定高', () => {
+  it('③④ 吃下半块剩余（flex: 1 1 auto + min-height: 96px），随下半块等比伸缩、不再定高', () => {
     const points = ruleBody(POINTS_CSS, '.points-panel {')
     expect(points).toMatch(/flex:\s*1 1 auto/)
-    expect(points).toMatch(/min-height:\s*0/)
+    expect(points).toMatch(/min-height:\s*96px/)
     expect(points).not.toMatch(/flex:\s*0 0 \d+px/)
     const dayview = ruleBody(CALENDAR_CSS, '.calendar-dayview {')
     expect(dayview).toMatch(/flex:\s*1 1 auto/)

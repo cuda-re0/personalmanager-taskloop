@@ -54,6 +54,7 @@ function HudRowItem({
           />
         ) : null}
         <span className={row.done ? 'hud-row-title is-done' : 'hud-row-title'}>{row.title}</span>
+        {row.dueLabel === '' ? null : <span className="hud-row-date">{row.dueLabel}</span>}
       </div>
       {error ? <div className="hud-row-error">{error}</div> : null}
     </li>

@@ -827,6 +827,10 @@
   gap: 6px;
   padding: 2px 0;
   font-size: 14px;
+  color: var(--dot);
+}
+
+.reminder-row.is-settled {
   color: var(--text-sub);
 }
 
@@ -841,7 +845,7 @@
 .reminder-text {
   border: none;
   background: transparent;
-  color: var(--text-sub);
+  color: inherit;
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -852,8 +856,11 @@
   cursor: default;
 }
 
+.reminder-row.is-settled .reminder-text {
+  color: var(--text-sub);
+}
+
 .reminder-snooze {
-  opacity: 0;
   border: none;
   background: transparent;
   color: var(--text-faint);
@@ -861,14 +868,9 @@
   font-size: 12px;
   cursor: pointer;
   padding: 0 2px;
-}
-
-.reminder-row:hover .reminder-snooze {
-  opacity: 1;
 }
 
 .reminder-ack {
-  opacity: 0;
   border: none;
   background: transparent;
   color: var(--text-faint);
@@ -876,10 +878,6 @@
   font-size: 12px;
   cursor: pointer;
   padding: 0 2px;
-}
-
-.reminder-row:hover .reminder-ack {
-  opacity: 1;
 }
 
 /* ---------------- 错误气泡 ---------------- */

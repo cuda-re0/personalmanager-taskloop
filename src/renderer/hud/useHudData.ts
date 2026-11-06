@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Occurrence, Task } from '@shared/types/domain'
 import type { DomainEvent } from '@shared/types/events'
 import type { HudMode } from '@shared/types/ipc'
-import { buildRows, composeHudBg, localDayOf, type HudRow } from './hudModel'
+import {
+  buildRows,
+  composeHudBg,
+  localDayOf,
+  withinHudWindow,
+  type HudRow
+} from './hudModel'
 
 /**
  * HUD 的数据入口（04 §5.5）。
@@ -417,9 +423,11 @@ export function useHudData(): HudData {
       .catch((e: unknown) => console.error('[hud] hud.setVisible 调用失败', e))
   }, [])
 
+  // 过滤只在装配层做一次；增量（handleEvent）与首载补拉（mergeTodayFinished）都不改
+  const today = localDayOf(new Date())
   const rows = useMemo(
-    () => buildRows(snapshot.occurrences, snapshot.tasks),
-    [snapshot.occurrences, snapshot.tasks]
+    () => buildRows(snapshot.occurrences, withinHudWindow(snapshot.tasks, today)),
+    [snapshot.occurrences, snapshot.tasks, today]
   )
   // N/M 与列表同源（04 §5.3 v0.39）：分母是列表行数（含限时/活动），分子是已结束（done / missed）行数。
   // 不再单独数 occurrences——两套数各算各的必然对不上。

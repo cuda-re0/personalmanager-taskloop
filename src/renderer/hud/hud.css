@@ -202,6 +202,30 @@
   list-style: none;
 }
 
+/* 与主窗 .tasks-panel 同档的 6px 细条；只作用于 HUD 列表，不做全局规则 */
+.hud-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hud-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hud-list::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.hud-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.hud-list::-webkit-scrollbar-button {
+  display: none;
+}
+
 .hud-row-item {
   padding: 0 0 2px;
 }
@@ -253,6 +277,8 @@
 }
 
 .hud-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -260,6 +286,14 @@
 
 .hud-row-title.is-done {
   color: var(--text-faint);
+}
+
+/* 行尾截止日 MM-DD：不给标题留挤出可视区的机会，空值不进 DOM */
+.hud-row-date {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 已结束（done / missed）的限时/活动行整行变淡（04 §5.3 v0.39）：不加删除线、不加文字、不显示分值。

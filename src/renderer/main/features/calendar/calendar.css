@@ -2,8 +2,10 @@
 
 .calendar-panel {
   position: relative;
-  flex: 0 0 auto;
-  height: 240px;
+  /* 高度方向可压缩：窗口变矮时日历跟着缩，给下面的积分区留出空间 */
+  flex: 0 1 240px;
+  height: auto;
+  min-height: 132px;
   display: flex;
   flex-direction: column;
   padding-bottom: 12px;

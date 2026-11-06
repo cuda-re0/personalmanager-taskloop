@@ -3,6 +3,13 @@ import type { Api } from '@shared/types/ipc'
 import { dueInstant } from '@shared/due'
 
 /**
+ * 驳回后的逾期宽限（用户 2026-11-06 裁决）：截止后 24 小时内驳回仍回 `doing`，
+ * 可以继续补交证据；只有超过 24 小时之后的下一次驳回才判 `missed`。
+ * 宽限只影响「驳回是否判死」——`fmtRemaining` 过了截止时刻照旧显示「逾期」。
+ */
+export const OVERDUE_GRACE_MS = 24 * 60 * 60 * 1000
+
+/**
  * 完成审核的分流（v0.34~v0.36，04 §3.3 / 01 §3）。
  *
  * 这里是**分流规则的唯一实现**：① 的完成链路（`useTasksData`）与聊天卡的重审
@@ -42,10 +49,11 @@ const inFlight = new Set<string>()
  *
  * - `dueAt` 为 null / 解析成 NaN：一律不算超期（回 doing 可再提交）
  * - `dueAt` 恰好等于 now：**不算**超期（用严格小于，边界归用户）
+ * - 截止后再宽限 `OVERDUE_GRACE_MS`；`now === due + 24h` 是宽限最后一刻，仍**不算**超期
  */
 function isOverdue(dueAt: string | null, now: Date): boolean {
   const due = dueInstant(dueAt)
-  return due !== null && due.getTime() < now.getTime()
+  return due !== null && due.getTime() + OVERDUE_GRACE_MS < now.getTime()
 }
 
 /**

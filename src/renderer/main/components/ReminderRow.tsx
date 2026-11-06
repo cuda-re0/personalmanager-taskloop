@@ -20,7 +20,7 @@ function clockOf(iso: string): string {
   return `${hh}:${mm}`
 }
 
-/** 04 §3.1 + §9.4：居中细条、无气泡，--dot 小圆点，点击跳任务，hover 出「稍后提醒」 */
+/** 04 §3.1 + §9.4：居中细条、无气泡，--dot 小圆点，点击跳任务，两个按钮常显 */
 export function ReminderRow({
   title,
   fireAt,
@@ -29,12 +29,12 @@ export function ReminderRow({
   reminderId,
   actions
 }: Props): ReactElement {
-  /** 点过就消失，不落库也不回读（v0.88 的取舍：重启后按钮会再出现） */
-  const [acked, setAcked] = useState(false)
+  /** 一个状态管两件事：文字转灰 + 两个按钮一起从 DOM 移除。不落库，重启后按钮会再出现 */
+  const [settled, setSettled] = useState(false)
   const clock = clockOf(fireAt)
   const suffix = offsetMin === null ? (clock ? ` · ${clock}` : '') : ` · ${offsetLabel(offsetMin)}`
   return (
-    <div className="reminder-row">
+    <div className={settled ? 'reminder-row is-settled' : 'reminder-row'}>
       <span className="reminder-dot" />
       <button
         className="reminder-text"
@@ -47,24 +47,29 @@ export function ReminderRow({
         {title}
         {suffix}
       </button>
-      <button
-        className="reminder-snooze"
-        onClick={() => actions.snoozeReminder(reminderId)}
-        type="button"
-      >
-        稍后提醒
-      </button>
-      {acked ? null : (
-        <button
-          className="reminder-ack"
-          onClick={() => {
-            actions.ackAlert(reminderId)
-            setAcked(true)
-          }}
-          type="button"
-        >
-          知道了
-        </button>
+      {settled ? null : (
+        <>
+          <button
+            className="reminder-snooze"
+            onClick={() => {
+              actions.snoozeReminder(reminderId)
+              setSettled(true)
+            }}
+            type="button"
+          >
+            稍后提醒
+          </button>
+          <button
+            className="reminder-ack"
+            onClick={() => {
+              actions.ackAlert(reminderId)
+              setSettled(true)
+            }}
+            type="button"
+          >
+            知道了
+          </button>
+        </>
       )}
     </div>
   )

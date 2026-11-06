@@ -4,12 +4,14 @@ import {
   buildRows,
   completionRatio,
   composeHudBg,
+  hudDueLabel,
   localDayOf,
   pendingCount,
   ratioLabel,
   tempLabel,
   todayPointsLabel,
-  weekdayLabel
+  weekdayLabel,
+  withinHudWindow
 } from '../../src/renderer/hud/hudModel'
 
 /** HUD 的纯模型（W9 · 04 §5）：只测计数、格式化与列表拼装，DOM 不测 */
@@ -115,7 +117,8 @@ describe('列表拼装（完成沉底 → 每日 → 限时 → 活动，04 §5.
         title: '每日A',
         done: false,
         type: 'daily',
-        completable: true
+        completable: true,
+        dueLabel: ''
       },
       {
         kind: 'task',
@@ -123,7 +126,8 @@ describe('列表拼装（完成沉底 → 每日 → 限时 → 活动，04 §5.
         title: '限时B',
         done: false,
         type: 'deadline',
-        completable: false
+        completable: false,
+        dueLabel: ''
       }
     ])
   })
@@ -198,6 +202,36 @@ describe('列表拼装（完成沉底 → 每日 → 限时 → 活动，04 §5.
     const ids = buildRows([], tasks).map(r => r.id)
     expect(ids[0]).toBe('open')
     expect(new Set(ids.slice(1))).toEqual(new Set(['done', 'missed']))
+  })
+})
+
+describe('悬浮窗窗口：今天 ~ 今天+7（含两端）', () => {
+  const TODAY = '2026-10-28'
+
+  it('8 天后的任务丢掉，今天与第 7 天留下；行尾日期是 MM-DD', () => {
+    const tasks = [
+      makeTask({ id: 'today', title: '今天', dueAt: '2026-10-28' }),
+      makeTask({ id: 'd7', title: '第七天', dueAt: '2026-11-04' }),
+      makeTask({ id: 'd8', title: '第八天', dueAt: '2026-11-05' })
+    ]
+    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['today', 'd7'])
+    expect(hudDueLabel('2026-11-04T09:00:00')).toBe('11-04')
+    expect(hudDueLabel('2026-11')).toBe('11-30')
+    expect(hudDueLabel(null)).toBe('')
+    expect(hudDueLabel('不是日期')).toBe('')
+  })
+
+  it('done / missed 的旧任务不受窗口限制', () => {
+    const tasks = [
+      makeTask({ id: 'done', title: '完成', status: 'done', dueAt: '2026-01-01' }),
+      makeTask({ id: 'missed', title: '失败', status: 'missed', dueAt: '2026-01-02' })
+    ]
+    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['done', 'missed'])
+  })
+
+  it('dueAt 为 null 时保留（判不出日期不凭空丢）', () => {
+    const tasks = [makeTask({ id: 'none', title: '无限期', dueAt: null })]
+    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['none'])
   })
 })
 

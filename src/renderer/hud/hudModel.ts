@@ -1,6 +1,7 @@
 import type { Occurrence, Task } from '@shared/types/domain'
-import { dueInstant } from '@shared/due'
+import { dueInstant, dueLocalDay } from '@shared/due'
 import { fmtPoints } from '@shared/format'
+import { toLocalDay } from '@shared/localDay'
 
 /**
  * HUD 的纯模型（W9 · 04 §5 v0.30）。
@@ -27,6 +28,8 @@ export interface HudRow {
   type: HudRowType
   /** 只有每日打卡能在 HUD 里勾；限时/活动一律要过审，这里只起提醒作用（v0.38） */
   completable: boolean
+  /** 行尾截止日 `MM-DD`（从 `dueAt` 派生）；每日打卡行恒为 `''`，空串不进 DOM */
+  dueLabel: string
 }
 
 /** 类型档的排序权重（写死，不参与任何积分/业务判断） */
@@ -87,6 +90,30 @@ function dueTimestamp(dueAt: string | null): number | null {
   return at === null ? null : at.getTime()
 }
 
+/** `dueAt` → 行尾的 `MM-DD`；`day` 归当天、`month` 归月末都交给 `dueLocalDay`；判不出给 `''` */
+export function hudDueLabel(dueAt: string | null): string {
+  const day = dueLocalDay(dueAt)
+  return day === null ? '' : day.slice(5)
+}
+
+/**
+ * HUD 只留截止日落在「今天 ~ 今天+7 天」（含两端）的任务。
+ *
+ * 两类任务不受窗口约束：已结束（`done` / `missed`，今天刚结束的必须还看得见）、
+ * `dueLocalDay` 判不出日期的（不凭空丢）。其余用 `YYYY-MM-DD` 字符串字典序比较，
+ * 不转 Date 比毫秒；窗口末端用本地日历加 7 天，不用 UTC 切日期。
+ */
+export function withinHudWindow(tasks: Task[], today: string): Task[] {
+  const [year, month, day] = today.split('-').map(Number)
+  const end = toLocalDay(new Date(year, month - 1, day + 7))
+  return tasks.filter(task => {
+    if (task.status === 'done' || task.status === 'missed') return true
+    const dueDay = dueLocalDay(task.dueAt)
+    if (dueDay === null) return true
+    return dueDay >= today && dueDay <= end
+  })
+}
+
 /**
  * 列表行（04 §5.3 v0.38）：不再截断，列表本身滚动。
  *
@@ -110,7 +137,8 @@ export function buildRows(occurrences: Occurrence[], tasks: Task[]): HudRow[] {
         done: o.status === 'done',
         // occurrence 只由每日任务产生，类型恒为 daily
         type: 'daily' as const,
-        completable: true
+        completable: true,
+        dueLabel: ''
       },
       due: null
     })),
@@ -124,7 +152,8 @@ export function buildRows(occurrences: Occurrence[], tasks: Task[]): HudRow[] {
           // `missed` 是失败终点态，与完成同属"已结束"（04 §5.3 v0.39）
           done: t.status === 'done' || t.status === 'missed',
           type: t.type,
-          completable: false
+          completable: false,
+          dueLabel: hudDueLabel(t.dueAt)
         },
         due: dueTimestamp(t.dueAt)
       }))

@@ -120,10 +120,10 @@ describe('CSS：比例模型', () => {
     expect(split).toMatch(/touch-action:\s*none/)
   })
 
-  it('③④ 吃下半块剩余（flex: 1 1 auto + min-height: 0），不再有任何定高', () => {
+  it('③④ 吃下半块剩余（flex: 1 1 auto + min-height: 96px），不再有任何定高', () => {
     const points = ruleBody(POINTS_CSS, '.points-panel {')
     expect(points).toMatch(/flex:\s*1 1 auto/)
-    expect(points).toMatch(/min-height:\s*0/)
+    expect(points).toMatch(/min-height:\s*96px/)
     expect(points).not.toMatch(/flex:\s*0 0 \d+px/)
     const dayview = ruleBody(CALENDAR_CSS, '.calendar-dayview {')
     expect(dayview).toMatch(/flex:\s*1 1 auto/)

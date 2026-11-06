@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Message, ReviewVerdict, Task, TaskStatus } from '../../src/shared/types/domain'
 import {
+  OVERDUE_GRACE_MS,
   countNeedEvidence,
   decideReview,
   runReview
@@ -30,7 +31,8 @@ function verdictOf(
   }
 }
 
-const OVERDUE = { dueAt: '2026-10-29T12:00:00.000Z' }
+// 距 NOW 48 小时：跨过 24 小时宽限，仍应判 missed
+const OVERDUE = { dueAt: '2026-10-28T12:00:00.000Z' }
 const NOT_OVERDUE = { dueAt: '2026-10-31T12:00:00.000Z' }
 
 describe('decideReview：4 种 verdict × 是否超期（8 条）', () => {
@@ -58,6 +60,18 @@ describe('decideReview：4 种 verdict × 是否超期（8 条）', () => {
 describe('decideReview 的边界（§7.2）', () => {
   it('dueAt 恰好等于 now：不算超期', () => {
     expect(decideReview(verdictOf('fail'), { dueAt: NOW.toISOString() }, NOW)).toBe('revive')
+  })
+
+  it('dueAt = now − 24h 整：宽限最后一刻，仍 revive', () => {
+    const dueAt = new Date(NOW.getTime() - OVERDUE_GRACE_MS).toISOString()
+    expect(decideReview(verdictOf('partial'), { dueAt }, NOW)).toBe('revive')
+    expect(decideReview(verdictOf('fail'), { dueAt }, NOW)).toBe('revive')
+  })
+
+  it('dueAt = now − 24h − 1ms：宽限已过，判 missed', () => {
+    const dueAt = new Date(NOW.getTime() - OVERDUE_GRACE_MS - 1).toISOString()
+    expect(decideReview(verdictOf('partial'), { dueAt }, NOW)).toBe('missed')
+    expect(decideReview(verdictOf('fail'), { dueAt }, NOW)).toBe('missed')
   })
 
   it('dueAt 是非法字符串：按 null 处理，回 doing', () => {
