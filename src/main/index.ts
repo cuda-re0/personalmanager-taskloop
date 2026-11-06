@@ -6,6 +6,7 @@ import {
 import { isAutoStart, seedAutoStart } from './autoStart'
 import { initDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { startMcp, stopMcp } from './mcp'
 import { startReminderScheduler } from './scheduler/reminderScheduler'
 import { startReviewSweeper } from './services/reviewSweeper'
 import { ensureLhmStarted } from './services/sensorService'
@@ -41,6 +42,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     initDb() // W1 填实现
+    void startMcp() // 本机只读 MCP（77 单）：失败静默，不挡启动
     console.log('[main] initDb() invoked')
     registerAttachmentProtocol() // 协议处理器要在 ready 之后挂
     // 首次运行写开机启动项（v0.46）：要 userData 路径，所以排在 initDb 之后
@@ -82,6 +84,7 @@ app.on('before-quit', () => {
   stopFxSweeper = null
   stopReminderScheduler?.()
   stopReminderScheduler = null
+  void stopMcp()
 })
 
 app.on('window-all-closed', () => {

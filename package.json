@@ -1,6 +1,6 @@
 {
   "name": "taskloop",
-  "version": "0.73.0",
+  "version": "0.74.0",
   "private": true,
   "description": "taskloop desktop shell",
   "main": "./out/main/index.js",
