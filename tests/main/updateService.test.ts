@@ -1,26 +1,87 @@
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { describe, expect, it, vi } from 'vitest'
+import { dirname, join } from 'node:path'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * 更新服务的纯逻辑部分（v0.60）。
+ * 更新服务（v0.60 起，v0.75 改走 GitHub Release，v0.83 补换装安全）。
  *
- * 只测「版本比较」与「manifest 读不到时不许炸」——这两条是更新检查的地基：
- * 版本比错会让应用每次启动都重启，读 manifest 抛异常会让应用根本起不来。
- *
- * ELECTRON_RUN_AS_NODE 下没有真实 app：模块顶层要 `app.getPath('userData')`，
- * 所以整模块 mock 掉 electron（本文件不碰窗口、不碰 IPC，替换无副作用）。
+ * 只测版本比较、「检查更新」判定与覆盖/回滚的终局：网络层整模块 mock 掉，单测一律不联网。
+ * ELECTRON_RUN_AS_NODE 下没有真实 app，electron 也要整模块替换。
  */
+/** 可变的 exe 路径：覆盖/回滚用例把它指到临时沙箱 */
+const exeHolder = vi.hoisted(() => ({ path: '' }))
+
 vi.mock('electron', () => ({
   app: {
-    getPath: () => tmpdir(),
-    getVersion: () => '0.59.0',
+    getPath: (name: string) =>
+      name === 'exe' ? exeHolder.path : join(tmpdir(), 'taskloop-update-78'),
+    getVersion: () => '0.75.0',
     isPackaged: false,
-    quit: vi.fn()
-  }
+    relaunch: vi.fn(),
+    quit: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn()
+  },
+  BrowserWindow: { getAllWindows: () => [] }
 }))
 
-import { compareVersion, readManifest } from '../../src/main/update/updateService'
+vi.mock('../../src/main/update/github', () => ({
+  fetchLatestRelease: vi.fn(),
+  downloadPayload: vi.fn()
+}))
+
+import { app } from 'electron'
+import { downloadPayload, fetchLatestRelease } from '../../src/main/update/github'
+import {
+  applyUpdate,
+  checkUpdate,
+  compareVersion,
+  isInstallIntact,
+  REQUIRED_FILES
+} from '../../src/main/update/updateService'
+
+const fetchLatest = vi.mocked(fetchLatestRelease)
+const download = vi.mocked(downloadPayload)
+const relaunch = vi.mocked(app.relaunch)
+const quit = vi.mocked(app.quit)
+const USER_DATA = join(tmpdir(), 'taskloop-update-78')
+
+beforeEach(() => {
+  fetchLatest.mockReset()
+  download.mockReset()
+  relaunch.mockClear()
+  quit.mockClear()
+  rmSync(USER_DATA, { recursive: true, force: true })
+})
+
+const STATE_FILE = join(USER_DATA, 'update-state.json')
+const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
+
+function writeStateFile(value: unknown): void {
+  mkdirSync(USER_DATA, { recursive: true })
+  writeFileSync(STATE_FILE, JSON.stringify(value), 'utf8')
+}
+
+/** 造一个「旧版本已装好」的 resources/app，关键资源齐全 */
+function seedInstalledApp(root: string): string {
+  const appDir = join(root, 'resources', 'app')
+  for (const rel of REQUIRED_FILES) {
+    const file = join(appDir, rel)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, 'old')
+  }
+  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ version: '0.75.0' }))
+  return appDir
+}
+
+/** 一份只带 package.json、缺 out/** 的坏载荷 */
+function brokenPayload(version: string): string {
+  return JSON.stringify({
+    version,
+    files: { 'package.json': b64(JSON.stringify({ version })) }
+  })
+}
 
 describe('compareVersion（新版本判定）', () => {
   it('0.60.0 比 0.59.9 新', () => {
@@ -36,9 +97,142 @@ describe('compareVersion（新版本判定）', () => {
   })
 })
 
-describe('readManifest', () => {
-  it('目录不存在 → null，不抛异常', () => {
-    const missing = join(tmpdir(), 'taskloop-absent-updates-60')
-    expect(readManifest(missing)).toBeNull()
+describe('checkUpdate（GitHub Release）', () => {
+  it('远端 0.99.0 → 有更新且本次会装', async () => {
+    fetchLatest.mockResolvedValue({
+      version: '0.99.0',
+      payloadUrl: 'https://example.com/payload.json'
+    })
+    const result = await checkUpdate()
+    expect(result.hasUpdate).toBe(true)
+    expect(result.applying).toBe(true)
+  })
+
+  it('远端与当前同版本 → 无更新', async () => {
+    fetchLatest.mockResolvedValue({
+      version: '0.75.0',
+      payloadUrl: 'https://example.com/payload.json'
+    })
+    const result = await checkUpdate()
+    expect(result.hasUpdate).toBe(false)
+  })
+
+  it('自动路径查 GitHub 失败 → 返回无更新，不抛', async () => {
+    fetchLatest.mockRejectedValue(new Error('offline'))
+    await expect(checkUpdate()).resolves.toMatchObject({ hasUpdate: false, applying: false })
+  })
+
+  it('manual 路径查 GitHub 失败 → 抛给设置页', async () => {
+    fetchLatest.mockRejectedValue(new Error('offline'))
+    await expect(checkUpdate({ manual: true })).rejects.toThrow('检查更新失败：无法访问 GitHub')
+  })
+})
+
+describe('尝试标记（v0.83 带时间戳自愈）', () => {
+  const remote = { version: '0.99.0', payloadUrl: 'https://example.com/payload.json' }
+
+  it('标记在 24 小时内 → 自动路径不再装', async () => {
+    writeStateFile({ version: '0.99.0', at: new Date().toISOString() })
+    fetchLatest.mockResolvedValue(remote)
+    const result = await checkUpdate()
+    expect(result).toMatchObject({ hasUpdate: true, applying: false })
+  })
+
+  it('标记超过 24 小时 → 允许重试', async () => {
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    writeStateFile({ version: '0.99.0', at: old })
+    fetchLatest.mockResolvedValue(remote)
+    const result = await checkUpdate()
+    expect(result.applying).toBe(true)
+  })
+
+  it('旧格式（纯字符串、无 at）视为过期 → 允许重试', async () => {
+    writeStateFile({ attemptedVersion: '0.99.0' })
+    fetchLatest.mockResolvedValue(remote)
+    const result = await checkUpdate()
+    expect(result.applying).toBe(true)
+  })
+
+  it('manual 始终绕过拦截', async () => {
+    writeStateFile({ version: '0.99.0', at: new Date().toISOString() })
+    fetchLatest.mockResolvedValue(remote)
+    const result = await checkUpdate({ manual: true })
+    expect(result.applying).toBe(true)
+  })
+
+  it('装成功写下的标记是新格式（带 version 与 at）', async () => {
+    fetchLatest.mockResolvedValue(remote)
+    await checkUpdate()
+    const saved = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as { version?: unknown; at?: unknown }
+    expect(saved.version).toBe('0.99.0')
+    expect(typeof saved.at).toBe('string')
+  })
+})
+
+describe('applyUpdate 覆盖与回滚（v0.83）', () => {
+  it('载荷缺关键资源 → 判失败并回滚，旧 out 原样恢复后再重启', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'taskloop-app-'))
+    const appDir = seedInstalledApp(root)
+    exeHolder.path = join(root, 'taskloop.exe')
+    try {
+      fetchLatest.mockResolvedValue({ version: '0.99.0', payloadUrl: 'https://example.com/p' })
+      download.mockResolvedValue(brokenPayload('0.99.0'))
+
+      await checkUpdate()
+      await applyUpdate()
+
+      // 旧版资源被恢复，备份已消费掉
+      expect(readFileSync(join(appDir, 'out', 'main', 'index.js'), 'utf8')).toBe('old')
+      expect(existsSync(join(appDir, 'out.bak'))).toBe(false)
+      // 回滚成功 → 可以安全重启
+      expect(relaunch).toHaveBeenCalledTimes(1)
+      expect(quit).toHaveBeenCalledTimes(1)
+    } finally {
+      exeHolder.path = ''
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('回滚也失败 → 不 relaunch、不 quit，保留现场', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'taskloop-app-'))
+    const appDir = join(root, 'resources', 'app')
+    mkdirSync(appDir, { recursive: true })
+    // 没有 out/、也没有 out.bak：覆盖失败后无从恢复
+    writeFileSync(join(appDir, 'package.json'), JSON.stringify({ version: '0.75.0' }))
+    exeHolder.path = join(root, 'taskloop.exe')
+    try {
+      fetchLatest.mockResolvedValue({ version: '0.99.0', payloadUrl: 'https://example.com/p' })
+      download.mockResolvedValue(brokenPayload('0.99.0'))
+
+      await checkUpdate()
+      await applyUpdate()
+
+      expect(relaunch).not.toHaveBeenCalled()
+      expect(quit).not.toHaveBeenCalled()
+    } finally {
+      exeHolder.path = ''
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旧版完好（关键资源齐全、版本对得上）→ isInstallIntact 为 true', () => {
+    const root = mkdtempSync(join(tmpdir(), 'taskloop-app-'))
+    try {
+      seedInstalledApp(root)
+      expect(isInstallIntact(join(root, 'resources', 'app'), '0.75.0')).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('缺一个关键文件 → isInstallIntact 为 false', () => {
+    const root = mkdtempSync(join(tmpdir(), 'taskloop-app-'))
+    try {
+      const appDir = seedInstalledApp(root)
+      rmSync(join(appDir, 'out', 'renderer', 'hud', 'index.html'))
+      expect(isInstallIntact(appDir, '0.75.0')).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

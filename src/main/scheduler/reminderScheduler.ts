@@ -2,7 +2,7 @@ import type { Reminder } from '../../shared/types/domain'
 import { nowIso } from '../db/localDay'
 import * as reminderRepo from '../db/repositories/reminderRepo'
 import { STALE_POPUP_MS } from '../services/reminderPlan'
-import { fireDue, fireOne, syncAll } from '../services/reminderService'
+import { ensureRepeatHorizon, fireDue, fireOne, purgeInactiveTaskReminders, syncAll } from '../services/reminderService'
 
 /**
  * 提醒调度器（v0.58，58 §3.3）。
@@ -62,6 +62,8 @@ function catchUpMissed(now: Date): void {
 export function startReminderScheduler(): () => void {
   const run = (): void => {
     try {
+      // 顺序不许反：先补建再扫描，否则新建重复任务的第一条要等下一轮 30 秒（81 §4.2）
+      ensureRepeatHorizon(new Date())
       fireDue(new Date())
     } catch (e: unknown) {
       console.warn('[reminder] 本轮扫描失败', e)
@@ -69,12 +71,20 @@ export function startReminderScheduler(): () => void {
   }
 
   try {
+    // 清场必须在 catchUpMissed 之前：补发会把过去到点的 active 行收成"已触发"甚至真的弹一次，
+    // 排在后面等于先给已删任务发提醒、再删行（v0.85b）。单独包一层，失败不许影响后面三步。
+    try {
+      purgeInactiveTaskReminders()
+    } catch (e: unknown) {
+      console.warn('[reminder] 已删任务的提醒清场失败', e)
+    }
     // 顺序不能反：先消化错过的（它们此刻可能还是 active 行），再整体重建。
     // 反过来重建会先把这些行删掉——`planReminders` 只留未来的，过去的一律不留，
     // 于是补发判定什么都看不到，关机期间错过的提醒就彻底消失了。
     catchUpMissed(new Date())
     // 老任务（本版之前建的，只有偏移没有 reminders 行）在这里补建，不必等用户去编辑一次
     syncAll()
+    ensureRepeatHorizon(new Date())
   } catch (e: unknown) {
     console.warn('[reminder] 启动补发判定失败', e)
   }

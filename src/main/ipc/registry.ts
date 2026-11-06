@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import { app, shell } from 'electron'
 import { CH } from '@shared/channels'
+import { BOOTSTRAP_MESSAGE_LIMIT } from '@shared/constants'
 import type { AppSettings, Bootstrap } from '@shared/types/ipc'
 import type { Occurrence, Task } from '@shared/types/domain'
 import { broadcast } from '../bus'
@@ -17,6 +18,8 @@ import * as personaService from '../services/personaService'
 import * as attachmentService from '../services/attachmentService'
 import * as aiService from '../services/aiService'
 import * as pointsService from '../services/pointsService'
+import * as alertService from '../services/alertService'
+import * as pulseService from '../services/pulseService'
 import * as reminderService from '../services/reminderService'
 import * as sensorService from '../services/sensorService'
 import * as taskService from '../services/taskService'
@@ -52,6 +55,19 @@ export interface IpcLike {
 }
 
 export type HandlerFn = (input: unknown) => unknown
+
+/**
+ * v0.83：注册表挂的延时定时器（退出兜底 800ms、检查更新后 2 秒才装）。
+ * 无句柄的 setTimeout 会在用户已经关程序的窗口里继续跑——那 2 秒的定时器
+ * 一旦触发就会换装并 relaunch，等于「关了又被拉起来」。统一的清理入口见 clearExitTimers。
+ */
+const exitTimers = new Set<ReturnType<typeof setTimeout>>()
+
+/** 由 `app.before-quit` 调用，清掉本模块所有延时任务 */
+export function clearExitTimers(): void {
+  for (const timer of exitTimers) clearTimeout(timer)
+  exitTimers.clear()
+}
 
 /** 未接通道的归属（05 W2 段的通道归属表；promoteDraft 已随 W5 接通，不在表内） */
 export type NotWiredOwner = 'W4' | 'W5' | 'W6' | 'W8' | 'W9' | 'W11'
@@ -121,7 +137,7 @@ const TABLE: Row[] = [
     return {
       tasks: taskService.listTasks({ status: ['todo', 'doing', 'pending_review', 'reviewing'] }),
       todayOccurrences: occurrenceService.listToday(),
-      messages: messageService.recentMessages(30),
+      messages: messageService.recentMessages(BOOTSTRAP_MESSAGE_LIMIT),
       balance: pointsService.balance(),
       today: pointsService.todayStat(),
       monthIndex: statsRepo.dayIndex(from, to),
@@ -162,7 +178,7 @@ const TABLE: Row[] = [
     // 那时用户点了按钮却什么都没发生。800ms 后进程还在就强杀。
     // 用 app.exit(0) 而不是再调一次 quit：它跳过 before-quit，而本项目的 before-quit 只
     // clearInterval 两个 sweeper——进程都没了，不存在泄漏。
-    setTimeout(() => app.exit(0), 800)
+    exitTimers.add(setTimeout(() => app.exit(0), 800))
   }),
   // v0.60：手动更新检查。`applying` 为真时**不在这里**立刻重启——留 2 秒让渲染层
   // 把「正在更新」画出来，否则按钮状态永远是上一次的
@@ -170,7 +186,7 @@ const TABLE: Row[] = [
     // v0.60c：这条通道只被设置页那个按钮调用，属于人工触发——`manual` 会跳过
     // attemptedVersion 拦截（自动路径仍被拦），标记照写
     const result = await checkUpdate({ manual: true })
-    if (result.applying) setTimeout(() => applyUpdate(), 2000)
+    if (result.applying) exitTimers.add(setTimeout(() => { void applyUpdate() }, 2000))
     return result
   }),
 
@@ -560,7 +576,23 @@ const TABLE: Row[] = [
   }),
   row(CH.reminder.syncForTask, g.reminderSyncForTask, input =>
     reminderService.syncForTask(input.taskId)
-  )
+  ),
+
+  /* ---------------- pulse（4，v0.86） ---------------- */
+  // 四条薄转发：不广播域事件，提醒本身不进会话区、不进积分/日历
+  row(CH.pulse.list, g.pulseList, () => pulseService.list()),
+  row(CH.pulse.create, g.pulseCreate, input => pulseService.create(input)),
+  row(CH.pulse.setEnabled, g.pulseSetEnabled, input =>
+    pulseService.setEnabled(input.id, input.enabled)
+  ),
+  row(CH.pulse.remove, g.pulseRemove, input => {
+    pulseService.remove(input.id)
+    return { removed: true }
+  }),
+
+  /* ---------------- alert（1，v0.88） ---------------- */
+  // 只翻 acked_at：没有匹配行返回 0，不当错误
+  row(CH.alert.ack, g.alertAck, input => ({ acked: alertService.ackAlert(input.sourceId) }))
 ]
 
 /** 已接通的通道名（代码里的数据，供覆盖测试用） */

@@ -40,11 +40,15 @@ export function ReminderNotice({ payload, onDismiss }: Props): ReactElement {
           </button>
         </div>
         <div className="notice-strong-title">{payload.title}</div>
-        <div className="notice-strong-remain">
-          {value}
-          {unit ? <span className="notice-strong-unit">{unit}</span> : null}
-        </div>
-        <div className="notice-strong-due">{payload.dueLabel} 截止</div>
+        {payload.remainLabel === '' ? null : (
+          <div className="notice-strong-remain">
+            {value}
+            {unit ? <span className="notice-strong-unit">{unit}</span> : null}
+          </div>
+        )}
+        {payload.dueLabel === '' ? null : (
+          <div className="notice-strong-due">{payload.dueLabel} 截止</div>
+        )}
       </div>
     )
   }
@@ -54,7 +58,9 @@ export function ReminderNotice({ payload, onDismiss }: Props): ReactElement {
       <span className="notice-light-bar" />
       <div className="notice-light-body">
         <div className="notice-light-title">{payload.title}</div>
-        <div className="notice-light-sub">还剩 {payload.remainLabel}</div>
+        {payload.remainLabel === '' ? null : (
+          <div className="notice-light-sub">还剩 {payload.remainLabel}</div>
+        )}
       </div>
     </div>
   )

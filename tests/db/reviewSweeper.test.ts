@@ -30,6 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   setTransport(null)
   closeTestDb()
 })
@@ -78,5 +79,18 @@ describe('sweepPendingReview（v0.38 §6）', () => {
   it('本轮没有待提交任务 → 空数组，不报错', () => {
     taskService.createTask({ type: 'deadline', title: '写周报' })
     expect(sweepPendingReview(NOW)).toEqual([])
+  })
+
+  it('快照之后状态已变（用户刚提交）→ 跳过，不踢回 doing（v0.83）', () => {
+    const id = pendingSince(11)
+    const real = taskService.requireTask(id)
+
+    // 伪造一份过期快照：状态/时间戳与库里当前值不一致，等价于「扫到一半用户点了提交」
+    vi.spyOn(taskService, 'listTasks').mockReturnValue([
+      { ...real, updatedAt: new Date(0).toISOString() }
+    ])
+
+    expect(sweepPendingReview(NOW)).toEqual([])
+    expect(taskService.requireTask(id).status).toBe('pending_review')
   })
 })

@@ -4,6 +4,7 @@ import { roundPoints } from '../../shared/points/rubric'
 import type { Task, TaskStatus } from '../../shared/types/domain'
 import { addDays, daysBetweenInclusive, isoWeekday, monthBounds, todayLocalDay } from '../db/localDay'
 import * as occurrenceService from '../db/occurrenceService'
+import * as alertService from '../services/alertService'
 import * as messageService from '../services/messageService'
 import * as pointsService from '../services/pointsService'
 import * as taskService from '../services/taskService'
@@ -93,6 +94,15 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       properties: { range: { type: 'string', enum: ['today', 'week', 'month'] } },
       additionalProperties: false
     }
+  },
+  {
+    name: 'list_alerts',
+    description: '列出最近提醒及其确认状态；acked=false 且 escalated=true 表示用户没理会',
+    inputSchema: {
+      type: 'object',
+      properties: { sinceMinutes: { type: 'number', minimum: 1, maximum: 1440 } },
+      additionalProperties: false
+    }
   }
 ]
 
@@ -165,7 +175,13 @@ function getOverview(): Record<string, unknown> {
   const today = todayLocalDay()
   const pendingTasks = taskService
     .listTasks({ status: ALL_STATUSES })
-    .filter(task => task.status !== 'done' && task.status !== 'missed').length
+    .filter(
+      task =>
+        task.status !== 'done' &&
+        task.status !== 'missed' &&
+        task.status !== 'discarded' &&
+        task.status !== 'archived'
+    ).length
   return {
     now: localIsoNow(),
     today,
@@ -193,7 +209,14 @@ function listTasksTool(args: Record<string, unknown>): Record<string, unknown> {
   } else if (scope === 'all') {
     picked = all
   } else {
-    picked = all.filter(task => task.status !== 'done' && task.status !== 'missed')
+    // 默认「在办」口径：已删（discarded）/ 已归档（archived）不算在办（v0.85c）
+    picked = all.filter(
+      task =>
+        task.status !== 'done' &&
+        task.status !== 'missed' &&
+        task.status !== 'discarded' &&
+        task.status !== 'archived'
+    )
   }
 
   const steps = stepsByParent()
@@ -258,6 +281,33 @@ function getPointsTool(args: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
+/** `sinceMinutes` 越界夹到 1..1440、非数字按默认 60——工具不因为参数离谱而抛错 */
+function sinceMinutesOf(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 60
+  return Math.min(1440, Math.max(1, Math.floor(raw)))
+}
+
+function listAlertsTool(args: Record<string, unknown>): Record<string, unknown> {
+  const sinceMinutes = sinceMinutesOf(args.sinceMinutes)
+  const now = new Date()
+  // listSince 是升序：超过 100 条时留尾部（最近的），仍是升序输出
+  const alerts = alertService.listSince(sinceMinutes * 60_000, now).slice(-100)
+  return {
+    now: localIsoNow(),
+    alerts: alerts.map(alert => ({
+      id: alert.id,
+      kind: alert.kind,
+      level: alert.level,
+      sourceId: alert.sourceId,
+      title: alert.title,
+      firedAt: alert.firedAt,
+      acked: alert.ackedAt !== null,
+      escalated: alert.escalatedAt !== null,
+      ageSeconds: Math.max(0, Math.floor((now.getTime() - Date.parse(alert.firedAt)) / 1000))
+    }))
+  }
+}
+
 export function callTool(
   name: string,
   args: Record<string, unknown> = {}
@@ -273,6 +323,8 @@ export function callTool(
       return listMessagesTool(args)
     case 'get_points':
       return getPointsTool(args)
+    case 'list_alerts':
+      return listAlertsTool(args)
     default:
       throw new Error(`未知工具：${name}`)
   }

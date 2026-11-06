@@ -379,3 +379,45 @@ export interface Memory {
   createdAt: string
   updatedAt: string
 }
+
+/** 一天内按分钟重复的高频提醒（v0.86）：不进 occurrence / 积分 / 日历，只是可启停的闹钟 */
+export interface Pulse {
+  id: string
+  title: string
+  intervalMinutes: number
+  /** 'HH:mm'；与 windowEnd 同时为 null 表示全天 */
+  windowStart: string | null
+  windowEnd: string | null
+  enabled: boolean
+  lastFiredAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PulseCreateInput {
+  title: string
+  intervalMinutes: number
+  windowStart?: string | null
+  windowEnd?: string | null
+}
+
+export interface PulseToggleInput {
+  id: string
+  enabled: boolean
+}
+
+/**
+ * 一次真实投递的判定记录（v0.88）：弹过横幅或唤过主窗才落一行。
+ * 用户确认 → ackedAt；超时未确认 → escalatedAt（由 alertScheduler 标记）。
+ * `kind` 目前只产生 `reminder`——高频 pulse 不追踪（它是打断性的，不该污染外部队列）。
+ */
+export interface Alert {
+  id: string
+  kind: 'reminder'
+  level: 'normal' | 'strong'
+  sourceId: string
+  title: string
+  firedAt: string
+  ackedAt: string | null
+  escalatedAt: string | null
+}

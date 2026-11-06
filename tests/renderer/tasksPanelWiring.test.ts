@@ -115,3 +115,39 @@ describe('今日已完成行（v0.27）', () => {
     )
   })
 })
+
+/**
+ * 周期提醒入口并入创建卡（v0.87）。
+ *
+ * 纯位置与结构改造，没有可测的行为逻辑：标签在创建卡里、列表紧跟创建卡下方、
+ * 新增表单不再由列表组件持有、共享常量不被改写。只要有人把入口挪回面板末尾、
+ * 或者为了加标签去改 `TYPE_ORDER` / `TYPE_LABEL`，这里就会红。
+ */
+describe('周期提醒入口（v0.87）', () => {
+  const FORM_SOURCE = readFileSync(
+    resolve(process.cwd(), 'src/renderer/main/features/tasks/NewTaskForm.tsx'),
+    'utf8'
+  )
+  const VIEW_MODEL_SOURCE = readFileSync(
+    resolve(process.cwd(), 'src/renderer/main/features/chat/chatViewModel.ts'),
+    'utf8'
+  )
+
+  it('列表在创建卡下方，表单已不在列表组件里', () => {
+    expect(SOURCE.indexOf('<PulseSection')).toBeGreaterThan(-1)
+    expect(SOURCE.indexOf('<PulseSection')).toBeLessThan(SOURCE.indexOf('<DailyGroup'))
+
+    const section = SOURCE.slice(SOURCE.indexOf('function PulseSection'))
+    expect(section).not.toContain('createPulse')
+  })
+
+  it('标签存在且共享常量未被改写', () => {
+    expect(FORM_SOURCE).toContain('周期提醒')
+    expect(FORM_SOURCE).not.toMatch(/TYPE_ORDER\s*=/)
+    expect(FORM_SOURCE).not.toMatch(/TYPE_LABEL\s*=/)
+
+    // 共享的类型顺序仍是三项（逗号 2 个），新标签只在创建卡本地追加
+    const orderLine = VIEW_MODEL_SOURCE.split('\n').find(line => line.includes('TYPE_ORDER')) ?? ''
+    expect(orderLine.match(/,/g) ?? []).toHaveLength(2)
+  })
+})

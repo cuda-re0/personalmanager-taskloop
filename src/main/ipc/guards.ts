@@ -378,7 +378,19 @@ export const g = {
   hudSetVisible: z.object({ visible: z.boolean() }),
   hudGetState: z.undefined(),
   // v0.62：无入参，与 hudGetState 同款（preload 的 invoke(ch) 不带 payload）
-  hudSensors: z.undefined()
+  hudSensors: z.undefined(),
+  // pulse（v0.86）：只管形状，标题长度 / 间隔范围 / 时刻格式全部归 pulseService
+  pulseList: z.undefined(),
+  pulseCreate: z.object({
+    title: z.string(),
+    intervalMinutes: z.number(),
+    windowStart: z.string().nullable().optional(),
+    windowEnd: z.string().nullable().optional()
+  }),
+  pulseSetEnabled: z.object({ id: z.string().min(1), enabled: z.boolean() }),
+  pulseRemove: z.object({ id: z.string().min(1) }),
+  // alert（v0.88）：只校验 sourceId 非空，有没有匹配行由 repo 的 changes 说话
+  alertAck: z.object({ sourceId: z.string().min(1) })
 }
 
 /** 校验失败 → AppErrorException(INVALID_INPUT)，由 envelope 转成 ok:false */
@@ -459,5 +471,10 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.hud.dragTo]: g.hudDragTo,
   [CH.hud.setVisible]: g.hudSetVisible,
   [CH.hud.getState]: g.hudGetState,
-  [CH.hud.sensors]: g.hudSensors
+  [CH.hud.sensors]: g.hudSensors,
+  [CH.pulse.list]: g.pulseList,
+  [CH.pulse.create]: g.pulseCreate,
+  [CH.pulse.setEnabled]: g.pulseSetEnabled,
+  [CH.pulse.remove]: g.pulseRemove,
+  [CH.alert.ack]: g.alertAck
 }

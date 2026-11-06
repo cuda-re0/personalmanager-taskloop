@@ -52,16 +52,17 @@ describe('本机 MCP HTTP transport', () => {
     expect(body.result.serverInfo.name).toBe('taskloop')
   })
 
-  it('tools/list 返回 5 个工具，名字齐全', async () => {
+  it('tools/list 返回 6 个工具，名字齐全', async () => {
     const res = await rpc('tools/list')
     const body = (await res.json()) as { result: { tools: { name: string }[] } }
-    expect(body.result.tools).toHaveLength(5)
+    expect(body.result.tools).toHaveLength(6)
     expect(body.result.tools.map(tool => tool.name)).toEqual([
       'get_overview',
       'list_tasks',
       'get_task',
       'list_messages',
-      'get_points'
+      'get_points',
+      'list_alerts'
     ])
   })
 

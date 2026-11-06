@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DomainEvent } from '@shared/types/events'
-import type { Occurrence, Task, TaskPatch, TaskStatus, TaskType } from '@shared/types/domain'
+import type {
+  Occurrence,
+  Pulse,
+  PulseCreateInput,
+  PulseToggleInput,
+  Task,
+  TaskPatch,
+  TaskStatus,
+  TaskType
+} from '@shared/types/domain'
 import { toLocalDay as localDayOf } from '@shared/localDay'
 import { isDoneToday, isMissedToday, isStepChecked } from './tasksModel'
+import { reviveToDoing } from './reviewFlow'
 import { onFocusTask } from './focusTask'
 
 /**
@@ -49,7 +59,13 @@ function mergeTodayOccurrences(prev: Occurrence[], incoming: Occurrence[]): Occu
   const map = new Map(
     prev.filter(o => o.day === today).map(o => [o.id, o] as const)
   )
-  for (const o of incoming) if (o.day === today) map.set(o.id, o)
+  for (const o of incoming) {
+    if (o.day !== today) continue
+    // occurrence.updated 的载荷没有 taskTitle（主进程侧由 requireById 得来，不带 join 列），
+    // 整体替换会把旧标题抹成空串。只补这一个字段，其余一律用 incoming（v0.85）
+    const prev = map.get(o.id)
+    map.set(o.id, o.taskTitle === undefined && prev ? { ...o, taskTitle: prev.taskTitle } : o)
+  }
   return [...map.values()]
 }
 
@@ -74,10 +90,18 @@ export interface TasksActions {
   createManual(input: { type: TaskType; title: string; patch?: TaskPatch }): Promise<boolean>
   /** 改活动任务的日期（v0.59）。失败走行内红字，成功由 task.updated 事件驱动刷新 */
   updateTask(taskId: string, patch: TaskPatch): void
+  /** 软删任务（→ discarded，不可恢复）。成功后收起详情 */
+  removeTask(taskId: string): void
+  /** 高频周期提醒（v0.86）：成功返回 true，表单据此清空 */
+  createPulse(input: PulseCreateInput): Promise<boolean>
+  setPulseEnabled(input: PulseToggleInput): void
+  removePulse(id: string): void
 }
 
 export interface TasksData {
   tasks: Task[]
+  /** 高频周期提醒（v0.86）：不进任务/occurrence，独立一组 */
+  pulses: Pulse[]
   /** 今日已完成的顶层任务（v0.27）：done 且 completedAt 是今天，行保留、变淡、沉底 */
   doneTasks: Task[]
   /** 今日被判失败的顶层任务（v0.34）：missed 且 updatedAt 是今天，与 done 同档渲染 */
@@ -102,6 +126,7 @@ const NOTICE_MS = 2600
 
 export function useTasksData(): TasksData {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [pulses, setPulses] = useState<Pulse[]>([])
   const [doneTasks, setDoneTasks] = useState<Task[]>([])
   const [missedTasks, setMissedTasks] = useState<Task[]>([])
   const [reviewingIds, setReviewingIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -178,11 +203,26 @@ export function useTasksData(): TasksData {
       .catch((e: unknown) => console.error('[tasks] task.list(missed) 调用失败', e))
   }, [])
 
+  /** 高频周期提醒（v0.86）：bootstrap 之后单独拉一次；失败保持空数组，不弹提示 */
+  const reloadPulses = useCallback(() => {
+    void window.api.pulse
+      .list()
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] pulse.list 调用失败', res.error)
+          return
+        }
+        setPulses(res.data)
+      })
+      .catch((e: unknown) => console.error('[tasks] pulse.list 调用失败', e))
+  }, [])
+
   useEffect(() => {
     reloadTasks()
     reloadOccurrences()
     reloadDoneTasks()
     reloadMissedTasks()
+    reloadPulses()
     const off = window.api.onEvent((e: DomainEvent) => {
       switch (e.type) {
         case 'task.created':
@@ -192,11 +232,17 @@ export function useTasksData(): TasksData {
           reloadOccurrences()
           break
         case 'task.updated':
-        case 'task.removed':
           // 完成会把任务挪进 done 集合，驳回超期会挪进 missed 集合，两路都要跟着重拉
           reloadTasks()
           reloadDoneTasks()
           reloadMissedTasks()
+          break
+        case 'task.removed':
+          // v0.85：删除会连带清掉今天及以后的未完成打卡行，occurrence 也要重拉
+          reloadTasks()
+          reloadDoneTasks()
+          reloadMissedTasks()
+          reloadOccurrences()
           break
         case 'occurrence.created':
           setOccurrences(prev => mergeTodayOccurrences(prev, e.occurrences))
@@ -209,7 +255,7 @@ export function useTasksData(): TasksData {
       }
     })
     return off
-  }, [reloadTasks, reloadOccurrences, reloadDoneTasks, reloadMissedTasks])
+  }, [reloadTasks, reloadOccurrences, reloadDoneTasks, reloadMissedTasks, reloadPulses])
 
   /** focus-task（W6B 日历浮层 / ④ 明细点行）：展开该任务并高亮 */
   useEffect(
@@ -294,6 +340,24 @@ export function useTasksData(): TasksData {
   }, [])
 
   /**
+   * 软删任务（v0.84）：走已有的 `task.remove`（软删 → discarded，`task.removed` 事件会重拉列表）。
+   * 成功后必须收起详情——任务已从列表消失，详情留在屏上会指向一个不存在的 id。
+   * 失败与 `updateTask` 同口径：行内红字，文案取 `AppError.message` 原样。
+   */
+  const removeTask = useCallback((taskId: string): void => {
+    void window.api.task
+      .remove({ id: taskId })
+      .then(res => {
+        if (!res.ok) {
+          setNotice({ taskId, message: res.error.message })
+          return
+        }
+        setExpandedId(null)
+      })
+      .catch((e: unknown) => console.error('[tasks] task.remove 调用失败', e))
+  }, [])
+
+  /**
    * 提交完成（02 §3.2 / 01 §3 / v0.38）。
    *
    * **计分路径只做一步**：`transition({to:'pending_review'})`。任务进「待提交」，会话末尾
@@ -321,10 +385,16 @@ export function useTasksData(): TasksData {
               if (!done.ok) {
                 console.error('[tasks] task.complete(noPoints) 失败', done.error)
                 setNotice({ taskId: task.id, message: done.error.message })
+                // v0.83：第二步挂了任务会停在 reviewing，而该状态没有任何自动出口
+                // （sweeper 只扫 pending_review）。复用 reviewFlow 的同一个兜底。
+                void reviveToDoing(task.id)
               }
               // 成功后的刷新走 task.updated / points.changed 事件
             })
-            .catch((e: unknown) => console.error('[tasks] task.complete 调用失败', e))
+            .catch((e: unknown) => {
+              console.error('[tasks] task.complete 调用失败', e)
+              void reviveToDoing(task.id)
+            })
         })
         .catch((e: unknown) => console.error('[tasks] task.transition 调用失败', e))
       return
@@ -440,6 +510,52 @@ export function useTasksData(): TasksData {
     []
   )
 
+  /** 高频周期提醒（v0.86）：三个动作只就地改本地数组，不整表重拉 */
+  const createPulse = useCallback(
+    (input: PulseCreateInput): Promise<boolean> =>
+      window.api.pulse
+        .create(input)
+        .then(res => {
+          if (!res.ok) {
+            console.error('[tasks] pulse 操作失败', res.error)
+            return false
+          }
+          setPulses(prev => [...prev, res.data])
+          return true
+        })
+        .catch((e: unknown) => {
+          console.error('[tasks] pulse 操作失败', e)
+          return false
+        }),
+    []
+  )
+
+  const setPulseEnabled = useCallback((input: PulseToggleInput): void => {
+    void window.api.pulse
+      .setEnabled(input)
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] pulse 操作失败', res.error)
+          return
+        }
+        setPulses(prev => prev.map(p => (p.id === res.data.id ? res.data : p)))
+      })
+      .catch((e: unknown) => console.error('[tasks] pulse 操作失败', e))
+  }, [])
+
+  const removePulse = useCallback((id: string): void => {
+    void window.api.pulse
+      .remove({ id })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] pulse 操作失败', res.error)
+          return
+        }
+        setPulses(prev => prev.filter(p => p.id !== id))
+      })
+      .catch((e: unknown) => console.error('[tasks] pulse 操作失败', e))
+  }, [])
+
   const actions = useMemo<TasksActions>(
     () => ({
       expand,
@@ -451,7 +567,11 @@ export function useTasksData(): TasksData {
       cancelComplete,
       reorder,
       createManual,
-      updateTask
+      updateTask,
+      removeTask,
+      createPulse,
+      setPulseEnabled,
+      removePulse
     }),
     [
       expand,
@@ -463,12 +583,17 @@ export function useTasksData(): TasksData {
       cancelComplete,
       reorder,
       createManual,
-      updateTask
+      updateTask,
+      removeTask,
+      createPulse,
+      setPulseEnabled,
+      removePulse
     ]
   )
 
   return {
     tasks,
+    pulses,
     doneTasks,
     missedTasks,
     reviewingIds,

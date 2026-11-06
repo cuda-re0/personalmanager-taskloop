@@ -4,6 +4,8 @@ import chatSql from './003_chat.sql?raw'
 import spendSql from './004_spend.sql?raw'
 import attachmentNameSql from './005_attachment_name.sql?raw'
 import messageModeSql from './006_message_mode.sql?raw'
+import pulseSql from './007_pulse.sql?raw'
+import alertSql from './008_alert.sql?raw'
 
 /**
  * 迁移清单。只增不改（01 §5）。
@@ -21,5 +23,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 3, name: '003_chat', sql: chatSql },
   { version: 4, name: '004_spend', sql: spendSql },
   { version: 5, name: '005_attachment_name', sql: attachmentNameSql },
-  { version: 6, name: '006_message_mode', sql: messageModeSql }
+  { version: 6, name: '006_message_mode', sql: messageModeSql },
+  { version: 7, name: '007_pulse', sql: pulseSql },
+  { version: 8, name: '008_alert', sql: alertSql }
 ]

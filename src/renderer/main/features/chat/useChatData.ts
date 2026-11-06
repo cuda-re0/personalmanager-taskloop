@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BOOTSTRAP_MESSAGE_LIMIT } from '@shared/constants'
 import { dueInstant } from '@shared/due'
 import { computeAwardedPoints } from '@shared/points/rubric'
 import type { PointsConfig } from '@shared/points/rubric'
@@ -28,7 +29,8 @@ import {
   visibleChatMessages
 } from './chatViewModel'
 import { countNeedEvidence, mergePendingSubmit, runReview, submitForReview } from '../tasks/reviewFlow'
-import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtures__/messages'
+import { FIXTURE_MESSAGES, makeBulkMessages } from './__fixtures__/messages'
+import { mergeOlderPage } from './pageModel'
 
 /**
  * 会话区唯一的数据入口。
@@ -36,7 +38,7 @@ import { FIXTURE_MESSAGES, makeBulkMessages, makeOlderMessages } from './__fixtu
  * W5 起：挂载时调 `app.getBootstrap` 拿真消息与 settings，成功后**整体替换** fixture
  * （草稿分值按 settings 的完整 PointsConfig 归一，02 §5.2b）。IPC 不可用时才落回
  * fixture（W3 的开发/压测路径）。分页：真消息的向前翻页归 msg 域（W4），本层不越界，
- * 拿到真消息后关闭 loadMore。
+ * 拿到真消息后按首屏条数判定是否还有更早的。
  */
 const PAGE = 20
 
@@ -200,7 +202,7 @@ export function useChatData(): ChatData {
   /** 撤回/编辑要填回输入框的原文（v0.48）；null = 没有待填 */
   const [composeText, setComposeText] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(() => bulkCount() === 0)
-  const olderPool = useRef<Message[]>(bulkCount() === 0 ? makeOlderMessages(60) : [])
+  const [loadingMore, setLoadingMore] = useState(false)
   const seq = useRef(0)
 
   /**
@@ -387,7 +389,8 @@ export function useChatData(): ChatData {
         const nextCfg = pointsConfigOf(res.data.settings)
         setCfg(nextCfg)
         setMessages(res.data.messages)
-        setHasMore(false)
+        // 条数顶到上限就认为可能还有更早的：允许一次多余的空请求，比漏历史划算
+        setHasMore(res.data.messages.length >= BOOTSTRAP_MESSAGE_LIMIT)
         // 刷新时机①：首载拿到 bootstrap 消息之后，把审核消息引用的任务并发拉进来
         fetchReviewTasks(res.data.messages)
         const nextDrafts: Record<string, TaskDraft> = {}
@@ -652,6 +655,16 @@ export function useChatData(): ChatData {
       .catch((e: unknown) => console.error('[chat] reminder.snooze 调用失败', e))
   }, [])
 
+  /** 会话区「知道了」（v0.88）：只翻 acked_at，失败不提示（用户已经点掉了提醒） */
+  const ackAlert = useCallback((reminderId: string) => {
+    void window.api.alert
+      .ack({ sourceId: reminderId })
+      .then(res => {
+        if (!res.ok) console.error('[chat] alert.ack 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[chat] alert.ack 失败', e))
+  }, [])
+
   /**
    * 证据上传（施工词 33 §4）：File → base64 → `attachment.add` → **立即** `task.addEvidence`。
    *
@@ -863,6 +876,7 @@ export function useChatData(): ChatData {
       recallMessage,
       openTask,
       snoozeReminder,
+      ackAlert,
       addEvidence,
       addTextEvidence,
       removeEvidence,
@@ -880,6 +894,7 @@ export function useChatData(): ChatData {
       recallMessage,
       openTask,
       snoozeReminder,
+      ackAlert,
       addEvidence,
       addTextEvidence,
       removeEvidence,
@@ -946,17 +961,31 @@ export function useChatData(): ChatData {
   const consumeCompose = useCallback(() => setComposeText(null), [])
 
   const loadMore = useCallback(() => {
-    const pool = olderPool.current
-    if (pool.length === 0) {
+    if (loadingMore) return
+    const oldest = messages[0]
+    if (!oldest) {
       setHasMore(false)
       return
     }
-    // TODO(W2): 换成 api.msg.list({ threadId, before: 最早一条的 id, limit: PAGE })
-    const chunk = pool.slice(-PAGE)
-    olderPool.current = pool.slice(0, pool.length - PAGE)
-    setMessages(prev => [...chunk, ...prev])
-    setHasMore(olderPool.current.length > 0)
-  }, [])
+    setLoadingMore(true)
+    void window.api.msg
+      .list({ before: oldest.id, limit: PAGE })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[chat] 翻页失败', res.error)
+          setHasMore(false)
+          return
+        }
+        const next = mergeOlderPage(messages, res.data, PAGE)
+        setMessages(next.messages)
+        setHasMore(next.hasMore)
+      })
+      .catch((e: unknown) => {
+        console.error('[chat] 翻页失败', e)
+        setHasMore(false)
+      })
+      .finally(() => setLoadingMore(false))
+  }, [messages, loadingMore])
 
   /** 待提交卡要渲染的列表（v0.38）：主进程真值 ∪ 提交中快照，按 `updatedAt` 升序（先进的在上） */
   const pendingSubmit = useMemo(
@@ -1037,8 +1066,7 @@ export function useChatData(): ChatData {
     consumeCompose,
     runningUserId,
     hasMore,
-    // 本地 mock 是同步的；W2 换成真接口后这里接 loading 态
-    loadingMore: false,
+    loadingMore,
     actions,
     mode,
     toggleMode,

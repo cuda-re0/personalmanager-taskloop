@@ -70,3 +70,17 @@ describe('本机 MCP 只读工具（77 单 C2）', () => {
     expect(result.messages.map(message => message.text)).toEqual(['三'])
   })
 })
+
+describe('已删任务不进 MCP 在办口径（v0.85c）', () => {
+  it('list_tasks 与 pendingTasks 都不含 discarded 任务', () => {
+    const dead = taskService.createTask({ type: 'deadline', title: '要删的' })
+    taskService.removeTask(dead.id)
+    const alive = taskService.createTask({ type: 'deadline', title: '活着的' })
+
+    const list = callTool('list_tasks') as { tasks: { id: string }[] }
+    expect(list.tasks.map(task => task.id)).toEqual([alive.id])
+
+    const overview = callTool('get_overview') as { pendingTasks: number }
+    expect(overview.pendingTasks).toBe(1)
+  })
+})

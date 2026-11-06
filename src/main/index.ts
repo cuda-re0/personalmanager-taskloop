@@ -6,7 +6,10 @@ import {
 import { isAutoStart, seedAutoStart } from './autoStart'
 import { initDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { clearExitTimers } from './ipc/registry'
 import { startMcp, stopMcp } from './mcp'
+import { startAlertScheduler } from './scheduler/alertScheduler'
+import { startPulseScheduler } from './scheduler/pulseScheduler'
 import { startReminderScheduler } from './scheduler/reminderScheduler'
 import { startReviewSweeper } from './services/reviewSweeper'
 import { ensureLhmStarted } from './services/sensorService'
@@ -20,6 +23,13 @@ let stopReviewSweeper: (() => void) | null = null
 let stopFxSweeper: (() => void) | null = null
 /** 提醒调度器的停止函数（v0.58）：同上。窗口全关也要响，所以放主进程 */
 let stopReminderScheduler: (() => void) | null = null
+/** 高频周期提醒的停止函数（v0.86）：同上 */
+let stopPulseScheduler: (() => void) | null = null
+/** 提醒超时升级的停止函数（v0.88）：同上 */
+let stopAlertScheduler: (() => void) | null = null
+/** 启动期延时任务（v0.83 纳管）：退出时必须清，否则会在退出序列里继续跑 */
+let startupUpdateTimer: ReturnType<typeof setTimeout> | null = null
+let lhmTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
  * 单实例锁（v0.46）：必须在 `whenReady` 之前，且放在最前面。
@@ -58,16 +68,20 @@ if (!gotLock) {
     stopFxSweeper = startFxSweeper()
     // 提醒调度（v0.58）：关掉主窗只留 HUD 时也要响，所以周期扫描在主进程
     stopReminderScheduler = startReminderScheduler()
+    // 高频周期提醒（v0.86）：同一口径，扫描也在主进程
+    stopPulseScheduler = startPulseScheduler()
+    // 提醒超时升级（v0.88）：5 秒一轮，只标 escalated，不推送任何东西
+    stopAlertScheduler = startAlertScheduler()
 
     // 启动自检更新（v0.60）：延时 8 秒，让窗口先起来、用户至少能看到界面；
     // 只在绿色版（isPackaged）里生效，开发模式直接返回；失败静默，不弹任何东西
-    setTimeout(() => {
+    startupUpdateTimer = setTimeout(() => {
       void runStartupUpdateCheck()
     }, 8000)
 
     // 悬浮条温度（v0.62）：LHM 是管理员程序，拉起会弹 UAC；
     // 延后 3 秒，等窗口先画出来，避免开机自启时 UAC 抢在前台
-    setTimeout(() => {
+    lhmTimer = setTimeout(() => {
       void ensureLhmStarted()
     }, 3000)
 
@@ -84,6 +98,19 @@ app.on('before-quit', () => {
   stopFxSweeper = null
   stopReminderScheduler?.()
   stopReminderScheduler = null
+  stopPulseScheduler?.()
+  stopPulseScheduler = null
+  stopAlertScheduler?.()
+  stopAlertScheduler = null
+  if (startupUpdateTimer !== null) {
+    clearTimeout(startupUpdateTimer)
+    startupUpdateTimer = null
+  }
+  if (lhmTimer !== null) {
+    clearTimeout(lhmTimer)
+    lhmTimer = null
+  }
+  clearExitTimers()
   void stopMcp()
 })
 

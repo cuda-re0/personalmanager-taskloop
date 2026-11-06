@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getDb } from '../../src/main/db/connection'
 import { newId } from '../../src/main/db/ids'
 import * as reminderRepo from '../../src/main/db/repositories/reminderRepo'
+import * as taskRepo from '../../src/main/db/repositories/taskRepo'
+import { nowIso } from '../../src/main/db/localDay'
 import type { ReminderInsert } from '../../src/main/db/mappers'
 import * as taskService from '../../src/main/services/taskService'
 import { closeTestDb, expectErrorCode, openMemoryDb } from './helpers'
@@ -169,5 +171,92 @@ describe('reminders 物化与唯一索引', () => {
 
     getDb().prepare('DELETE FROM tasks WHERE id = ?').run(taskId)
     expect(reminderRepo.countAll()).toBe(0)
+  })
+
+  it('ensureRepeatRows：时刻改动 → 旧时刻行全清、新行全落新时刻；同刻连调不重复（84 §3）', () => {
+    const taskId = taskService.createTask({
+      type: 'daily',
+      title: '每天背单词',
+      dailyTime: '09:00',
+      repeatRule: 'EVERY:1:D'
+    }).id
+    const rule = 'EVERY:1:D'
+    const days = ['2026-11-10', '2026-11-11', '2026-11-12']
+    // 本地时刻构串，绝不经过 UTC 解析——断言与造数据都只看本地分量
+    const localIso = (day: string, hour: number): string =>
+      new Date(
+        Number(day.slice(0, 4)),
+        Number(day.slice(5, 7)) - 1,
+        Number(day.slice(8, 10)),
+        hour,
+        0,
+        0,
+        0
+      ).toISOString()
+    const rowsAt = (hour: number): Omit<ReminderInsert, 'taskId'>[] =>
+      days.map(day => ({
+        id: newId(),
+        occurrenceId: null,
+        offsetMin: null,
+        fireAt: localIso(day, hour),
+        repeatRule: rule,
+        channels: ['inapp'],
+        level: 'normal',
+        status: 'active',
+        createdAt: NOW
+      }))
+    const activeAbsolute = () =>
+      reminderRepo.listByTask(taskId).filter(r => r.offsetMin === null && r.status === 'active')
+
+    reminderRepo.ensureRepeatRows(taskId, rule, '09:00', rowsAt(9))
+    expect(activeAbsolute()).toHaveLength(3)
+
+    reminderRepo.ensureRepeatRows(taskId, rule, '21:00', rowsAt(21))
+    const after = activeAbsolute()
+    expect(after).toHaveLength(3)
+    expect(
+      after.every(r => {
+        const at = new Date(r.fireAt)
+        return at.getHours() === 21 && at.getMinutes() === 0
+      })
+    ).toBe(true)
+
+    // 同一 clock 连续调两次：行数不变（正常补建不重复插入、也不误删）
+    reminderRepo.ensureRepeatRows(taskId, rule, '21:00', rowsAt(21))
+    expect(activeAbsolute()).toHaveLength(3)
+  })
+})
+
+describe('删除任务的提醒收尾（v0.85b）', () => {
+  it('删除任务后 active 清空、fired 保留', () => {
+    const taskId = makeTask()
+    reminderRepo.insert(row(taskId, -30))
+    reminderRepo.insert(row(taskId, -10))
+    const third = reminderRepo.insert(row(taskId, -20))
+    reminderRepo.markFired(third.id, ['inapp'], NOW)
+
+    taskService.removeTask(taskId)
+
+    const left = reminderRepo.listByTask(taskId)
+    expect(left).toHaveLength(1)
+    expect(left[0].status).toBe('fired')
+    expect(
+      reminderRepo.listDue('2099-01-01T00:00:00.000Z').some(r => r.taskId === taskId)
+    ).toBe(false)
+  })
+
+  it('purgeForInactiveTasks 只清已删任务的行，且幂等', () => {
+    const alive = makeTask()
+    const dead = makeTask()
+    reminderRepo.insert(row(alive, -30))
+    reminderRepo.insert(row(dead, -30))
+
+    // 不用 removeTask：它会直接删行，测不到 purge
+    taskRepo.updateColumns(dead, { status: 'discarded' }, nowIso())
+
+    expect(reminderRepo.purgeForInactiveTasks()).toBe(1)
+    expect(reminderRepo.listByTask(alive)).toHaveLength(1)
+    expect(reminderRepo.listByTask(dead)).toHaveLength(0)
+    expect(reminderRepo.purgeForInactiveTasks()).toBe(0)
   })
 })

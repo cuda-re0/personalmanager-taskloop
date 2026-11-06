@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useState, type ReactElement } from 'react'
 import type { ChatActions } from '../features/chat/chatTypes'
 import { offsetLabel } from '../features/chat/chatViewModel'
 
@@ -29,6 +29,8 @@ export function ReminderRow({
   reminderId,
   actions
 }: Props): ReactElement {
+  /** 点过就消失，不落库也不回读（v0.88 的取舍：重启后按钮会再出现） */
+  const [acked, setAcked] = useState(false)
   const clock = clockOf(fireAt)
   const suffix = offsetMin === null ? (clock ? ` · ${clock}` : '') : ` · ${offsetLabel(offsetMin)}`
   return (
@@ -52,6 +54,18 @@ export function ReminderRow({
       >
         稍后提醒
       </button>
+      {acked ? null : (
+        <button
+          className="reminder-ack"
+          onClick={() => {
+            actions.ackAlert(reminderId)
+            setAcked(true)
+          }}
+          type="button"
+        >
+          知道了
+        </button>
+      )}
     </div>
   )
 }

@@ -23,9 +23,25 @@ function NotifyRoot(): ReactElement | null {
     return window.api.notify.onShow(setPayload)
   }, [])
 
+  /**
+   * 关窗前先确认（v0.88）：`window.close()` 会销毁这个渲染进程，先 close 再 ack 必然丢包。
+   * 所以等 ack 的 Promise settle 之后才 close，且**无论成败都关**——用户点掉横幅不能被一张表卡住。
+   */
   const dismiss = useCallback((): void => {
-    window.close()
-  }, [])
+    const reminderId = payload === null ? null : payload.reminderId
+    const close = (): void => window.close()
+    if (reminderId === null || typeof window.api === 'undefined') {
+      close()
+      return
+    }
+    void window.api.alert
+      .ack({ sourceId: reminderId })
+      .then(res => {
+        if (!res.ok) console.error('[notify] alert.ack 失败', res.error)
+      })
+      .catch((e: unknown) => console.error('[notify] alert.ack 失败', e))
+      .finally(close)
+  }, [payload])
 
   if (payload === null) return null
   return <ReminderNotice onDismiss={dismiss} payload={payload} />

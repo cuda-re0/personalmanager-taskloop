@@ -1,6 +1,13 @@
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import type { Task } from '@shared/types/domain'
+import type { Pulse, Task } from '@shared/types/domain'
+import {
+  describeRepeatRule,
+  parseRepeatRule,
+  serializeRepeatRule,
+  type RepeatRule,
+  type RepeatUnit
+} from '@shared/repeatRule'
 import { MarkdownText } from '../chat/MarkdownText'
 import { TYPE_LABEL, reminderSummary } from '../chat/chatViewModel'
 import type { DailyRow, TaskGroups } from './tasksModel'
@@ -17,6 +24,16 @@ import { NewTaskForm } from './NewTaskForm'
 import { useTasksData } from './useTasksData'
 import type { TasksActions, TasksData } from './useTasksData'
 import './tasks.css'
+
+/** v0.76：每日任务重复规则编辑的四类、单位字与周几字（B8 文字白名单） */
+const REPEAT_KINDS: { unit: RepeatUnit; label: string }[] = [
+  { unit: 'D', label: '每天' },
+  { unit: 'W', label: '每周' },
+  { unit: 'M', label: '每月' },
+  { unit: 'Y', label: '每年' }
+]
+const REPEAT_UNIT_LABEL: Record<RepeatUnit, string> = { D: '天', W: '周', M: '月', Y: '年' }
+const REPEAT_WEEKDAY_LABEL = ['一', '二', '三', '四', '五', '六', '日']
 
 /**
  * 右栏①「当前任务」（04 §4①）。
@@ -335,8 +352,176 @@ interface DetailProps {
 function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps): ReactElement {
   const offsets = reminderSummary(task.type, task.dailyTime, task.reminderOffsets)
 
+  // v0.76：重复规则编辑态。只有 daily 会渲染与解析，其余类型不碰这些 state
+  const [repeatOpen, setRepeatOpen] = useState(false)
+  const [repeatUnit, setRepeatUnit] = useState<RepeatUnit>('D')
+  const [repeatN, setRepeatN] = useState('1')
+  const [repeatWeekdays, setRepeatWeekdays] = useState<number[]>([1])
+  const [repeatMonthDay, setRepeatMonthDay] = useState('')
+  const [repeatYearMonth, setRepeatYearMonth] = useState('')
+  const [repeatYearDay, setRepeatYearDay] = useState('')
+  const [repeatTime, setRepeatTime] = useState('')
+  // v0.84：删除确认态（就地两态，不弹窗）
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+
+  const openRepeat = (): void => {
+    const r = parseRepeatRule(task.repeatRule)
+    setRepeatUnit(r.unit)
+    setRepeatN(String(r.n))
+    setRepeatWeekdays(r.weekdays.length > 0 ? r.weekdays : [1])
+    setRepeatMonthDay(r.monthDays.length > 0 ? String(r.monthDays[0]) : '')
+    setRepeatYearMonth(r.monthDay === null ? '' : String(Number(r.monthDay.slice(0, 2))))
+    setRepeatYearDay(r.monthDay === null ? '' : String(Number(r.monthDay.slice(3))))
+    setRepeatTime(task.dailyTime ?? '')
+    setRepeatOpen(true)
+  }
+
+  /** 草稿折成规则；只填一个月 / 日字段时返回 null（非法，不提交） */
+  const ruleOfDraft = (
+    unit: RepeatUnit,
+    nText: string,
+    weekdays: number[],
+    monthDayText: string,
+    yearMonth: string,
+    yearDay: string
+  ): RepeatRule | null => {
+    const base: RepeatRule = {
+      n: Number(nText.trim()),
+      unit,
+      weekdays: [],
+      monthDays: [],
+      monthDay: null
+    }
+    if (unit === 'W') return { ...base, weekdays }
+    if (unit === 'M') {
+      if (monthDayText.trim() === '') return base
+      return { ...base, monthDays: [Number(monthDayText.trim())] }
+    }
+    if (unit === 'Y') {
+      const m = yearMonth.trim()
+      const d = yearDay.trim()
+      if (m === '' && d === '') return base
+      if (m === '' || d === '') return null
+      const pad = (v: string): string => (Number(v) < 10 ? `0${Number(v)}` : String(Number(v)))
+      return { ...base, monthDay: `${pad(m)}-${pad(d)}` }
+    }
+    return base
+  }
+
+  const commitRepeat = (draft: {
+    unit: RepeatUnit
+    nText: string
+    weekdays: number[]
+    monthDayText: string
+    yearMonth: string
+    yearDay: string
+    timeText: string
+  }, closeOnSuccess: boolean): void => {
+    let serialized: string
+    try {
+      const r = ruleOfDraft(
+        draft.unit,
+        draft.nText,
+        draft.weekdays,
+        draft.monthDayText,
+        draft.yearMonth,
+        draft.yearDay
+      )
+      if (r === null) {
+        setRepeatOpen(false)
+        return
+      }
+      serialized = serializeRepeatRule(r)
+      parseRepeatRule(serialized) // n 越界 / 号 0、32 / 非法月日 → 抛错
+    } catch {
+      setRepeatOpen(false) // 非法值不提交，回只读，原值不变
+      return
+    }
+    void window.api.task
+      .update({
+        id: task.id,
+        patch: {
+          repeatRule: serialized,
+          // 时刻清空是合法操作：写 null，让 syncForTask 把旧时刻的提醒行全清掉
+          dailyTime: draft.timeText.trim() === '' ? null : draft.timeText.trim()
+        }
+      })
+      .then(res => {
+        if (!res.ok) {
+          console.error('[tasks] task.update 失败', res.error.message)
+          return
+        }
+        if (closeOnSuccess) setRepeatOpen(false)
+      })
+      .catch((e: unknown) => console.error('[tasks] task.update 调用失败', e))
+  }
+
+  const commitCurrent = (): void =>
+    commitRepeat({
+      unit: repeatUnit,
+      nText: repeatN,
+      weekdays: repeatWeekdays,
+      monthDayText: repeatMonthDay,
+      yearMonth: repeatYearMonth,
+      yearDay: repeatYearDay,
+      timeText: repeatTime
+    }, true)
+
+  const onRepeatKind = (next: RepeatUnit): void => {
+    setRepeatUnit(next)
+    const weekdays = next === 'W' && repeatWeekdays.length === 0 ? [1] : repeatWeekdays
+    if (next === 'W' && repeatWeekdays.length === 0) setRepeatWeekdays([1])
+    commitRepeat({
+      unit: next,
+      nText: repeatN,
+      weekdays,
+      monthDayText: repeatMonthDay,
+      yearMonth: repeatYearMonth,
+      yearDay: repeatYearDay,
+      timeText: repeatTime
+    }, false)
+  }
+
+  const onRepeatBlur = (event: FocusEvent<HTMLDivElement>): void => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return
+    }
+    commitCurrent()
+  }
+
+  const onRepeatKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // 按钮上的 Enter 由它自己的 onClick 处理，别让冒泡再提交一次旧 unit
+    if (event.key === 'Enter' && event.target instanceof HTMLInputElement) commitCurrent()
+  }
+
   // v0.59：只有活动任务在 todo / doing 时可改日期（与 planReminders 同口径）；v0.65 口径收到任务模型里
   const canEditDue = canEditDueOf(task)
+  // v0.83：库里的坏规则不能让 describeRepeatRule 抛错掀掉整棵 React 树（全仓无 ErrorBoundary）。
+  // 失败时该行渲染成空的可点按钮——用户仍能点进去改成合法值，且不新增任何文案。
+  let repeatLabel = ''
+  try {
+    repeatLabel = describeRepeatRule(task.repeatRule)
+  } catch {
+    repeatLabel = ''
+  }
+  // v0.84：重复行只留一行——规则 + 时刻；时刻为空时不加尾随空格
+  const repeatText = [repeatLabel, task.dailyTime ?? ''].filter(Boolean).join(' ')
+  // 可软删的来源状态，与 stateMachine 允许迁到 discarded 的口径一致
+  const canDelete =
+    task.status === 'todo' ||
+    task.status === 'doing' ||
+    task.status === 'pending_review' ||
+    task.status === 'reviewing'
+
+  const askDelete = (): void => {
+    if (confirming) actions.cancelComplete()
+    setDeleteConfirm(true)
+  }
+
+  const confirmDelete = (): void => {
+    actions.removeTask(task.id)
+    setDeleteConfirm(false)
+  }
   // v0.75：日期 + 时间两个框，时间可留空；写法与行内编辑共用同一套
   const [dueDateDraft, setDueDateDraft] = useState(() => dueDateValueOf(task.dueAt))
   const [dueTimeDraft, setDueTimeDraft] = useState(() => dueTimeValueOf(task.dueAt))
@@ -403,7 +588,103 @@ function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps):
           })}
         </ul>
       ) : null}
-      {offsets ? <div className="task-offsets">{offsets}</div> : null}
+      {task.type !== 'daily' && offsets ? <div className="task-offsets">{offsets}</div> : null}
+      {task.type === 'daily' ? (
+        repeatOpen ? (
+          <div onBlur={onRepeatBlur} onKeyDown={onRepeatKeyDown}>
+            <div className="task-repeat-kinds">
+              {REPEAT_KINDS.map(kind => (
+                <button
+                  aria-pressed={repeatUnit === kind.unit}
+                  key={kind.unit}
+                  onClick={() => onRepeatKind(kind.unit)}
+                  type="button"
+                >
+                  {kind.label}
+                </button>
+              ))}
+            </div>
+            <div className="task-repeat-every">
+              <span>每</span>
+              <input
+                className="task-due-edit-input task-repeat-num"
+                type="number"
+                value={repeatN}
+                onChange={event => setRepeatN(event.target.value)}
+              />
+              <span>{REPEAT_UNIT_LABEL[repeatUnit]}</span>
+            </div>
+            {repeatUnit === 'W' ? (
+              <div className="task-repeat-days">
+                {REPEAT_WEEKDAY_LABEL.map((label, index) => {
+                  const weekday = index + 1
+                  const on = repeatWeekdays.includes(weekday)
+                  return (
+                    <button
+                      aria-pressed={on}
+                      key={weekday}
+                      onClick={() => {
+                        if (on && repeatWeekdays.length === 1) return
+                        setRepeatWeekdays(
+                          on
+                            ? repeatWeekdays.filter(w => w !== weekday)
+                            : [...repeatWeekdays, weekday].sort((a, b) => a - b)
+                        )
+                      }}
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+            {repeatUnit === 'M' ? (
+              <div className="task-repeat-every">
+                <input
+                  className="task-due-edit-input task-repeat-num"
+                  type="number"
+                  value={repeatMonthDay}
+                  onChange={event => setRepeatMonthDay(event.target.value)}
+                />
+              </div>
+            ) : null}
+            {repeatUnit === 'Y' ? (
+              <div className="task-repeat-every">
+                <input
+                  className="task-due-edit-input task-repeat-num"
+                  type="number"
+                  value={repeatYearMonth}
+                  onChange={event => setRepeatYearMonth(event.target.value)}
+                />
+                <span>月</span>
+                <input
+                  className="task-due-edit-input task-repeat-num"
+                  type="number"
+                  value={repeatYearDay}
+                  onChange={event => setRepeatYearDay(event.target.value)}
+                />
+                <span>日</span>
+              </div>
+            ) : null}
+            <div className="task-repeat-every">
+              <input
+                className="task-due-edit-input task-repeat-time"
+                type="time"
+                value={repeatTime}
+                onChange={event => setRepeatTime(event.target.value)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="task-repeat-row">
+            <span>重复</span>
+            <button className="task-repeat-value" onClick={openRepeat} type="button">
+              {repeatText}
+            </button>
+          </div>
+        )
+      ) : null}
       {/* v0.59：活动任务的日期时间输入（只有活动、只有 todo / doing）。不带可见标签，aria-label 不进视觉 */}
       {canEditDue ? (
         <div className="task-due-edit" onBlur={onEditBlur} onKeyDown={onEditKeyDown}>
@@ -423,14 +704,22 @@ function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps):
           />
         </div>
       ) : null}
-      {/* 今日已完成 / 今日判失败的任务没有 [完成] 入口（v0.27 / v0.34）；
+      {/* 删除入口（v0.84）：与完成共用同一条 actions 区，两态互斥；
+          done / missed / discarded / archived 不显示删除。
+          今日已完成 / 今日判失败的任务没有 [完成] 入口（v0.27 / v0.34）；
           v0.38：pending_review（待提交）也没有——已经提交过一次，等的是交材料不是再点完成。
           detail_md / 步骤 / 偏移照常展示 */}
-      {task.type !== 'daily' &&
-      task.status !== 'done' &&
-      task.status !== 'missed' &&
-      task.status !== 'pending_review' ? (
-        confirming ? (
+      {canDelete ? (
+        deleteConfirm ? (
+          <div className="task-confirm-bar">
+            <button className="btn btn--primary" onClick={confirmDelete} type="button">
+              删除
+            </button>
+            <button className="btn btn--ghost" onClick={() => setDeleteConfirm(false)} type="button">
+              取消
+            </button>
+          </div>
+        ) : confirming ? (
           <div className="task-confirm-bar">
             <button
               className="btn btn--primary"
@@ -454,13 +743,21 @@ function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps):
           </div>
         ) : (
           <div className="task-detail-actions">
-            <button
-              className="btn btn--primary"
-              disabled={busy}
-              onClick={() => actions.completeTask(task)}
-              type="button"
-            >
-              完成
+            {task.type !== 'daily' &&
+            task.status !== 'done' &&
+            task.status !== 'missed' &&
+            task.status !== 'pending_review' ? (
+              <button
+                className="btn btn--primary"
+                disabled={busy}
+                onClick={() => actions.completeTask(task)}
+                type="button"
+              >
+                完成
+              </button>
+            ) : null}
+            <button className="btn btn--ghost" onClick={askDelete} type="button">
+              删除
             </button>
           </div>
         )
@@ -469,10 +766,62 @@ function TaskDetail({ task, subtasks, confirming, busy, actions }: DetailProps):
   )
 }
 
+interface PulseSectionProps {
+  pulses: Pulse[]
+  actions: TasksActions
+}
+
+/**
+ * 高频 pulse 列表（v0.86 / v0.87）：列表只读展示，新增入口在创建卡里。
+ * 分组结构与「每日 / 限时 / 活动」同构（`task-group` + `task-group-title`），
+ * 没有条目时整块不渲染（不写空状态文案）。
+ */
+function PulseSection({ pulses, actions }: PulseSectionProps): ReactElement | null {
+  const intervalLabel = (minutes: number): string =>
+    minutes >= 60 && minutes % 60 === 0 ? `每 ${minutes / 60} 小时` : `每 ${minutes} 分钟`
+
+  const windowLabel = (item: Pulse): string =>
+    item.windowStart !== null &&
+    item.windowEnd !== null &&
+    item.windowStart !== '' &&
+    item.windowEnd !== ''
+      ? `${item.windowStart}–${item.windowEnd}`
+      : ''
+
+  if (pulses.length === 0) return null
+
+  return (
+    <section className="task-group">
+      <h3 className="task-group-title">周期提醒</h3>
+      {pulses.map(item => {
+        const win = windowLabel(item)
+        return (
+          <div className="pulse-row" key={item.id}>
+            <span className="task-title">{item.title}</span>
+            <span className="pulse-meta">{intervalLabel(item.intervalMinutes)}</span>
+            {win === '' ? null : <span className="pulse-meta">{win}</span>}
+            <button
+              className="pulse-btn"
+              onClick={() => actions.setPulseEnabled({ id: item.id, enabled: !item.enabled })}
+              type="button"
+            >
+              {item.enabled ? '暂停' : '启用'}
+            </button>
+            <button className="pulse-btn" onClick={() => actions.removePulse(item.id)} type="button">
+              删除
+            </button>
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
 /** 右栏① 外壳：三组固定顺序 每日 → 限时 → 活动（04 §4①），空组不显示标题 */
 export function TasksPanel(): ReactElement {
   const {
     tasks,
+    pulses,
     doneTasks,
     missedTasks,
     reviewingIds,
@@ -494,6 +843,7 @@ export function TasksPanel(): ReactElement {
   return (
     <div className="tasks-panel">
       <NewTaskForm actions={actions} />
+      <PulseSection actions={actions} pulses={pulses} />
       <DailyGroup
         actions={actions}
         expandedId={expandedId}

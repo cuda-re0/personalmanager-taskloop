@@ -354,3 +354,17 @@ describe('完成与错误（04 §5.3 v0.38）', () => {
     expect(DATA).not.toMatch(/snapshot\.occurrences\.(filter|length)/)
   })
 })
+
+describe('HUD 删除任务的两个出口（v0.85c）', () => {
+  it('task.removed 同时清 tasks 与 occurrences', () => {
+    // 只清 tasks 不够：daily 的行只由 occurrences 建行，剩下的 pending 行会让整行留着
+    const start = DATA.indexOf("case 'task.removed'")
+    expect(start).toBeGreaterThan(-1)
+    const rest = DATA.slice(start + 1)
+    const next = rest.indexOf("case '")
+    const branch = next === -1 ? rest : rest.slice(0, next)
+
+    expect(branch).toContain('prev.tasks.filter(t => t.id !== event.taskId)')
+    expect(branch).toContain('prev.occurrences.filter(o => o.taskId !== event.taskId)')
+  })
+})

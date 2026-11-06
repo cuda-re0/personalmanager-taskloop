@@ -83,6 +83,17 @@ export const CH = {
     syncForTask: 'reminder:syncForTask',
     testChannel: 'reminder:testChannel'
   },
+  /** 一天内的高频周期提醒（v0.86）：四条可 invoke 通道 */
+  pulse: {
+    list: 'pulse:list',
+    create: 'pulse:create',
+    setEnabled: 'pulse:setEnabled',
+    remove: 'pulse:remove'
+  },
+  /** 提醒确认（v0.88）：只 record 不推送，所以不塞进 notify 那个单向组 */
+  alert: {
+    ack: 'alert:ack'
+  },
   channel: {
     list: 'channel:list',
     setConfig: 'channel:setConfig',

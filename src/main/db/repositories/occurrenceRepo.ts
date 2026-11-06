@@ -47,10 +47,28 @@ export function requireById(id: string): Occurrence {
   return occ
 }
 
+/** 今日列表：已丢弃 / 已归档的任务不再出现（v0.85）。日历走 listByRange，保留历史。 */
 export function listByDay(day: string): Occurrence[] {
   return (getDb()
-    .prepare(`${SELECT_OCCURRENCE_JOINED} WHERE o.day = ? ORDER BY t.sort_key ASC, o.id ASC`)
+    .prepare(
+      `${SELECT_OCCURRENCE_JOINED} WHERE o.day = ?
+         AND t.status NOT IN ('discarded', 'archived')
+       ORDER BY t.sort_key ASC, o.id ASC`
+    )
     .all(day) as OccurrenceRow[]).map(mapOccurrence)
+}
+
+/**
+ * 删除某任务 fromDay 当天及以后、状态不是 done 的 occurrence（v0.85）；返回删除行数。
+ * 保留 done：`point_ledger.occurrence_id` 是 ON DELETE SET NULL，删掉已完成的打卡会让流水丢掉对账线索。
+ */
+export function removeUnfinishedFrom(taskId: string, fromDay: string): number {
+  return getDb()
+    .prepare(
+      `DELETE FROM task_occurrences
+       WHERE task_id = ? AND day >= ? AND status <> 'done'`
+    )
+    .run(taskId, fromDay).changes
 }
 
 export function listByRange(from: string, to: string): Occurrence[] {

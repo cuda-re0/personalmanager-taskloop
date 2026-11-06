@@ -195,7 +195,13 @@ export function useHudData(): HudData {
           case 'task.updated':
             return { ...prev, tasks: upsertTask(prev.tasks, event.task) }
           case 'task.removed':
-            return { ...prev, tasks: prev.tasks.filter(t => t.id !== event.taskId) }
+            // daily 的行只由 occurrences 建行（buildRows 里 tasks 排除了 daily），
+            // 只清 tasks 会让整行继续挂在悬浮窗上（v0.85c）
+            return {
+              ...prev,
+              tasks: prev.tasks.filter(t => t.id !== event.taskId),
+              occurrences: prev.occurrences.filter(o => o.taskId !== event.taskId)
+            }
           case 'points.changed':
             // 载荷里的 `today` 已经是主进程算好的当日统计，直接取用（不自己求和）
             return { ...prev, points: event.today.points }

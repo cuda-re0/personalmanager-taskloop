@@ -141,8 +141,11 @@ function messageOf(error: unknown): string {
  *
  * 第 3 步（AI 挂）与第 4 步（落库挂）**必须共用这一个 helper**——两处各写一遍迟早漂。
  * 失败只记日志：已经有一个更重要的错误要显示，不要再叠一条。
+ *
+ * v0.83 起导出：`useTasksData` 的「不计分直通」也是两步链路（transition → complete），
+ * 第二步失败同样要把任务捞回 doing，否则 `reviewing` 没有任何自动出口。
  */
-async function reviveToDoing(taskId: string): Promise<void> {
+export async function reviveToDoing(taskId: string): Promise<void> {
   try {
     const current = await api().task.get({ id: taskId })
     if (!current.ok || current.data.status !== 'reviewing') return

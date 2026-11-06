@@ -5,6 +5,7 @@ import * as ledgerRepo from '../../src/main/db/repositories/ledgerRepo'
 import * as occurrenceRepo from '../../src/main/db/repositories/occurrenceRepo'
 import * as statsRepo from '../../src/main/db/repositories/statsRepo'
 import * as pointsService from '../../src/main/services/pointsService'
+import * as taskRepo from '../../src/main/db/repositories/taskRepo'
 import * as taskService from '../../src/main/services/taskService'
 import { closeTestDb, expectErrorCode, openMemoryDb } from './helpers'
 
@@ -173,5 +174,31 @@ describe('occurrence.skip', () => {
     const after = pointsService.skipOccurrence(occ.id)
     expect(after.status).toBe('done')
     expect(pointsService.balance()).toBe(1)
+  })
+})
+
+describe('已删任务的打卡拦截（v0.85）', () => {
+  it('已丢弃的任务不能打卡：CONFLICT 且余额不变', () => {
+    const { task, days } = dailyWithDays(1)
+    const occ = occOf(task.id, days[0])
+    // 不用 removeTask：它会清掉今天这条未完成行（§1），award 会先撞 NOT_FOUND。
+    // 按 §9 验收 3 的口径直接把任务标成 discarded，让 occurrence 留在库里，才真正打到状态闸。
+    taskRepo.updateColumns(task.id, { status: 'discarded' }, nowIso())
+
+    expectErrorCode(() => pointsService.awardOccurrence(occ.id), 'CONFLICT')
+    expect(ledgerRepo.balance()).toBe(0)
+    expect(pointsService.balance()).toBe(0)
+  })
+
+  it('删除只清未完成行：今天的 done 保留、未来的 pending 清掉', () => {
+    const { task, days } = dailyWithDays(1)
+    pointsService.awardOccurrence(occOf(task.id, days[0]).id)
+    const tomorrow = addDays(todayLocalDay(), 1)
+    occurrenceRepo.insertIfAbsent(task.id, tomorrow, nowIso())
+
+    taskService.removeTask(task.id)
+
+    const left = occurrenceRepo.listByTask(task.id)
+    expect(left.map(o => [o.day, o.status])).toEqual([[days[0], 'done']])
   })
 })

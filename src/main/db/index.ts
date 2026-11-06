@@ -36,6 +36,5 @@ export {
   ensureRange as ensureOccurrences,
   listToday as listTodayOccurrences,
   listRange as listOccurrencesByRange,
-  markMissedBefore,
-  repeatDaysOf
+  markMissedBefore
 } from './occurrenceService'

@@ -1,7 +1,14 @@
 import type { Occurrence, Task } from '../../shared/types/domain'
+import { matchesRepeatDay } from '../../shared/repeatRule'
 import { tx } from './connection'
-import { addMonths, assertDay, daysBetweenInclusive, isoWeekday, nowIso, todayLocalDay } from './localDay'
-import { appError } from './errors'
+import {
+  addMonths,
+  assertDay,
+  daysBetweenInclusive,
+  nowIso,
+  toLocalDay,
+  todayLocalDay
+} from './localDay'
 import * as occurrenceRepo from './repositories/occurrenceRepo'
 import * as statsRepo from './repositories/statsRepo'
 import * as taskRepo from './repositories/taskRepo'
@@ -14,9 +21,9 @@ import * as taskRepo from './repositories/taskRepo'
  * 2. **不越界**：终点被夹到 `active_to` 与「今天 + 3 个月」。
  * 3. **幂等**：靠 `uq_occurrence_task_day` + `INSERT OR IGNORE`，连续调用 N 次数量不增长。
  *
- * 另：`repeat_rule` 决定这天要不要有 occurrence（`'DAILY'` / `NULL` = 每天，
- * `'WEEKLY:1,3,5'` = 只在周一/三/五，1=周一）。01 §2.1.3 的生成规则里没写这条，
- * 但不按它过滤会给"每周三次"的任务生成 7 条 → 直接污染 streak 与日历，故按字段语义实现（已在交付说明里报告）。
+ * `repeat_rule` 决定这天要不要有 occurrence（v0.76 起统一 `EVERY:<n>:<unit>[:<selector>]`，
+ * 旧值 `DAILY` / `WEEKLY:1,3,5` 读入时兼容）。判定在 `shared/repeatRule`，起算日取
+ * `activeFrom`，没填则用任务创建当天；锚点之前的日期一律不生成。
  */
 
 export const OCCURRENCE_HORIZON_MONTHS = 3
@@ -27,22 +34,10 @@ export interface EnsureRangeResult {
   range: { from: string; to: string }
 }
 
-/** `null` / `'DAILY'` → 每天；`'WEEKLY:1,3,5'` → 指定 ISO 周几 */
-export function repeatDaysOf(repeatRule: string | null): number[] | null {
-  if (repeatRule === null || repeatRule === '' || repeatRule.toUpperCase() === 'DAILY') return null
-  const match = /^WEEKLY:([1-7](?:,[1-7])*)$/i.exec(repeatRule.trim())
-  if (!match) {
-    throw appError('INVALID_INPUT', '重复规则格式不正确', {
-      detail: `期望 'DAILY' 或 'WEEKLY:1,3,5'，收到 ${JSON.stringify(repeatRule)}`
-    })
-  }
-  return match[1].split(',').map(Number)
-}
-
-function matchesRepeat(repeatRule: string | null, day: string): boolean {
-  const days = repeatDaysOf(repeatRule)
-  if (days === null) return true
-  return days.includes(isoWeekday(day))
+/** 起算日：优先用显式区间起点，否则用任务创建当天 */
+function matchesRepeat(task: Task, day: string): boolean {
+  const anchor = task.activeFrom ?? toLocalDay(new Date(task.createdAt))
+  return matchesRepeatDay(task.repeatRule, day, anchor)
 }
 
 function maxDay(a: string, b: string): string {
@@ -77,9 +72,23 @@ export function ensureRange(from: string, to: string): EnsureRangeResult {
       const lower = maxDay(start, task.activeFrom ?? start)
       const upper = minDay(end, task.activeTo ?? end)
       if (lower > upper) continue
+      // 单条隔离（v0.83）：一条非法 repeat_rule 只跳过它自己，不能让整轮补齐失败。
+      // 这个循环在 tx 里、又被 getBootstrap 直接调用，异常冒泡会让整个启动快照失败。
+      let broken: string | null = null
       for (const day of daysBetweenInclusive(lower, upper)) {
-        if (!matchesRepeat(task.repeatRule, day)) continue
+        let hit: boolean
+        try {
+          hit = matchesRepeat(task, day)
+        } catch (e) {
+          broken = e instanceof Error ? e.message : String(e)
+          break
+        }
+        if (!hit) continue
         if (occurrenceRepo.insertIfAbsent(task.id, day, createdAt)) created += 1
+      }
+      if (broken !== null) {
+        // 不打印规则原文：坏值可能是任意用户输入，日志只要能定位到任务即可
+        console.warn('[occurrence] 重复规则不可用，跳过该任务', task.id, broken)
       }
     }
   })
@@ -212,5 +221,5 @@ export function plannedDays(task: Task, from: string, to: string): string[] {
   const lower = maxDay(from, task.activeFrom ?? from)
   const upper = minDay(to, task.activeTo ?? to)
   if (lower > upper) return []
-  return daysBetweenInclusive(lower, upper).filter(day => matchesRepeat(task.repeatRule, day))
+  return daysBetweenInclusive(lower, upper).filter(day => matchesRepeat(task, day))
 }

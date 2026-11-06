@@ -867,6 +867,21 @@
   opacity: 1;
 }
 
+.reminder-ack {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.reminder-row:hover .reminder-ack {
+  opacity: 1;
+}
+
 /* ---------------- 错误气泡 ---------------- */
 
 .error-card {

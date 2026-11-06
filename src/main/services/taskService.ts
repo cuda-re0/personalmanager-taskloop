@@ -16,6 +16,7 @@ import type {
 import type { CompleteTaskInput } from '../../shared/types/ipc'
 import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { computeAwardedPoints, computePlannedPoints } from '../../shared/points/rubric'
+import { parseRepeatRule } from '../../shared/repeatRule'
 import type { TaskDraft } from '../../shared/types/domain'
 import { isDifficultyAllowed } from '../../shared/taskRules'
 import { tx } from '../db/connection'
@@ -27,6 +28,7 @@ import type { SqlValue } from '../db/mappers'
 import * as ledgerRepo from '../db/repositories/ledgerRepo'
 import * as messageRepo from '../db/repositories/messageRepo'
 import * as occurrenceRepo from '../db/repositories/occurrenceRepo'
+import * as reminderRepo from '../db/repositories/reminderRepo'
 import * as statsRepo from '../db/repositories/statsRepo'
 import * as taskRepo from '../db/repositories/taskRepo'
 import { assertTransition } from '../db/stateMachine'
@@ -91,10 +93,28 @@ function assertTitle(title: string): string {
   return trimmed
 }
 
+/**
+ * `repeat_rule` 写入前的唯一校验点（v0.83）。
+ *
+ * `guards.ts` 的 zod 只管「是字符串」，业务合法性必须在这里拦：一条非法值落库后，
+ * `occurrenceService.ensureRange` 会在事务里解析它并抛错，整个 `getBootstrap` 都会失败。
+ * 原始 `parseRepeatRule` 抛的是裸 `Error`，经 `tx` 的 `wrapWriteError` 会被翻成
+ * 「数据库读写失败」——所以在这里吞掉原 Error，改抛带正确 message 的 AppError。
+ */
+function assertRepeatRule(rule: string | null): void {
+  if (rule === null) return
+  try {
+    parseRepeatRule(rule)
+  } catch {
+    throw appError('INVALID_INPUT', '重复规则格式不正确', { detail: rule })
+  }
+}
+
 export function createTask(input: CreateTaskInput): Task {
   const title = assertTitle(input.title)
   const now = nowIso()
   const id = input.id ?? newId()
+  assertRepeatRule(input.repeatRule ?? null)
 
   // daily 不使用 due_at / reminder_offsets（01 §2.1.1、§2.1.2），传进来了就按类型归一，不留脏数据
   const isDaily = input.type === 'daily'
@@ -227,6 +247,7 @@ export function listTasks(input: ListTasksInput = {}): Task[] {
  */
 export function updateTask(id: string, patch: TaskPatch): Task {
   if (patch.title !== undefined) assertTitle(patch.title)
+  if (patch.repeatRule !== undefined) assertRepeatRule(patch.repeatRule)
   const now = nowIso()
 
   return tx(() => {
@@ -308,9 +329,19 @@ export function transitionTask(id: string, to: TaskStatus): Task {
   })
 }
 
-/** 软删 → discarded（02 §3.2 `task.remove`） */
+/**
+ * 软删 → discarded（02 §3.2 `task.remove`）。
+ * v0.85：同一事务里清掉今天及以后未完成的打卡行，否则今日列表仍会列出这个任务。
+ * v0.85b：再把还没触发的提醒行一并清掉，否则软删不触发外键级联，到点照样弹。
+ */
 export function removeTask(id: string): void {
-  taskRepo.softRemove(id, nowIso())
+  return tx(() => {
+    const now = nowIso()
+    taskRepo.requireById(id) // 不存在 → NOT_FOUND，保持在改状态之前
+    taskRepo.softRemove(id, now)
+    occurrenceRepo.removeUnfinishedFrom(id, todayLocalDay())
+    reminderRepo.removePendingByTask(id)
+  })
 }
 
 export function reorderTask(id: string, beforeId: string | null): void {
@@ -459,6 +490,9 @@ export function promoteDraft(input: PromoteDraftInput): PromoteDraftResult {
       : patch.difficulty !== undefined || typeChanged
         ? computePlannedPoints(type, difficulty, cfg)
         : draft.pointsPlanned
+
+    // 与 createTask 内同一条校验：在事务里尽早失败，不靠下层兜底（注释见 assertRepeatRule）
+    if (isDaily) assertRepeatRule(patch.repeatRule ?? null)
 
     const task = createTask({
       type,

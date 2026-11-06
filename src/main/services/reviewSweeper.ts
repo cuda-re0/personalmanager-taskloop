@@ -1,5 +1,6 @@
 import type { Task } from '../../shared/types/domain'
 import { broadcast } from '../bus'
+import * as taskRepo from '../db/repositories/taskRepo'
 import { listTasks, transitionTask } from './taskService'
 
 /**
@@ -39,6 +40,17 @@ export function sweepPendingReview(now: Date = new Date()): Task[] {
   const revived: Task[] = []
   for (const task of stale) {
     try {
+      // v0.83：快照与迁转之间状态可能已经变了（用户刚好点了「提交」进 reviewing）。
+      // `reviewing → doing` 在状态机里是合法边，不重读校验就会把正在被 AI 审的任务
+      // 踢回 doing，随后迟到的审核结果被 `runReview` 判为 skipped 静默丢掉。
+      const current = taskRepo.getById(task.id)
+      if (
+        current === null ||
+        current.status !== 'pending_review' ||
+        current.updatedAt !== task.updatedAt
+      ) {
+        continue
+      }
       const updated = transitionTask(task.id, 'doing')
       broadcast({ type: 'task.updated', task: updated, changed: ['status', 'updatedAt'] })
       revived.push(updated)

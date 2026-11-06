@@ -344,6 +344,73 @@
   font-size: 12px;
 }
 
+/* 每日任务的重复规则（v0.76）：类名独立，不跨模块复用设置页的 .settings-vendor */
+.task-repeat-kinds {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-repeat-every {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.task-repeat-days {
+  display: flex;
+  gap: 4px;
+}
+
+.task-repeat-num {
+  width: 56px;
+}
+
+.task-repeat-time {
+  flex: 0 0 108px;
+  box-sizing: border-box;
+}
+
+.task-repeat-kinds button,
+.task-repeat-days button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-repeat-kinds button[aria-pressed='true'],
+.task-repeat-days button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.task-repeat-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.task-repeat-row > span {
+  color: var(--text-faint);
+}
+
+.task-repeat-value {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .task-detail-actions,
 .task-confirm-bar {
   display: flex;
@@ -386,6 +453,7 @@
 
 .new-task-types {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -437,4 +505,36 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 高频周期提醒（v0.86）：按钮视觉对齐 .settings-vendor，类名独立 */
+.pulse-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.pulse-meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+
+.pulse-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pulse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
 }

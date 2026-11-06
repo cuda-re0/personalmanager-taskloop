@@ -81,6 +81,110 @@ export function replaceForTask(taskId: string, rows: Omit<ReminderInsert, 'taskI
   return listByTask(taskId)
 }
 
+/**
+ * 某任务「绝对时间」提醒里最远的 `fire_at`；没有返回 null（81 §3.1）。
+ * 只看 active / paused：fired 是历史，不该把补建窗口一直顶在前面。
+ */
+export function maxActiveAbsoluteFireAt(taskId: string): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT MAX(fire_at) AS fire_at FROM reminders
+       WHERE task_id = ? AND offset_min IS NULL AND status IN ('active','paused')`
+    )
+    .get(taskId) as { fire_at: string | null } | undefined
+  return row?.fire_at ?? null
+}
+
+/**
+ * 重复任务的增量物化（81 §3.1）：清掉换过规则的旧行，再补插计划内缺失的行。
+ *
+ * 不能复用 `replaceForTask`：它删掉 active/paused/failed 全部行，重复任务每轮补建
+ * 都会把用户点过「稍后提醒」（改了 fire_at 但仍是 active）的那条一起抹掉。
+ * `fire_at` 已存在的直接跳过，保证 snooze 过的那条留着。
+ */
+export function ensureRepeatRows(
+  taskId: string,
+  rule: string,
+  clock: string,
+  rows: Omit<ReminderInsert, 'taskId'>[]
+): Reminder[] {
+  tx(() => {
+    const db = getDb()
+    db.prepare(
+      `DELETE FROM reminders
+       WHERE task_id = ? AND status IN ('active','paused') AND offset_min IS NULL
+         AND (repeat_rule IS NULL OR repeat_rule <> ?)`
+    ).run(taskId, rule)
+
+    // 时刻整体改过 → 现有行没有一条落在目标 clock，全删交给下面的补插重建。
+    // 判「一条都不匹配」而不是逐条比对：snooze 过的那条会偏离 clock，但同批必有别的行匹配，
+    // 逐条比对会把这条 snooze 抹掉。
+    const absolute = db
+      .prepare(
+        `SELECT fire_at FROM reminders
+         WHERE task_id = ? AND offset_min IS NULL AND status IN ('active','paused')`
+      )
+      .all(taskId) as { fire_at: string }[]
+    if (absolute.length > 0) {
+      const hasClock = absolute.some(row => {
+        const at = new Date(row.fire_at)
+        const hh = String(at.getHours()).padStart(2, '0')
+        const mm = String(at.getMinutes()).padStart(2, '0')
+        return `${hh}:${mm}` === clock
+      })
+      if (!hasClock) {
+        db.prepare(
+          `DELETE FROM reminders
+           WHERE task_id = ? AND offset_min IS NULL AND status IN ('active','paused')`
+        ).run(taskId)
+      }
+    }
+
+    const existing = new Set(
+      (
+        db.prepare(
+          `SELECT fire_at FROM reminders
+           WHERE task_id = ? AND offset_min IS NULL AND status IN ('active','paused')`
+        ).all(taskId) as { fire_at: string }[]
+      ).map(row => row.fire_at)
+    )
+
+    const insertSql = `INSERT INTO reminders (${REMINDER_COLUMNS.join(', ')})
+       VALUES (${placeholders(REMINDER_COLUMNS.length)})`
+    for (const row of rows) {
+      if (existing.has(row.fireAt)) continue
+      db.prepare(insertSql).run(...reminderInsertParams({ ...row, taskId }))
+      existing.add(row.fireAt)
+    }
+  })
+  return listByTask(taskId)
+}
+
+/**
+ * 删任务时清掉它还没触发的提醒行（v0.85b）：只删 active / paused。
+ * fired 是历史（会话区已写过消息，行是对账凭据），failed / cancelled 是终态，一律保留。
+ * 不包 `wrapWriteError`：只在 `taskService.removeTask` 的事务内调用，由外层事务统一翻译错误。
+ */
+export function removePendingByTask(taskId: string): number {
+  return getDb()
+    .prepare("DELETE FROM reminders WHERE task_id = ? AND status IN ('active','paused')")
+    .run(taskId).changes
+}
+
+/**
+ * 清掉「所属任务已丢弃 / 已归档」的残留提醒行（v0.85b）。软删不触发外键级联，
+ * 历史遗留的 active 行只能这样收口。`task_id IS NULL` 的脏数据不归本函数管。
+ */
+export function purgeForInactiveTasks(): number {
+  return getDb()
+    .prepare(
+      `DELETE FROM reminders
+       WHERE status IN ('active','paused')
+         AND task_id IN (SELECT id FROM tasks WHERE status IN ('discarded','archived'))`
+    )
+    .run().changes
+}
+
 export function cancel(id: string): void {
   const changes = getDb()
     .prepare("UPDATE reminders SET status = 'cancelled' WHERE id = ? AND status != 'fired'")

@@ -17,9 +17,9 @@ const ONE_WAY_CHANNELS: readonly string[] = [CH.bus.event, CH.notify.show]
 const ALL_API_CHANNELS = channelStrings(CH).filter(ch => !ONE_WAY_CHANNELS.includes(ch))
 
 describe('registry 通道覆盖', () => {
-  it('WIRED 有 66 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain、v0.47 起 ai.setKey、v0.48 起 msg.remove、v0.58 起 reminder 五条、v0.60 起 app.checkUpdate、v0.61 起 task.removeEvidence、v0.62 起 hud.sensors）', () => {
-    expect(WIRED_CHANNELS.length).toBe(66)
-    expect(new Set(WIRED_CHANNELS).size).toBe(66)
+  it('WIRED 有 71 条（W5 起 promoteDraft、W6 起 task.complete 与 occurrence 三条、W9 起 hud 四条 + v0.32 dragBegin/dragTo、v0.19 起 task.undo、W4 起 msg 两条 + ai 四条、v0.36 起 attachment 两条、v0.37 起 persona 两条 + memory 四条、v0.44 起 ai.keyStatus、v0.45 起 points 三条、v0.46 起 app.showMain、v0.47 起 ai.setKey、v0.48 起 msg.remove、v0.58 起 reminder 五条、v0.60 起 app.checkUpdate、v0.61 起 task.removeEvidence、v0.62 起 hud.sensors、v0.88 起 alert.ack）', () => {
+    expect(WIRED_CHANNELS.length).toBe(71)
+    expect(new Set(WIRED_CHANNELS).size).toBe(71)
     expect(WIRED_CHANNELS).toContain(CH.task.promoteDraft)
     expect(WIRED_CHANNELS).toContain(CH.task.complete)
     expect(WIRED_CHANNELS).toContain(CH.task.undo)

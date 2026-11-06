@@ -1,4 +1,5 @@
 import type {
+  Alert,
   Attachment,
   ChatMode,
   DayStat,
@@ -14,6 +15,7 @@ import type {
   Occurrence,
   PointEntry,
   Priority,
+  Pulse,
   Quality,
   Reminder,
   ReminderLevel,
@@ -788,4 +790,87 @@ export function messageInsertParams(m: MessageInsert): SqlValue[] {
     m.latencyMs ?? null,
     m.createdAt
   ]
+}
+
+/* ------------------------------------------------------------------ *
+ * pulses（v0.86）
+ * ------------------------------------------------------------------ */
+
+export interface PulseRow {
+  id: string
+  title: string
+  interval_minutes: number
+  window_start: string | null
+  window_end: string | null
+  enabled: number
+  last_fired_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** SELECT 用的显式列清单，也是 INSERT 的列顺序（与 pulseRepo.insert 的入参等长同序） */
+export const PULSE_COLUMNS = [
+  'id',
+  'title',
+  'interval_minutes',
+  'window_start',
+  'window_end',
+  'enabled',
+  'last_fired_at',
+  'created_at',
+  'updated_at'
+] as const
+
+export function mapPulse(row: PulseRow): Pulse {
+  return {
+    id: row.id,
+    title: row.title,
+    intervalMinutes: row.interval_minutes,
+    windowStart: row.window_start,
+    windowEnd: row.window_end,
+    enabled: row.enabled === 1,
+    lastFiredAt: row.last_fired_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+export interface AlertRow {
+  id: string
+  kind: string
+  level: string
+  source_id: string
+  title: string
+  fired_at: string
+  acked_at: string | null
+  escalated_at: string | null
+}
+
+/** SELECT 用的显式列清单，也是 INSERT 的列顺序（与 alertRepo.insert 的入参等长同序） */
+export const ALERT_COLUMNS = [
+  'id',
+  'kind',
+  'level',
+  'source_id',
+  'title',
+  'fired_at',
+  'acked_at',
+  'escalated_at'
+] as const
+
+/**
+ * `kind` / `level` 在库里是裸 TEXT：本单只写 `reminder` 与 normal|strong，
+ * 类型层照实收窄，不为了省一次断言把 union 放宽成 string。
+ */
+export function mapAlert(row: AlertRow): Alert {
+  return {
+    id: row.id,
+    kind: row.kind as Alert['kind'],
+    level: row.level as Alert['level'],
+    sourceId: row.source_id,
+    title: row.title,
+    firedAt: row.fired_at,
+    ackedAt: row.acked_at,
+    escalatedAt: row.escalated_at
+  }
 }

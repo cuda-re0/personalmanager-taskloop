@@ -4,10 +4,12 @@ import {
   addMonths,
   dayDiff,
   isoWeekday,
+  nowIso,
   todayLocalDay
 } from '../../src/main/db/localDay'
 import { OCCURRENCE_HORIZON_MONTHS, ensureRange, listToday } from '../../src/main/db/occurrenceService'
 import * as occurrenceRepo from '../../src/main/db/repositories/occurrenceRepo'
+import * as taskRepo from '../../src/main/db/repositories/taskRepo'
 import * as taskService from '../../src/main/services/taskService'
 import { closeTestDb, openMemoryDb } from './helpers'
 
@@ -20,6 +22,21 @@ afterEach(() => {
 })
 
 describe('ensureRange', () => {
+  it('一条非法 repeat_rule 只跳过它自己，其它任务照常补齐（v0.83）', () => {
+    const broken = taskService.createTask({ type: 'daily', title: '坏规则' })
+    // createTask 会拦非法值，这里直接改列模拟历史脏数据
+    taskRepo.updateColumns(broken.id, { repeat_rule: 'GARBAGE' }, new Date().toISOString())
+    const good = taskService.createTask({ type: 'daily', title: '好规则' })
+
+    const today = todayLocalDay()
+    const result = ensureRange(today, addDays(today, 2))
+
+    expect(occurrenceRepo.countByTask(broken.id)).toBe(0)
+    expect(occurrenceRepo.countByTask(good.id)).toBe(3)
+    expect(result.created).toBe(3)
+    expect(() => listToday()).not.toThrow()
+  })
+
   it('连续调用 3 次，occurrence 数量不增长（幂等）', () => {
     const daily = taskService.createTask({ type: 'daily', title: '跑步' })
     const today = todayLocalDay()
@@ -163,5 +180,31 @@ describe('occurrence 日常操作', () => {
     const byDay = new Map(occurrenceRepo.listByTask(daily.id).map(o => [o.day, o.status]))
     expect(byDay.get(addDays(today, -2))).toBe('missed')
     expect(byDay.get(today)).toBe('pending')
+  })
+})
+
+describe('删除任务的打卡收尾（v0.85）', () => {
+  it('删除后今日列表不再出现该任务的打卡行', () => {
+    const daily = taskService.createTask({ type: 'daily', title: '要删的' })
+    expect(listToday().some(o => o.taskId === daily.id)).toBe(true)
+
+    taskService.removeTask(daily.id)
+
+    expect(listToday().some(o => o.taskId === daily.id)).toBe(false)
+  })
+
+  it('日历保留历史：只清今天及以后的未完成行', () => {
+    const today = todayLocalDay()
+    const yesterday = addDays(today, -1)
+    const daily = taskService.createTask({ type: 'daily', title: '带历史的' })
+    occurrenceRepo.insertIfAbsent(daily.id, yesterday, nowIso())
+    occurrenceRepo.insertIfAbsent(daily.id, today, nowIso())
+
+    taskService.removeTask(daily.id)
+
+    const mine = occurrenceRepo
+      .listByRange(yesterday, today)
+      .filter(o => o.taskId === daily.id)
+    expect(mine.map(o => o.day)).toEqual([yesterday])
   })
 })

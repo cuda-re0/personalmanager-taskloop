@@ -16,6 +16,9 @@ import type {
   Persona,
   PersonaTone,
   PointEntry,
+  Pulse,
+  PulseCreateInput,
+  PulseToggleInput,
   Quality,
   Reminder,
   ReminderLevel,
@@ -367,6 +370,19 @@ export interface Api {
     testChannel(input: {
       channel: NotifyChannel
     }): Promise<IpcResult<{ ok: boolean; error?: string }>>
+  }
+
+  /** 一天内的高频周期提醒（v0.86）：不产生 occurrence，也不写会话区消息 */
+  pulse: {
+    list(): Promise<IpcResult<Pulse[]>>
+    create(input: PulseCreateInput): Promise<IpcResult<Pulse>>
+    setEnabled(input: PulseToggleInput): Promise<IpcResult<Pulse>>
+    remove(input: { id: string }): Promise<IpcResult<{ removed: true }>>
+  }
+
+  /** 提醒确认（v0.88）：标记一条投递记录已被用户确认 */
+  alert: {
+    ack(input: { sourceId: string }): Promise<IpcResult<{ acked: number }>>
   }
 
   channel: {

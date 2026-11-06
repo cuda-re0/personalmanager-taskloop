@@ -8,7 +8,8 @@ import {
 import type { DayStat, Difficulty, TaskType } from '../../shared/types/domain'
 import { tx } from '../db/connection'
 import { appError } from '../db/errors'
-import { addDays, isoWeekday, monthBounds, nowIso, todayLocalDay } from '../db/localDay'
+import { addDays, monthBounds, nowIso, toLocalDay, todayLocalDay } from '../db/localDay'
+import { matchesRepeatDay } from '../../shared/repeatRule'
 import { newId } from '../db/ids'
 import { MAX_SPEND_CENTS } from '../../shared/points/spend'
 import * as fxService from './fxService'
@@ -282,8 +283,8 @@ export function spendUndo(entryId: string): PointEntry {
 function isScheduledDay(task: Task, day: string): boolean {
   if (task.activeFrom !== null && day < task.activeFrom) return false
   if (task.activeTo !== null && day > task.activeTo) return false
-  const days = occurrenceService.repeatDaysOf(task.repeatRule)
-  return days === null || days.includes(isoWeekday(day))
+  const anchor = task.activeFrom ?? toLocalDay(new Date(task.createdAt))
+  return matchesRepeatDay(task.repeatRule, day, anchor)
 }
 
 /** 从 occurrence 历史里数出「正好在 endingDay 结束」的连续完成天数 */
@@ -345,6 +346,13 @@ export function awardOccurrence(occurrenceId: string): AwardOccurrenceResult {
   return tx(() => {
     const occ = occurrenceRepo.requireById(occurrenceId)
     const taskBefore = taskRepo.requireById(occ.taskId)
+
+    // v0.85：已删任务不再接受打卡——删除只是软删任务，不拦这里就还能拿分
+    if (taskBefore.status === 'discarded' || taskBefore.status === 'archived') {
+      throw appError('CONFLICT', '任务已删除', {
+        detail: `task=${taskBefore.id} status=${taskBefore.status}`
+      })
+    }
 
     // 先把这一天视为已完成再数 streak：否则第 0 天还停在 pending，streak 恒为 0
     const history = new Map(occurrenceRepo.listByTask(taskBefore.id).map(o => [o.day, o.status] as const))

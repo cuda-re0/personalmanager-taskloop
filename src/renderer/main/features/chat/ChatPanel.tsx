@@ -9,9 +9,6 @@ import { layersOfMessages, messagesOfLayer } from './layerModel'
 import { toEvidenceViews } from './chatViewModel'
 import { useChatData } from './useChatData'
 
-/** 任务层不翻页（v0.69）：分页按消息条数切，卡片被滤掉后页码没有意义，且卡片总量天生很少 */
-const noLoadMore = (): void => {}
-
 /**
  * 会话区外壳：消息流（弹性，含末尾待提交卡）+ 输入区（固定）。
  * 数据全部来自 useChatData。
@@ -70,10 +67,12 @@ export function ChatPanel(): ReactElement {
           key={layer}
           actions={data.actions}
           draftViews={data.draftViews}
-          hasMore={layer === 'chat' ? data.hasMore : false}
-          loadingMore={layer === 'chat' ? data.loadingMore : false}
+          // v0.89：分页是**消息级**的，两层共用同一个池；任务层一次翻页可能全是文字、
+          // 一条卡都不出现，用户需要再滚一次才会再拉一页
+          hasMore={data.hasMore}
+          loadingMore={data.loadingMore}
           messages={layer === 'chat' ? chatMessages : taskMessages}
-          onLoadMore={layer === 'chat' ? data.loadMore : noLoadMore}
+          onLoadMore={data.loadMore}
           reviewViews={data.reviewViews}
           runningUserId={data.runningUserId}
           tail={layer === 'task' ? tail : null}

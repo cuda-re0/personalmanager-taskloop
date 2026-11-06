@@ -1,6 +1,6 @@
 {
   "name": "taskloop",
-  "version": "0.74.0",
+  "version": "0.89.0",
   "private": true,
   "description": "taskloop desktop shell",
   "main": "./out/main/index.js",
@@ -14,6 +14,7 @@
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "test": "node scripts/test.mjs",
     "pack": "node scripts/pack.mjs",
+    "release": "npm run build && npm run pack && node scripts/make-payload.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,html}\" \"*.{ts,json,cjs}\"",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3"

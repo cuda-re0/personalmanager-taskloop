@@ -21,6 +21,7 @@ import type {
   Occurrence,
   Persona,
   PointEntry,
+  Pulse,
   Reminder,
   ReviewVerdict,
   Task
@@ -124,6 +125,18 @@ const api: Api = {
     snooze: input => invoke<Reminder>(CH.reminder.snooze, input),
     syncForTask: input => invoke<Reminder[]>(CH.reminder.syncForTask, input),
     testChannel: input => invoke<{ ok: boolean; error?: string }>(CH.reminder.testChannel, input)
+  },
+
+  /** 一天内的高频周期提醒（v0.86） */
+  pulse: {
+    list: () => invoke<Pulse[]>(CH.pulse.list),
+    create: input => invoke<Pulse>(CH.pulse.create, input),
+    setEnabled: input => invoke<Pulse>(CH.pulse.setEnabled, input),
+    remove: input => invoke<{ removed: true }>(CH.pulse.remove, input)
+  },
+
+  alert: {
+    ack: input => invoke<{ acked: number }>(CH.alert.ack, input)
   },
 
   channel: {
