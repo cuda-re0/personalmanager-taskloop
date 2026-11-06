@@ -1,0 +1,2694 @@
+/* 会话区（04 §2 / §3）。颜色只取 tokens.css 的变量，不写死色值。 */
+
+.chat-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 520px;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.chat-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+/* ---------------- 消息流 ---------------- */
+
+.msg-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 不让浏览器在内容插入时自己跳，锚定由本组件负责 */
+  overflow-anchor: none;
+}
+
+/* 滚动条（v0.39 §5）：6px、透明轨道、无箭头按钮。只作用于消息流，不做全局规则 */
+.msg-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.msg-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.msg-scroll::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.msg-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.msg-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+
+.msg-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.msg-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 24px;
+  box-sizing: border-box;
+}
+
+.msg-line {
+  display: flex;
+}
+
+.msg-line--user {
+  justify-content: flex-end;
+}
+
+.msg-line--assistant {
+  justify-content: flex-start;
+}
+
+/* 气泡 + 操作行（v0.49 §5.4）：宽度上限从 .bubble 上移到这里，操作行才不会比气泡宽 */
+.msg-stack {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+}
+
+.msg-stack--user {
+  align-items: flex-end;
+}
+
+.msg-stack--assistant {
+  align-items: flex-start;
+}
+
+.bubble {
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.bubble--user {
+  background: var(--accent-weak);
+  color: var(--text);
+}
+
+.bubble--assistant {
+  background: transparent;
+  color: var(--text);
+  padding: 6px 2px;
+}
+
+/* ---------------- 附件胶囊（v0.49） ---------------- */
+
+.msg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.msg-chips:last-child {
+  margin-bottom: 0;
+}
+
+.msg-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  max-width: 220px;
+}
+
+.msg-chip-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
+}
+
+.msg-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.msg-chip-name {
+  font-size: 12px;
+  color: var(--text-sub);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-chip-pop {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  box-shadow: var(--shadow-float);
+  z-index: 6;
+}
+
+.msg-chip:hover .msg-chip-pop {
+  display: block;
+}
+
+.msg-chip-pop img {
+  display: block;
+  max-width: 260px;
+  max-height: 200px;
+  border-radius: 4px;
+}
+
+/* ---------------- 操作行（v0.49 §5.4）：常驻，不做 hover 才显示 ---------------- */
+
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0 2px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.msg-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-act {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.msg-act svg {
+  width: 14px;
+  height: 14px;
+}
+
+.msg-act:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* ---------------- markdown ---------------- */
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0 0 6px;
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.md li {
+  margin: 2px 0;
+}
+
+.md strong {
+  font-weight: 600;
+}
+
+.md-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* ---------------- 草稿卡片 ---------------- */
+
+.msg-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 88%;
+}
+
+.draft-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+
+/* confidence < 0.5：虚线边框，不写字 */
+.draft-card--low {
+  border-left: 2px dashed var(--text-faint);
+}
+
+.draft-card--confirmed {
+  opacity: 0.55;
+  background: var(--bg-sub);
+}
+
+.draft-types {
+  display: flex;
+  gap: 4px;
+}
+
+.draft-type {
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  color: var(--text-sub);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.draft-type--on {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.draft-type:disabled {
+  cursor: default;
+}
+
+.draft-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.draft-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 2px 4px;
+}
+
+.draft-title:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.draft-title:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.draft-points {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.draft-detail {
+  color: var(--text-sub);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.draft-detail--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.draft-steps {
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.draft-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.draft-step-dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--text-faint);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.draft-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.draft-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.draft-field-label {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.draft-select {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.draft-select:focus {
+  outline: none;
+}
+
+.draft-num {
+  width: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+
+.draft-num:focus {
+  outline: none;
+}
+
+.draft-time {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* 每日任务的「可选结束日期」（04 §3.2） */
+.draft-time--date {
+  width: 128px;
+}
+
+.draft-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.draft-reminders {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.draft-missing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.draft-missing-label {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.chip {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sub);
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.draft-linked {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ---------------- 审核卡片 ---------------- */
+
+.review-card {
+  width: 88%;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-faint);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  padding: 10px 14px;
+}
+
+.review-card--pass,
+.review-card--need_evidence {
+  border-left-color: var(--accent);
+}
+
+/* v0.63：判完通过的卡整卡变淡——任务已经 done，卡不该和旁边的消息抢眼。
+   阈值取 0.5，与任务列表 .task-row--done 同口径；need_evidence 仍要保持醒目，不在本规则内 */
+.review-card--pass {
+  opacity: 0.5;
+}
+
+.review-card--partial {
+  border-left-color: var(--warn);
+}
+
+.review-card--fail {
+  border-left-color: var(--text-faint);
+}
+
+.review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.review-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-meta {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* 限时的提前/逾期量（04 §3.3），紧贴分值 */
+.review-lead {
+  margin-left: 6px;
+}
+
+/* 活动的结果档（04 §3.3），默认达标 */
+.review-result-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 0 0;
+}
+
+.review-result {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.review-result:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.review-reason {
+  margin: 4px 0 8px;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+/* partial 的未完成项：只列条目，不加标题（04 §3.3） */
+.review-gaps {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.review-gaps li {
+  margin: 2px 0;
+}
+
+.review-gaps li::marker {
+  color: var(--warn);
+}
+
+.review-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* 拖放落点高亮（v0.57）：用 outline 不用 border，避免改变布局高度 */
+.review-evidence--over {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+  background: var(--accent-weak);
+}
+
+.review-evidence-label {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.ev-thumb {
+  position: relative;
+  width: 48px;
+  height: 48px;
+}
+
+.ev-thumb-img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.ev-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-sub);
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.ev-text-body {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ev-text .ev-remove {
+  position: static;
+}
+
+/* 非图片附件（PDF 等）：只显示类型角标 */
+.ev-file .ev-text-body {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.ev-add {
+  width: 48px;
+  height: 48px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* 真正的文件选择入口（v0.36）：按钮/`[补证据]` 都点它，界面上不出现原生控件 */
+.ev-file-input {
+  display: none;
+}
+
+/* 卡片动作失败：AppError.message 原文，2.6s 后由组件清掉（04 §3.3） */
+.review-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* v0.39 待提交卡：消息流末尾的附加行（`MessageList` 的 tail），自身不滚动 */
+.submit-tail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.submit-card {
+  width: 88%;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  padding: 10px 14px;
+}
+
+/* 无证据时 `[提交]` 的禁用态（v0.40 §2）：四个值与 `.ci-send:disabled` 完全一致，不发明新观感。
+   只挂在 `.submit-card` 里，不许去掉前缀铺成全局规则。
+   多写一条 `opacity: 1` 的理由：`.btn--primary:hover { opacity: .9 }` 在禁用态下**仍会命中**
+   （disabled 的按钮照样匹配 :hover）。本规则特异性更高，能压住 background / color，
+   但压不住那条 :hover 的 opacity，不写回来就会在悬停时闪一下亮度。 */
+.submit-card .btn--primary:disabled {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  cursor: default;
+  opacity: 1;
+}
+
+/* 无证据时按钮组最左的一行小字（v0.39 §4）：就这四个字，不加标点 */
+.submit-hint {
+  margin-right: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.submit-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* v0.74：卡上的「写说明」——一条文字证据的输入口。只在点开时进 DOM，不占常驻高度 */
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.note-input {
+  width: 100%;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.note-input:focus {
+  border-color: var(--text-faint);
+}
+
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* 点开大图 */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  /* 300：portal 到 body 之后要和设置抽屉（40/41）同层竞争，不能再用 30 */
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 只让容器自己半透明：这里不能写 opacity，否则 <img> 会被一起拖进透明度体系、透出下面的文字 */
+  background: color-mix(in srgb, var(--text) 86%, transparent);
+  padding: 24px;
+  cursor: zoom-out;
+}
+
+.lightbox-img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  display: block;
+  border-radius: var(--r-sm);
+}
+
+/* ---------------- 提醒条 ---------------- */
+
+.reminder-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 14px;
+  color: var(--dot);
+}
+
+.reminder-row.is-settled {
+  color: var(--text-sub);
+}
+
+.reminder-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dot);
+  flex: 0 0 auto;
+}
+
+.reminder-text {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.reminder-text:disabled {
+  cursor: default;
+}
+
+.reminder-row.is-settled .reminder-text {
+  color: var(--text-sub);
+}
+
+.reminder-snooze {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.reminder-ack {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+/* ---------------- 错误气泡 ---------------- */
+
+.error-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 78%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sub);
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------------- 按钮 ---------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  /* 用背景 token 作前景，避免写死 #fff */
+  color: var(--bg);
+}
+
+.btn--primary:hover {
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+.btn--ghost {
+  color: var(--text-sub);
+}
+
+/* 弱化按钮的禁用态（v0.42）：四个值与 `.ci-send:disabled` / `.submit-card .btn--primary:disabled` 同源，
+   不发明新观感。`.btn:hover` 在 disabled 上照样命中并把背景改亮，所以这一条必须排在 `.btn:hover` 之后，
+   并且把 background 显式写回。 */
+.btn--ghost:disabled {
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  cursor: default;
+  opacity: 1;
+}
+
+.btn--faint {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+/* ---------------- 输入区 ---------------- */
+
+.chat-input {
+  flex: 0 0 auto;
+  min-height: 96px;
+  box-sizing: border-box;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.ci-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.ci-thumb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+}
+
+.ci-thumb-img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.ci-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 52px;
+  padding: 0 20px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-sub);
+  position: relative;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.ci-file-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ci-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ci-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* [+] 保持 28×28 方形（v0.42：[模式] 要装四个字，宽度不再共用，故两条各写一套） */
+.ci-plus {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ci-plus:hover {
+  background: var(--bg-hover);
+}
+
+/* 模式按钮（v0.42）：宽度随文字，高度与 [+] 齐平；状态只由文字表达，两模式配色一致 */
+.ci-mode {
+  flex: 0 0 auto;
+  width: auto;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #c9dcfb;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.ci-mode:hover {
+  background: #dce9fd;
+}
+
+.ci-file-input {
+  display: none;
+}
+
+.ci-textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 22px;
+  max-height: 132px;
+  padding: 3px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  resize: none;
+  overflow-y: hidden;
+}
+
+.ci-textarea:focus {
+  outline: none;
+}
+
+.ci-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ci-send:disabled {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* 细环进度：只在发送中出现（04 §3.4） */
+.ci-ring {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--text-faint);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ci-spin 0.7s linear infinite;
+}
+
+@keyframes ci-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* 右栏①「当前任务」（04 §4①）与主窗两栏布局。颜色只取 tokens.css 的变量。 */
+
+.app-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  /* 两栏各自有 min-width（会话区 520 + 右栏 400），窗口比这更窄时不许横向溢出 */
+  overflow: hidden;
+}
+
+.right-col {
+  display: flex;
+  flex: 0 0 460px;
+  flex-direction: column;
+  width: 460px;
+  min-width: 460px;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+}
+
+/* 右栏两半（04 §4① v0.29）：flex-basis 0，flex-grow 由 index.tsx 行内按 r / 1-r 给出，
+   窗口高度变化时两侧等比伸缩——不回到「一侧定高、另一侧吸差」（v0.28 作废口径） */
+.right-half {
+  flex-basis: 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 分割线（04 §4① v0.29）：命中区 8px、无任何文字；可见的分隔线由下方 ② 日历的
+   border-top 承担（与 v0.28 观感一致），本条自身透明 */
+.right-split {
+  flex: 0 0 auto;
+  height: 8px;
+  box-sizing: border-box;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.tasks-panel {
+  flex: 1 1 auto;
+  min-height: 0; /* 比例配额（04 §4① v0.29）：占满上半块，详情展开只让本段内部滚动 */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  overflow-y: auto;
+}
+
+/* 滚动条（39 §5）：与消息流同一档——6px、透明轨道、无箭头按钮。不做全局规则 */
+.tasks-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tasks-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tasks-panel::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.tasks-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.tasks-panel::-webkit-scrollbar-button {
+  display: none;
+}
+
+.task-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-group-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.task-row:hover {
+  background: var(--bg-hover);
+}
+
+.task-row--drop {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -1.5px;
+}
+
+/* 今日已完成的行（v0.27 用户裁决「已完成的变淡显示」）：整行弱化，不加删除线、不加文字 */
+.task-row--done {
+  opacity: 0.5;
+}
+
+/* 完成被拒（如证据不足）时就地显示主进程的中文短句，2.6s 后消失；不新增前缀文案 */
+.task-notice {
+  padding: 2px 0 6px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 每日组的圆形勾选框（点击 = occurrence.complete） */
+.task-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--text-sub);
+  border-radius: 50%;
+  box-sizing: border-box;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-check:hover {
+  border-color: var(--accent);
+}
+
+/* 已打卡的勾选框（v0.27）：实心，按钮本身 disabled，点了没反应 ≠ disabled
+   v0.67：实心但走 --text-faint —— 完成态比未完成态淡，不抢眼（原来用 --accent 反而更醒目） */
+.task-check--on {
+  border-color: var(--text-faint);
+  background: var(--text-faint);
+}
+
+.task-check:disabled {
+  cursor: default;
+}
+
+/* focus-task 的短暂高亮（日历浮层 / ④ 明细点行过来） */
+.task-row--focus {
+  background: var(--accent-weak);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.task-streak {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 限时/活动组的状态点（v0.68）：未完成（todo / doing）主色蓝，完成与过期（done / missed）浅灰，待审核（reviewing）橙 */
+.task-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-sub);
+}
+
+.task-dot--todo {
+  background: var(--accent);
+}
+
+.task-dot--doing {
+  background: var(--accent);
+}
+
+.task-dot--done,
+.task-dot--missed {
+  background: var(--text-faint);
+}
+
+.task-dot--reviewing {
+  background: var(--warn);
+}
+
+.task-remaining {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* v0.65：行上的日期就是入口——无边框无背景，只有颜色随主题，hover 才提到 accent */
+.task-due-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.task-due-btn:hover {
+  color: var(--accent);
+}
+
+/* v0.75：编辑态是「日期 + 时间」一对框，时间可留空 */
+.task-due-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-due-inline--date {
+  width: 118px;
+}
+
+.task-due-inline--time {
+  width: 84px;
+}
+
+/* 编辑态：顶掉右列，宽度固定，不让整行随输入内容抖动 */
+.task-due-inline {
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+/* 组尾投放区：常态隐形，拖拽经过时给一条落点线 */
+.task-drop-tail {
+  height: 8px;
+  border-radius: var(--r-sm);
+}
+
+.task-drop-tail:hover {
+  background: var(--accent-weak);
+}
+
+/* 就地展开的详情（不弹窗） */
+.task-detail {
+  margin: 2px 0 8px 16px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-detail-md {
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.task-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-step-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 50%;
+  box-sizing: border-box;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-step-check--on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.task-step-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.task-step-title--on {
+  font-size: 13px;
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.task-offsets {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* 活动任务的日期时间输入（v0.59；v0.75 拆成日期 + 时间两个框） */
+.task-due-edit {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.task-due-edit-input--date {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-due-edit-input--time {
+  flex: 0 0 108px;
+  box-sizing: border-box;
+}
+
+.task-due-edit-input {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+/* 每日任务的重复规则（v0.76）：类名独立，不跨模块复用设置页的 .settings-vendor */
+.task-repeat-kinds {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-repeat-every {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.task-repeat-days {
+  display: flex;
+  gap: 4px;
+}
+
+.task-repeat-num {
+  width: 56px;
+}
+
+.task-repeat-time {
+  flex: 0 0 108px;
+  box-sizing: border-box;
+}
+
+.task-repeat-kinds button,
+.task-repeat-days button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-repeat-kinds button[aria-pressed='true'],
+.task-repeat-days button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.task-repeat-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.task-repeat-row > span {
+  color: var(--text-faint);
+}
+
+.task-repeat-value {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-detail-actions,
+.task-confirm-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.task-confirm-bar {
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--bg-sub);
+}
+
+/* 右栏① 顶部手动建任务入口（04 §4① v0.21）：收起是 `+`，展开是就地一行表单 */
+
+.new-task {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.new-task-toggle {
+  align-self: flex-start;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.new-task-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.new-task-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.new-task-type {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.new-task-type--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.new-task-title,
+.new-task-select,
+.new-task-num,
+.new-task-time {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.new-task-fields {
+  display: flex;
+  gap: 6px;
+}
+
+.new-task-num {
+  flex: 0 0 64px;
+  width: 64px;
+}
+
+.new-task-time {
+  flex: 1 1 auto;
+}
+
+.new-task-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 高频周期提醒（v0.86）：按钮视觉对齐 .settings-vendor，类名独立 */
+.pulse-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.pulse-meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+
+.pulse-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pulse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+/* 右栏②「日历」（04 §4②）。颜色只取 tokens.css 的变量，不新增色值。 */
+
+.calendar-panel {
+  position: relative;
+  /* 高度方向可压缩：窗口变矮时日历跟着缩，给下面的积分区留出空间 */
+  flex: 0 1 240px;
+  height: auto;
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+  border-top: 1px solid var(--border);
+  box-sizing: border-box;
+  font-family: var(--font);
+}
+
+/* 顶部一行：‹  2026 年 10 月  › */
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 2px;
+}
+
+.calendar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-nav {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendar-nav:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.calendar-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 2px 16px 0;
+}
+
+/* 格子：日期数字 + 固定 6px 红点行（没点也占位，防止行高跳动） */
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-cell--marked {
+  cursor: pointer;
+}
+
+.calendar-cell--marked:hover {
+  background: var(--bg-hover);
+}
+
+.calendar-cell--today {
+  border-color: var(--text-sub);
+  font-weight: 600;
+}
+
+.calendar-cell--open {
+  background: var(--bg-hover);
+}
+
+.calendar-daynum {
+  line-height: 1.1;
+}
+
+.calendar-dotrow {
+  height: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.calendar-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.calendar-dot--solid {
+  background: var(--dot);
+}
+
+.calendar-dot--hollow {
+  border: 1.5px solid var(--dot);
+  background: transparent;
+}
+
+/* 日历层（04 §4② v0.28）：点日历某天后整块替换 ③④ 积分面板。
+   口径与 .points-panel 一致（04 §4① v0.29 比例模型）：吃下半块剩余、内部滚动，
+   随下半块按比例伸缩，不再定高 */
+.calendar-dayview {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 标题与 ③ 的留白口径一致：左 16px、右 20px */
+.calendar-dayview-head {
+  flex: 0 0 auto;
+  padding: 12px 20px 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-dayview-list {
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 空日留白，不写"暂无任务"（04 §7）；给一段高度，层不至于缩成一条细边 */
+.calendar-dayview-list--empty {
+  min-height: 40px;
+}
+
+/* 时刻 / 类型 / 分值：右列与左列都是小字弱色，标题占满中间并省略 */
+.calendar-row-time {
+  flex: 0 0 auto;
+  min-width: 38px;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-row-type,
+.calendar-row-points {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.calendar-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 已完成整行降透明度，不加文字、不加删除线 */
+.calendar-row--done {
+  opacity: 0.55;
+}
+
+.calendar-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+/* 右栏 ③「积分」+ ④「明细」（04 §4③④）。颜色只取 tokens.css 的变量。
+ * 右侧留白固定 20px（v0.26）、左侧 16px：③ 的 padding 直接写 20/16，
+ * ④ 的列表靠「容器 padding + 行内 padding」相加到 16/20（行内 8px，容器左 8 右 12）。 */
+
+.points-panel {
+  display: flex;
+  flex-direction: column;
+  /* 比例配额（04 §4① v0.29）：吃下半块内日历之外的剩余、内部滚动，随下半块按比例伸缩。
+     下限 96px：日历压到最矮时积分区仍要露出来并且能滚，不许被挤成 0 高。
+     日历层（.calendar-dayview）替换本面板时同一口径，切换不跳动。 */
+  flex: 1 1 auto;
+  min-height: 96px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border);
+}
+
+/* ③ 积分：大数字 + 两行小字 + 7 日迷你柱状（无坐标轴、无图例） */
+.points-summary {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.points-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.points-total {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 余额被花成负数（v0.45）：只换颜色，不改字号，也不弹任何提示 */
+.points-total--neg {
+  color: var(--danger);
+}
+
+.points-deltas {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.points-delta-line {
+  font-size: 12px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.points-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 32px;
+}
+
+.points-bar {
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent-weak);
+  border-top: 2px solid var(--accent);
+  box-sizing: border-box;
+}
+
+/* ④ 明细：tabs 行 + 内容（平铺流水 / 按月明细二选一，就地替换） */
+.points-ledger {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.points-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 8px 20px 8px 16px;
+}
+
+.points-tab {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.points-tab:hover {
+  background: var(--bg-hover);
+}
+
+.points-tab--on {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ---------- 平铺流水（今日 / 本周 / 本月）---------- */
+
+.ledger-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px 12px 8px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* ---------- 流水行（平铺与明细视图共用同一套行样式）---------- */
+
+/* 一行 = 一个按钮（时刻 / 标题 / ±N）。行高 32px，行内 8px 让内容距右边缘 20px */
+.ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ledger-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 已冲销（reversedAt 非空）：视觉上退后，不加文字、不加 tooltip */
+.ledger-row--reversed {
+  opacity: 0.5;
+}
+
+.ledger-time {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ledger-delta {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-delta--neg {
+  color: var(--danger);
+}
+
+/* ---------- 明细视图（04 §4④ v0.26：④ 内部，不是整窗页）---------- */
+
+.ledger-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 月导航 32px：左 ‹ / 中 2026年10月 / 右 › / 行尾当月净额 */
+.ledger-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 32px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 20px 0 16px;
+}
+
+.ledger-step {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ledger-step:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 当月时 › 是灰的（canGoNext=false），视觉与行为一致 */
+.ledger-step:disabled {
+  color: var(--text-faint);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ledger-nav-month {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-nav-net {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-nav-net--neg {
+  color: var(--danger);
+}
+
+/* 只有这一块滚；外层（.ledger-view / .points-ledger）一律不滚 */
+.ledger-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* 分组头：吸顶，滚动时压住上方行（只有日期，没有相对时间词） */
+.ledger-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 20px 0 16px;
+  background: var(--bg);
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.ledger-group-list {
+  margin: 0;
+  padding: 0 12px 0 8px;
+  list-style: none;
+}
+
+/* ---------- 支出视图（v0.45 · ④ 第五个标签）---------- */
+
+.spend-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 顶部一行：`10 月 · 1 分 = 1.08 元 · 已花 128 / 500`，超预算时只有后半段变红 */
+.spend-head {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  padding: 4px 20px 8px 16px;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-head-spent {
+  color: var(--text-sub);
+}
+
+.spend-head-spent--over {
+  color: var(--danger);
+}
+
+/* 只有这一块滚；头部与输入行固定 */
+.spend-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px 8px 8px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* 行高 32px，与流水行同口径；行本身不是按钮（里面有撤销按钮） */
+.spend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.spend-time {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.spend-amount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-undo {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spend-undo:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.spend-undo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 后端 message 原文，紧贴输入行上方 */
+.spend-error {
+  flex: 0 0 auto;
+  padding: 4px 20px 0 16px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.spend-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 20px 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.spend-amount-input,
+.spend-note-input {
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.spend-amount-input {
+  flex: 0 0 72px;
+  width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-unit {
+  flex: 0 0 auto;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.spend-note-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.spend-submit {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spend-submit:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.spend-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 设置抽屉（v0.44，04 §2 / §5）。类名一律 .settings- 前缀，不碰其它界面。 */
+
+.settings-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  z-index: 40;
+}
+
+.settings-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+
+.settings-head {
+  flex: 0 0 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.settings-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.settings-block + .settings-block {
+  margin-top: 24px;
+}
+
+.settings-block-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ---------- 人物卡 ---------- */
+
+.settings-field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.settings-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.settings-input,
+.settings-select,
+.settings-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+}
+
+.settings-input:focus,
+.settings-select:focus,
+.settings-textarea:focus {
+  border-color: var(--accent);
+}
+
+.settings-textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.5;
+}
+
+.settings-tones {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-tone {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-tone[aria-pressed='true'] {
+  background: var(--accent-weak);
+  border-color: var(--accent-weak);
+  color: var(--accent);
+}
+
+.settings-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.settings-save-row .settings-error {
+  margin-right: auto;
+}
+
+.settings-error--block {
+  margin-top: 8px;
+}
+
+.settings-notice {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.settings-save {
+  padding: 6px 16px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #ffffff;
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-save:disabled {
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* ---------- 记忆 ---------- */
+
+.settings-memories {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-memory-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-memory-text {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.settings-memory-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+}
+
+.settings-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.settings-del {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-del:hover {
+  color: var(--danger);
+}
+
+.settings-del:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.settings-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.settings-add-row .settings-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.settings-add-row .settings-select {
+  flex: 0 0 auto;
+  width: 76px;
+}
+
+.settings-add {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-add:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* ---------- AI ---------- */
+
+.settings-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.settings-kv-key {
+  color: var(--text-sub);
+}
+
+.settings-kv-value {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  text-align: right;
+}
+
+/* v0.59b：可编辑的行里 input 撑满标签之后的剩余宽度（`.settings-input` 的 width:100%
+   在 flex 行里会挤标签，故这里只改本行的占位方式，不动原选择器） */
+.settings-kv .settings-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.settings-vendor-row {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-vendor {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-vendor--on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
+/* ---------- 退出（v0.55） ---------- */
+
+.settings-quit-block {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-quit {
+  padding: 6px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--danger);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-quit:hover {
+  background: var(--danger);
+  color: #fff;
+}

@@ -1,6 +1,6 @@
 {
   "name": "taskloop",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "private": true,
   "description": "taskloop desktop shell",
   "main": "./out/main/index.js",
@@ -8,7 +8,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "npm run typecheck && electron-vite build && node scripts/make-manifest.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json && tsc --noEmit --composite false -p tsconfig.test.json",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",

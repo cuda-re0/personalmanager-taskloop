@@ -31,8 +31,14 @@ vi.mock('../../src/main/update/github', () => ({
   downloadPayload: vi.fn()
 }))
 
+vi.mock('../../src/main/update/repoSource', () => ({
+  fetchRepoManifest: vi.fn(),
+  downloadRepoTree: vi.fn()
+}))
+
 import { app } from 'electron'
 import { downloadPayload, fetchLatestRelease } from '../../src/main/update/github'
+import { downloadRepoTree, fetchRepoManifest } from '../../src/main/update/repoSource'
 import {
   applyUpdate,
   checkUpdate,
@@ -43,6 +49,8 @@ import {
 
 const fetchLatest = vi.mocked(fetchLatestRelease)
 const download = vi.mocked(downloadPayload)
+const fetchRepo = vi.mocked(fetchRepoManifest)
+const downloadRepo = vi.mocked(downloadRepoTree)
 const relaunch = vi.mocked(app.relaunch)
 const quit = vi.mocked(app.quit)
 const USER_DATA = join(tmpdir(), 'taskloop-update-78')
@@ -50,6 +58,10 @@ const USER_DATA = join(tmpdir(), 'taskloop-update-78')
 beforeEach(() => {
   fetchLatest.mockReset()
   download.mockReset()
+  fetchRepo.mockReset()
+  // 默认仓库源不可用：所有既有用例继续走 Release 路径，断言一条都不用改
+  fetchRepo.mockRejectedValue(new Error('repo unavailable'))
+  downloadRepo.mockReset()
   relaunch.mockClear()
   quit.mockClear()
   rmSync(USER_DATA, { recursive: true, force: true })
@@ -125,6 +137,39 @@ describe('checkUpdate（GitHub Release）', () => {
   it('manual 路径查 GitHub 失败 → 抛给设置页', async () => {
     fetchLatest.mockRejectedValue(new Error('offline'))
     await expect(checkUpdate({ manual: true })).rejects.toThrow('检查更新失败：无法访问 GitHub')
+  })
+})
+
+describe('checkUpdate（仓库源优先，87 单）', () => {
+  const repoManifest = {
+    version: '0.99.0',
+    files: [
+      'main/index.js',
+      'preload/index.js',
+      'renderer/main/index.html',
+      'renderer/hud/index.html',
+      'renderer/notify/index.html'
+    ]
+  }
+
+  it('仓库源可用 → latest 取清单版本，且不再查 Release', async () => {
+    fetchRepo.mockResolvedValue(repoManifest)
+    const result = await checkUpdate()
+    expect(result.latest).toBe('0.99.0')
+    expect(result.hasUpdate).toBe(true)
+    expect(fetchLatest).not.toHaveBeenCalled()
+  })
+
+  it('仓库源失败、Release 成功 → 仍按 Release 版本判定 hasUpdate', async () => {
+    fetchRepo.mockRejectedValue(new Error('raw 404'))
+    fetchLatest.mockResolvedValue({
+      version: '0.99.0',
+      payloadUrl: 'https://example.com/payload.json'
+    })
+    const result = await checkUpdate()
+    expect(result.latest).toBe('0.99.0')
+    expect(result.hasUpdate).toBe(true)
+    expect(fetchLatest).toHaveBeenCalledTimes(1)
   })
 })
 

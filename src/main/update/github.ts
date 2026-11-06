@@ -2,8 +2,8 @@
 
 import { net } from 'electron'
 
-const OWNER = 'cuda-re0'
-const REPO = 'personalmanager-taskloop'
+export const OWNER = 'cuda-re0'
+export const REPO = 'personalmanager-taskloop'
 const RELEASES_URL = `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`
 const UA = 'taskloop-updater'
 

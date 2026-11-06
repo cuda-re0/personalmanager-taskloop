@@ -1,0 +1,157 @@
+/*
+ * 提醒窗口样式（v0.58，58 §3.5）。**只服务 notify 这一个渲染入口**：
+ * 别把这里的规则挪进 chat.css / main.css，那两个文件是主窗与 HUD 的。
+ *
+ * 窗口本身无边框、透明，尺寸与位置全在主进程定死（58 §3.4）。
+ * 渲染层动的只有内容：轻的是 `translateY(-120%) → 0`，重的是 `scale(.96) → 1`。
+ */
+
+.notice {
+  box-sizing: border-box;
+  height: 100%;
+}
+
+/* ---------------- 轻：屏高 1/4 处的横幅 ---------------- */
+
+.notice--light {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  cursor: pointer;
+  animation: notice-slide-down 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 左侧 3px 竖条（§3.5 写死） */
+.notice-light-bar {
+  flex: 0 0 3px;
+  background: var(--accent);
+}
+
+.notice-light-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 16px;
+}
+
+/* 第一行：任务标题 12px / 500，单行省略号截断 */
+.notice-light-title {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 第二行：`还剩 <label>` 11px / --text-sub */
+.notice-light-sub {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-sub);
+}
+
+@keyframes notice-slide-down {
+  from {
+    transform: translateY(-120%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ---------------- 重：屏幕正中 480×300 的小窗 ---------------- */
+
+.notice--strong {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: notice-pop-in 180ms ease-out;
+}
+
+/* 顶部 4px 色条（§3.5 写死） */
+.notice-strong-bar {
+  flex: 0 0 4px;
+  background: var(--accent);
+}
+
+.notice-strong-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 0 20px;
+}
+
+/* 左上：类型标签（`限时` / `活动`） */
+.notice-strong-type {
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+/* 右上：× —— 重窗口里唯一可点的东西，关掉即算收到，任务状态不变 */
+.notice-strong-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notice-strong-title {
+  padding: 8px 20px 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* 大数字：20px / 500 / --accent；单位 12px / 400 */
+.notice-strong-remain {
+  padding: 16px 20px 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--accent);
+}
+
+.notice-strong-unit {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 底部：`<截止时间> 截止` 11px / --text-faint */
+.notice-strong-due {
+  margin-top: auto;
+  padding: 0 20px 16px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@keyframes notice-pop-in {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

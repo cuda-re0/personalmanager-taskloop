@@ -14,3 +14,5 @@
 *.exe binary
 *.dll binary
 *.node binary
+# 构建产物不做换行符转换：否则 checkout 后文件被改成 CRLF，本地永远 dirty
+out/** -text

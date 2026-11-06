@@ -1,0 +1,417 @@
+/*
+ * 悬浮窗样式（04 §5 v0.31：长条 + 可拉伸面板）。
+ * 窗口本身透明（index.html 置了 background: transparent），这里只画长条/面板的实底。
+ *
+ * 两条硬约束：
+ * 1. 背景一律用 CSS 变量 `--hud-bg`（渲染层用 `composeHudBg()` 把 `hud.background` +
+ *    `hud.opacity` 合成 rgba 写进来）。**不许给容器加 `opacity`**——文字会跟着一起变淡（04 §5.4）。
+ * 2. 尺寸一律 100%：窗口大小由主进程 setBounds / 用户拉伸决定，CSS 改高度会被窗口裁切。
+ */
+
+.hud-root {
+  width: 100%;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---------------- 长条（132×40 胶囊；形态值仍是 ball） ---------------- */
+
+/* 整条交给渲染层判手势（默认 no-drag，不写原生拖动属性）：点按展开 / 长按拖动见 04 §5.2.2 */
+.hud-ball {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--hud-bg);
+  overflow: hidden;
+}
+
+.hud-bar-ring {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.hud-bar-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2.5;
+}
+
+.hud-bar-value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+.hud-bar-ratio {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* v0.64：长条右侧一格。平时温度、悬停星期，两种内容右边缘对齐；
+   固定 min-width 是为了切换时左边不跟着跳（温度比星期宽） */
+.hud-bar-side {
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 40px;
+}
+
+/* v0.64：星期回来了，但只在悬停时露脸。12px / text-sub 沿用 v0.31 的旧值 */
+.hud-bar-week {
+  display: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-sub);
+}
+
+.hud-ball:hover .hud-bar-temps {
+  display: none;
+}
+
+.hud-ball:hover .hud-bar-week {
+  display: inline;
+}
+
+/* 两个数字之间只留 3px，与 N/M 的 6px 拉开层次 */
+.hud-bar-temps {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.hud-bar-temp {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* GPU 弱化一档，与原来的星期同色：不加任何文字也能区分前后两路 */
+.hud-bar-temp--gpu {
+  color: var(--text-sub);
+}
+
+/* 覆盖整条的热区：承接 pointer 事件（点按展开 / 长按拖动，见 HudBall）；样式全交给系统默认 */
+.hud-hit {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+/* ---------------- 面板 ---------------- */
+
+.hud-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--hud-bg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+/* 头部整行是拖动把手（04 §5.2）；里面的 tab 必须 no-drag 才点得动 */
+.hud-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.hud-ratio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.hud-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.hud-points {
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 头部的空白把手：面板拉到最窄 280 时也要留得出可抓的一小段 */
+.hud-grow {
+  flex: 1 1 auto;
+  min-width: 24px;
+}
+
+.hud-tabs {
+  display: inline-flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.hud-tab {
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.hud-tab:hover {
+  background: var(--bg-hover);
+}
+
+.hud-tab.is-active {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ---------------- 列表（今天页） ---------------- */
+
+.hud-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 6px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* 与主窗 .tasks-panel 同档的 6px 细条；只作用于 HUD 列表，不做全局规则 */
+.hud-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hud-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hud-list::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.hud-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.hud-list::-webkit-scrollbar-button {
+  display: none;
+}
+
+.hud-row-item {
+  padding: 0 0 2px;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+}
+
+.hud-row:hover {
+  background: var(--bg-hover);
+}
+
+.hud-check {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1.5px solid var(--text-sub);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hud-check:hover {
+  border-color: var(--accent);
+}
+
+/* v0.67：与主窗 .task-check--on 同口径——实心用弱色，完成的比没完成的淡 */
+.hud-check.is-done {
+  border-color: var(--text-faint);
+  background: var(--text-faint);
+  cursor: default;
+}
+
+.hud-check.is-done::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-bottom: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.hud-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-row-title.is-done {
+  color: var(--text-faint);
+}
+
+/* 行尾截止日 MM-DD：不给标题留挤出可视区的机会，空值不进 DOM */
+.hud-row-date {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 已结束（done / missed）的限时/活动行整行变淡（04 §5.3 v0.39）：不加删除线、不加文字、不显示分值。
+   每日打卡行排除在外（`.hud-row--daily`）：已打卡只淡标题，打卡完成不是"失败"。 */
+.hud-row-item:has(.hud-row-title.is-done) .hud-row:not(.hud-row--daily) {
+  opacity: 0.5;
+}
+
+/* 行内红字：`AppError.message` 原样，4s 消失（与主窗同口径） */
+.hud-row-error {
+  padding: 2px 6px 4px 30px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* ---------------- 一句话加任务（今天页列表下方） ---------------- */
+
+.hud-add {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hud-add-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.hud-input::placeholder {
+  color: var(--text-faint);
+}
+
+.hud-add-submit {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.hud-add-submit:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* ---------------- 设置页 ---------------- */
+
+.hud-settings {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
+  -webkit-app-region: no-drag;
+}
+
+.hud-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hud-field-label {
+  color: var(--text-sub);
+}
+
+.hud-color {
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.hud-range {
+  flex: 0 0 160px;
+  accent-color: var(--accent);
+}
+
+.hud-close {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.hud-close:hover {
+  background: var(--bg-hover);
+}
