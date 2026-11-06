@@ -6988,7 +6988,10 @@ function writePayloadTree(payload, targetDir) {
 const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}`;
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const UA = "taskloop-updater";
-const TIMEOUT_MS = 1e4;
+const TIMEOUT_MS = 2e4;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 500;
+const TOTAL_BUDGET_MS = 5 * 60 * 1e3;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
@@ -7005,6 +7008,33 @@ function withFailure(err, failure) {
   const error = err instanceof Error ? err : new Error(String(err));
   Object.assign(error, { failure });
   return error;
+}
+function nonRetryable(err, failure) {
+  const error = failure === void 0 ? err instanceof Error ? err : new Error(String(err)) : withFailure(err, failure);
+  Object.assign(error, { retryable: false });
+  return error;
+}
+const isRetryable = (err) => err?.retryable !== false;
+const delay = (ms) => new Promise((resolve2) => {
+  setTimeout(resolve2, ms);
+});
+async function withRetry(fn, label) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (!isRetryable(e)) throw e;
+      if (attempt === MAX_ATTEMPTS) break;
+      const wait = RETRY_DELAY_MS * attempt;
+      console.warn(
+        `[update] ${label} 第 ${attempt} 次失败，${wait}ms 后重试：${e instanceof Error ? e.message : String(e)}`
+      );
+      await delay(wait);
+    }
+  }
+  throw lastError;
 }
 const chromiumFetch = (input, init) => electron.net.fetch(input instanceof URL ? input.toString() : input, init);
 function isPlainObject(value) {
@@ -7044,128 +7074,162 @@ function parseRepoManifest(raw) {
   return { version: version2, files };
 }
 async function fetchRepoHead(fetchImpl = chromiumFetch) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    let res;
+  return withRetry(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      res = await fetchImpl(`${API}/commits/master`, {
-        headers: { "User-Agent": UA },
-        signal: controller.signal
-      });
-    } catch (e) {
-      throw withFailure(e, "network");
+      let res;
+      try {
+        res = await fetchImpl(`${API}/commits/master`, {
+          headers: { "User-Agent": UA },
+          signal: controller.signal
+        });
+      } catch (e) {
+        throw withFailure(e, "network");
+      }
+      if (res.status === 404) {
+        throw nonRetryable(new Error("仓库里没有 master 分支"), "notfound");
+      }
+      if (!res.ok) {
+        const error = new Error(`GitHub API 返回 ${res.status}`);
+        throw res.status < 500 ? nonRetryable(error, "http") : withFailure(error, "http");
+      }
+      let body;
+      try {
+        body = await res.json();
+      } catch (e) {
+        throw nonRetryable(e, "shape");
+      }
+      const sha = isPlainObject(body) ? body.sha : void 0;
+      if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) {
+        throw nonRetryable(new Error("commits/master 的 sha 缺失或形状不对"), "shape");
+      }
+      return sha;
+    } finally {
+      clearTimeout(timer);
     }
-    if (res.status === 404) throw withFailure(new Error("仓库里没有 master 分支"), "notfound");
-    if (!res.ok) throw withFailure(new Error(`GitHub API 返回 ${res.status}`), "http");
-    let body;
-    try {
-      body = await res.json();
-    } catch (e) {
-      throw withFailure(e, "shape");
-    }
-    const sha = isPlainObject(body) ? body.sha : void 0;
-    if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) {
-      throw withFailure(new Error("commits/master 的 sha 缺失或形状不对"), "shape");
-    }
-    return sha;
-  } finally {
-    clearTimeout(timer);
-  }
+  }, "取 commit sha");
 }
 async function fetchRepoManifest(ref, fetchImpl = chromiumFetch) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    let res;
+  return withRetry(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      res = await fetchImpl(`${RAW}/${refOf(ref)}/out/manifest.json`, {
-        headers: { "User-Agent": UA },
-        signal: controller.signal
-      });
-    } catch (e) {
-      throw withFailure(e, "network");
-    }
-    if (res.status === 404) {
-      throw withFailure(new Error("仓库里没有 out/manifest.json"), "notfound");
-    }
-    if (!res.ok) throw withFailure(new Error(`raw 返回 ${res.status}`), "http");
-    try {
-      const declared = Number(res.headers.get("content-length") ?? "");
-      if (Number.isFinite(declared) && declared > MAX_MANIFEST_BYTES) {
-        throw new Error("清单超过 1 MiB");
+      let res;
+      try {
+        res = await fetchImpl(`${RAW}/${refOf(ref)}/out/manifest.json`, {
+          headers: { "User-Agent": UA },
+          signal: controller.signal
+        });
+      } catch (e) {
+        throw withFailure(e, "network");
       }
-      const body = await res.text();
-      if (Buffer.byteLength(body, "utf8") > MAX_MANIFEST_BYTES) {
-        throw new Error("清单超过 1 MiB");
+      if (res.status === 404) {
+        throw nonRetryable(new Error("仓库里没有 out/manifest.json"), "notfound");
       }
-      return parseRepoManifest(body);
-    } catch (e) {
-      throw withFailure(e, "shape");
+      if (!res.ok) {
+        const error = new Error(`raw 返回 ${res.status}`);
+        throw res.status < 500 ? nonRetryable(error, "http") : withFailure(error, "http");
+      }
+      try {
+        const declared = Number(res.headers.get("content-length") ?? "");
+        if (Number.isFinite(declared) && declared > MAX_MANIFEST_BYTES) {
+          throw new Error("清单超过 1 MiB");
+        }
+        const body = await res.text();
+        if (Buffer.byteLength(body, "utf8") > MAX_MANIFEST_BYTES) {
+          throw new Error("清单超过 1 MiB");
+        }
+        return parseRepoManifest(body);
+      } catch (e) {
+        throw nonRetryable(e, "shape");
+      }
+    } finally {
+      clearTimeout(timer);
     }
-  } finally {
-    clearTimeout(timer);
-  }
+  }, "取清单");
 }
 async function downloadRepoTree(manifest, stagingDir, ref, fetchImpl = chromiumFetch) {
   const base = `${RAW}/${refOf(ref)}`;
   const root2 = node_path.resolve(stagingDir);
   const outRoot = node_path.resolve(root2, "out");
   const prefix = outRoot + node_path.sep;
+  const startedAt = Date.now();
   let total = 0;
   let written = 0;
   for (const rel of manifest.files) {
-    const controller2 = new AbortController();
-    const timer2 = setTimeout(() => controller2.abort(), TIMEOUT_MS);
-    try {
-      let res;
-      try {
-        res = await fetchImpl(`${base}/out/${rel}`, {
-          headers: { "User-Agent": UA },
-          signal: controller2.signal
-        });
-      } catch (e) {
-        throw new Error(`下载 ${rel} 失败：${e instanceof Error ? e.message : String(e)}`);
-      }
-      if (!res.ok) throw new Error(`下载 ${rel} 失败：状态码 ${res.status}`);
-      const declared = Number(res.headers.get("content-length") ?? "");
-      if (Number.isFinite(declared) && declared > MAX_FILE_BYTES) {
-        throw new Error(`下载 ${rel} 失败：单文件超过 8 MiB`);
-      }
-      const body = Buffer.from(await res.arrayBuffer());
-      if (body.byteLength === 0) throw new Error(`下载 ${rel} 失败：内容为空`);
-      if (body.byteLength > MAX_FILE_BYTES) {
-        throw new Error(`下载 ${rel} 失败：单文件超过 8 MiB`);
-      }
-      total += body.byteLength;
-      if (total > MAX_TOTAL_BYTES) throw new Error(`下载 ${rel} 失败：总量超过 32 MiB`);
-      const target = node_path.resolve(outRoot, rel);
-      if (!target.startsWith(prefix)) {
-        console.warn(`[update] 跳过越界文件：${rel}`);
-        continue;
-      }
-      node_fs.mkdirSync(node_path.dirname(target), { recursive: true });
-      node_fs.writeFileSync(target, body);
-      written += 1;
-    } finally {
-      clearTimeout(timer2);
+    if (Date.now() - startedAt > TOTAL_BUDGET_MS) {
+      throw new Error("仓库源下载超时：已用超过 5 分钟");
     }
+    const body = await withRetry(async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        let res;
+        try {
+          res = await fetchImpl(`${base}/out/${rel}`, {
+            headers: { "User-Agent": UA },
+            signal: controller.signal
+          });
+        } catch (e) {
+          throw new Error(`下载 ${rel} 失败：${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!res.ok) {
+          const error = new Error(`下载 ${rel} 失败：状态码 ${res.status}`);
+          throw res.status < 500 ? nonRetryable(error) : error;
+        }
+        const declared = Number(res.headers.get("content-length") ?? "");
+        if (Number.isFinite(declared) && declared > MAX_FILE_BYTES) {
+          throw nonRetryable(new Error(`下载 ${rel} 失败：单文件超过 8 MiB`));
+        }
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (bytes.byteLength === 0) {
+          throw nonRetryable(new Error(`下载 ${rel} 失败：内容为空`));
+        }
+        if (bytes.byteLength > MAX_FILE_BYTES) {
+          throw nonRetryable(new Error(`下载 ${rel} 失败：单文件超过 8 MiB`));
+        }
+        total += bytes.byteLength;
+        if (total > MAX_TOTAL_BYTES) {
+          throw nonRetryable(new Error(`下载 ${rel} 失败：总量超过 32 MiB`));
+        }
+        return bytes;
+      } finally {
+        clearTimeout(timer);
+      }
+    }, `下载 ${rel}`);
+    const target = node_path.resolve(outRoot, rel);
+    if (!target.startsWith(prefix)) {
+      console.warn(`[update] 跳过越界文件：${rel}`);
+      continue;
+    }
+    node_fs.mkdirSync(node_path.dirname(target), { recursive: true });
+    node_fs.writeFileSync(target, body);
+    written += 1;
   }
   const pkgFile = node_path.join(root2, "package.json");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetchImpl(`${base}/package.json`, {
-      headers: { "User-Agent": UA },
-      signal: controller.signal
-    });
-    if (!res.ok) throw new Error(`下载 package.json 失败：状态码 ${res.status}`);
-    const body = Buffer.from(await res.arrayBuffer());
-    if (body.byteLength === 0) throw new Error("下载 package.json 失败：内容为空");
-    node_fs.writeFileSync(pkgFile, body);
-  } finally {
-    clearTimeout(timer);
-  }
+  const pkgBody = await withRetry(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetchImpl(`${base}/package.json`, {
+        headers: { "User-Agent": UA },
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const error = new Error(`下载 package.json 失败：状态码 ${res.status}`);
+        throw res.status < 500 ? nonRetryable(error) : error;
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        throw nonRetryable(new Error("下载 package.json 失败：内容为空"));
+      }
+      return bytes;
+    } finally {
+      clearTimeout(timer);
+    }
+  }, "取 package.json");
+  node_fs.writeFileSync(pkgFile, pkgBody);
   let landed;
   try {
     landed = JSON.parse(node_fs.readFileSync(pkgFile, "utf8")).version;
@@ -7173,8 +7237,8 @@ async function downloadRepoTree(manifest, stagingDir, ref, fetchImpl = chromiumF
     throw new Error(`仓库 package.json 不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
   }
   if (landed !== manifest.version) {
-    throw new Error(
-      `仓库 package.json 版本 ${String(landed)} 与清单 ${manifest.version} 不一致`
+    throw nonRetryable(
+      new Error(`仓库 package.json 版本 ${String(landed)} 与清单 ${manifest.version} 不一致`)
     );
   }
   return written;
@@ -8340,7 +8404,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.91.1";
+const version = "0.91.2";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";

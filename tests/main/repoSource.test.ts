@@ -167,3 +167,81 @@ describe('downloadRepoTree（串行落盘 + 版本一致性）', () => {
     expect(urls.some(url => url.includes('/null/'))).toBe(false)
   })
 })
+
+describe('重试与超时（87c 冷缓存）', () => {
+  let staging: string
+
+  beforeEach(() => {
+    staging = mkdtempSync(join(tmpdir(), 'taskloop-retry-'))
+  })
+
+  afterEach(() => {
+    rmSync(staging, { recursive: true, force: true })
+  })
+
+  /** 单文件清单：只数 `a.js` 的请求次数，不掺 package.json */
+  const oneFile = { version: '0.92.0', files: ['a.js'] }
+
+  it('首次 500、第二次 200 → 成功，且该文件被请求 2 次', async () => {
+    let calls = 0
+    const fetchImpl = fakeFetch(url => {
+      if (url.endsWith('/out/a.js')) {
+        calls += 1
+        return calls === 1
+          ? new Response(null, { status: 500 })
+          : new Response('AAA', { status: 200 })
+      }
+      return new Response(JSON.stringify({ version: '0.92.0' }), { status: 200 })
+    })
+
+    expect(await downloadRepoTree(oneFile, staging, null, fetchImpl)).toBe(1)
+    expect(calls).toBe(2)
+    expect(readFileSync(join(staging, 'out', 'a.js'), 'utf8')).toBe('AAA')
+  })
+
+  it('404 不重试：抛错且该文件只被请求 1 次', async () => {
+    let calls = 0
+    const fetchImpl = fakeFetch(url => {
+      if (url.endsWith('/out/a.js')) {
+        calls += 1
+        return new Response(null, { status: 404 })
+      }
+      return new Response(JSON.stringify({ version: '0.92.0' }), { status: 200 })
+    })
+
+    await expect(downloadRepoTree(oneFile, staging, null, fetchImpl)).rejects.toThrow('a.js')
+    expect(calls).toBe(1)
+  })
+
+  it('网络错误一直失败 → 恰好尝试 3 次后抛出', async () => {
+    let calls = 0
+    const fetchImpl = ((input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.endsWith('/out/a.js')) {
+        calls += 1
+        return Promise.reject(new Error('net::ERR_FAILED'))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ version: '0.92.0' }), { status: 200 }))
+    }) as unknown as typeof fetch
+
+    await expect(downloadRepoTree(oneFile, staging, null, fetchImpl)).rejects.toThrow('net::ERR_FAILED')
+    expect(calls).toBe(3)
+  })
+
+  it('package.json 首次 500、之后 200 且版本一致 → 整体成功', async () => {
+    let pkgCalls = 0
+    const fetchImpl = fakeFetch(url => {
+      if (url.endsWith('/package.json')) {
+        pkgCalls += 1
+        return pkgCalls === 1
+          ? new Response(null, { status: 500 })
+          : new Response(JSON.stringify({ version: '0.92.0' }), { status: 200 })
+      }
+      return new Response('AAA', { status: 200 })
+    })
+
+    expect(await downloadRepoTree(oneFile, staging, null, fetchImpl)).toBe(1)
+    expect(pkgCalls).toBe(2)
+    expect(JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8')).version).toBe('0.92.0')
+  })
+})
