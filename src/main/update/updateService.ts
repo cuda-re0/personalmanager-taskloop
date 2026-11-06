@@ -15,7 +15,7 @@ import type { CheckResult } from '../../shared/types/ipc'
 import { appError } from '../db/errors'
 import { downloadPayload, fetchLatestRelease } from './github'
 import { parsePayload, writePayloadTree } from './payload'
-import { downloadRepoTree, fetchRepoManifest, type RepoManifest } from './repoSource'
+import { downloadRepoTree, fetchRepoHead, fetchRepoManifest, type RepoManifest } from './repoSource'
 
 /**
  * 本机绿色版自更新（v0.60 起，v0.75 改走 GitHub Release，87 单起仓库直拉优先）。
@@ -32,7 +32,8 @@ import { downloadRepoTree, fetchRepoManifest, type RepoManifest } from './repoSo
 
 /** 本次检查通过后待装的更新；`applyUpdate` 取走即清空 */
 type PendingUpdate =
-  | { source: 'repo'; version: string; manifest: RepoManifest }
+  /** `ref` 是本次固化下来的 commit sha；`null` 表示降级用 master 分支（87b） */
+  | { source: 'repo'; version: string; manifest: RepoManifest; ref: string | null }
   | { source: 'release'; version: string; url: string }
 
 let pending: PendingUpdate | null = null
@@ -144,9 +145,18 @@ export interface CheckOptions {
 export async function checkUpdate(options: CheckOptions = {}): Promise<CheckResult> {
   const current = app.getVersion()
   let found: PendingUpdate
+  // 87b：先把 master 固化到某个 commit sha，之后清单与文件都按这个 sha 拉，
+  // 避开 raw「按文件各自刷新缓存」导致的清单新、package.json 旧。
+  // 取不到 sha 只是降级用 master 分支，不因此回退 Release（那条路仍有版本校验兜底）。
+  let ref: string | null = null
   try {
-    const manifest = await fetchRepoManifest()
-    found = { source: 'repo', version: manifest.version, manifest }
+    ref = await fetchRepoHead()
+  } catch (e) {
+    console.warn('[update] 取 commit sha 失败，降级用 master 分支', e)
+  }
+  try {
+    const manifest = await fetchRepoManifest(ref)
+    found = { source: 'repo', version: manifest.version, manifest, ref }
   } catch (repoError) {
     console.warn('[update] 仓库源不可用，回退 Release', repoError)
     try {
@@ -384,10 +394,11 @@ export async function applyUpdate(): Promise<void> {
     rmSync(staging, { recursive: true, force: true })
     mkdirSync(staging, { recursive: true })
     if (update.source === 'repo') {
-      // raw 的 CDN 缓存约 5 分钟，会出现「清单新、文件旧」的半新半旧：由
-      // downloadRepoTree 末尾的 package.json 版本校验挡住。失败就是「这次不更新」，
-      // 下面的 catch 清 staging + 重置尝试标记，下次启动自动重试。
-      if (await downloadRepoTree(update.manifest, staging) === 0) {
+      // URL 已按 commit sha 固化（87b），同一 commit 下的文件必然一致；
+      // 降级用 master 时仍可能出现「清单新、文件旧」，由 downloadRepoTree 末尾的
+      // package.json 版本校验挡住。失败就是「这次不更新」，下面的 catch 清 staging
+      // + 重置尝试标记，下次启动自动重试。
+      if ((await downloadRepoTree(update.manifest, staging, update.ref)) === 0) {
         throw new Error('仓库源没有可写入的文件')
       }
     } else {

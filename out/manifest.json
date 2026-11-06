@@ -1,5 +1,5 @@
 {
-  "version": "0.91.0",
+  "version": "0.91.1",
   "files": [
     "main/index.js",
     "preload/index.js",

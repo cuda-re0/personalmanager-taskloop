@@ -1,11 +1,20 @@
-/** 87 单 · 仓库直拉更新源（版本与文件清单直接读 raw 分支，git push 即发布）。 */
+/**
+ * 87 单 · 仓库直拉更新源（版本与文件清单直接读仓库，git push 即发布）。
+ *
+ * 87b：`master` 分支在 raw 上的缓存是**按文件**刷新的，推送后一段时间里
+ * `out/manifest.json` 可能已是新版、`package.json` 还是旧版。所以先用 GitHub API
+ * 取一次 `master` 的 commit sha，之后清单与所有文件都按 `<repo>/<sha>/...` 拉——
+ * 同一个 commit 下的文件必然彼此一致。取不到 sha（限流、API 不可达）才降级用 `master`，
+ * 那条路仍由末尾的 `package.json` 版本校验兜底。
+ */
 
 import { net } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { OWNER, REPO } from './github'
 
-const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/master`
+const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}`
+const API = `https://api.github.com/repos/${OWNER}/${REPO}`
 const UA = 'taskloop-updater'
 const TIMEOUT_MS = 10_000
 const MAX_MANIFEST_BYTES = 1024 * 1024
@@ -32,6 +41,12 @@ const REQUIRED_FILES = [
 
 /** 与 github.ts 的 failure 分档同名，checkUpdate 才能沿用原来的错误提示 */
 type FailureKind = 'notfound' | 'http' | 'network' | 'shape'
+
+/**
+ * `ref` 为 `null` 时用 `master` 分支（87b 取不到 commit sha 时的降级路径）。
+ * 必须显式映射，绝不能把 `null` 拼进 URL 变成字面量 "null"。
+ */
+const refOf = (ref: string | null): string => (ref === null ? 'master' : ref)
 
 function withFailure(err: unknown, failure: FailureKind): Error {
   const error = err instanceof Error ? err : new Error(String(err))
@@ -91,8 +106,50 @@ export function parseRepoManifest(raw: string): RepoManifest {
   return { version, files: files as string[] }
 }
 
-/** 取仓库 `out/manifest.json`；失败按 notfound / http / network / shape 分档 */
+/**
+ * 取 `master` 当前指向的 commit sha（87b）。
+ *
+ * 只用它来固化后续所有拉取的位置：同一 commit 下的文件必然一致，不会再出现
+ * 「清单已刷新、package.json 还是旧版」的混装。只读 `sha` 一个字段，不解析其它内容。
+ * 失败按 notfound / http / network / shape 分档，由调用方决定降级还是回退 Release。
+ */
+export async function fetchRepoHead(
+  fetchImpl: typeof fetch = chromiumFetch
+): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  try {
+    let res: Response
+    try {
+      res = await fetchImpl(`${API}/commits/master`, {
+        headers: { 'User-Agent': UA },
+        signal: controller.signal
+      })
+    } catch (e) {
+      throw withFailure(e, 'network')
+    }
+    if (res.status === 404) throw withFailure(new Error('仓库里没有 master 分支'), 'notfound')
+    if (!res.ok) throw withFailure(new Error(`GitHub API 返回 ${res.status}`), 'http')
+
+    let body: unknown
+    try {
+      body = await res.json()
+    } catch (e) {
+      throw withFailure(e, 'shape')
+    }
+    const sha = isPlainObject(body) ? body.sha : undefined
+    if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) {
+      throw withFailure(new Error('commits/master 的 sha 缺失或形状不对'), 'shape')
+    }
+    return sha
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 取 `out/manifest.json`；`ref` 为 null 走 master；失败按 notfound / http / network / shape 分档 */
 export async function fetchRepoManifest(
+  ref: string | null,
   fetchImpl: typeof fetch = chromiumFetch
 ): Promise<RepoManifest> {
   const controller = new AbortController()
@@ -100,7 +157,7 @@ export async function fetchRepoManifest(
   try {
     let res: Response
     try {
-      res = await fetchImpl(`${RAW}/out/manifest.json`, {
+      res = await fetchImpl(`${RAW}/${refOf(ref)}/out/manifest.json`, {
         headers: { 'User-Agent': UA },
         signal: controller.signal
       })
@@ -133,14 +190,19 @@ export async function fetchRepoManifest(
 /**
  * 按清单串行下载 `out/**` 到 staging，再单拉一次 `package.json`。
  *
+ * `ref` 与清单同源（87b 的 commit sha，或降级时的 null → master），保证这批文件
+ * 都来自同一个 commit。
+ *
  * 两条源产出的 staging 结构完全一致：`staging/out/**` + `staging/package.json`。
  * 任一文件失败直接抛给调用方，清 staging 由调用方统一做。
  */
 export async function downloadRepoTree(
   manifest: RepoManifest,
   stagingDir: string,
+  ref: string | null,
   fetchImpl: typeof fetch = chromiumFetch
 ): Promise<number> {
+  const base = `${RAW}/${refOf(ref)}`
   const root = resolve(stagingDir)
   const outRoot = resolve(root, 'out')
   const prefix = outRoot + sep
@@ -153,7 +215,7 @@ export async function downloadRepoTree(
     try {
       let res: Response
       try {
-        res = await fetchImpl(`${RAW}/out/${rel}`, {
+        res = await fetchImpl(`${base}/out/${rel}`, {
           headers: { 'User-Agent': UA },
           signal: controller.signal
         })
@@ -191,7 +253,7 @@ export async function downloadRepoTree(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetchImpl(`${RAW}/package.json`, {
+    const res = await fetchImpl(`${base}/package.json`, {
       headers: { 'User-Agent': UA },
       signal: controller.signal
     })
@@ -203,7 +265,8 @@ export async function downloadRepoTree(
     clearTimeout(timer)
   }
 
-  // raw 的 CDN 缓存约 5 分钟，会出现「清单是新的、文件是旧的」这种半新半旧。
+  // 87b 起 URL 已按 commit sha 固化，正常不会混装；这条校验留着兜降级路径（ref 为 null
+  // 时仍按 master 拉，raw 的 CDN 缓存约 5 分钟，可能出现「清单是新的、文件是旧的」）。
   // 版本对不上就当这次没更新，绝不把混装目录覆盖进 resources/app。
   let landed: unknown
   try {

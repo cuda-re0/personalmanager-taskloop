@@ -32,13 +32,14 @@ vi.mock('../../src/main/update/github', () => ({
 }))
 
 vi.mock('../../src/main/update/repoSource', () => ({
+  fetchRepoHead: vi.fn(),
   fetchRepoManifest: vi.fn(),
   downloadRepoTree: vi.fn()
 }))
 
 import { app } from 'electron'
 import { downloadPayload, fetchLatestRelease } from '../../src/main/update/github'
-import { downloadRepoTree, fetchRepoManifest } from '../../src/main/update/repoSource'
+import { downloadRepoTree, fetchRepoHead, fetchRepoManifest } from '../../src/main/update/repoSource'
 import {
   applyUpdate,
   checkUpdate,
@@ -50,6 +51,7 @@ import {
 const fetchLatest = vi.mocked(fetchLatestRelease)
 const download = vi.mocked(downloadPayload)
 const fetchRepo = vi.mocked(fetchRepoManifest)
+const fetchHead = vi.mocked(fetchRepoHead)
 const downloadRepo = vi.mocked(downloadRepoTree)
 const relaunch = vi.mocked(app.relaunch)
 const quit = vi.mocked(app.quit)
@@ -58,6 +60,9 @@ const USER_DATA = join(tmpdir(), 'taskloop-update-78')
 beforeEach(() => {
   fetchLatest.mockReset()
   download.mockReset()
+  fetchHead.mockReset()
+  // 默认能取到 commit sha：仓库源路径下所有用例都按「已固化」走
+  fetchHead.mockResolvedValue('a'.repeat(40))
   fetchRepo.mockReset()
   // 默认仓库源不可用：所有既有用例继续走 Release 路径，断言一条都不用改
   fetchRepo.mockRejectedValue(new Error('repo unavailable'))
@@ -170,6 +175,17 @@ describe('checkUpdate（仓库源优先，87 单）', () => {
     expect(result.latest).toBe('0.99.0')
     expect(result.hasUpdate).toBe(true)
     expect(fetchLatest).toHaveBeenCalledTimes(1)
+  })
+
+  it('取 commit sha 失败 → 降级用 master 仍走仓库源，不回退 Release', async () => {
+    fetchHead.mockRejectedValue(new Error('rate limited'))
+    fetchRepo.mockResolvedValue(repoManifest)
+    const result = await checkUpdate()
+    expect(result.latest).toBe('0.99.0')
+    expect(result.hasUpdate).toBe(true)
+    // 降级路径把 ref 传成 null（fetchRepoManifest 内部映射成 master），不能是 "null"
+    expect(fetchRepo).toHaveBeenCalledWith(null)
+    expect(fetchLatest).not.toHaveBeenCalled()
   })
 })
 

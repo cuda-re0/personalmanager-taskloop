@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  */
 vi.mock('electron', () => ({ net: { fetch: vi.fn() } }))
 
-import { downloadRepoTree, parseRepoManifest } from '../../src/main/update/repoSource'
+import { downloadRepoTree, fetchRepoHead, parseRepoManifest } from '../../src/main/update/repoSource'
 
 const REQUIRED_FILES = [
   'main/index.js',
@@ -83,6 +83,22 @@ describe('parseRepoManifest（仓库清单校验）', () => {
   })
 })
 
+describe('fetchRepoHead（87b 固化 commit sha）', () => {
+  const SHA = 'abcdef1234567890abcdef1234567890abcdef12'
+
+  it('正常返回 40 位 sha', async () => {
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ sha: SHA }), { status: 200 }))
+    await expect(fetchRepoHead(fetchImpl)).resolves.toBe(SHA)
+  })
+
+  it('sha 是 xyz → 抛错并挂 shape', async () => {
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ sha: 'xyz' }), { status: 200 }))
+    const err = await fetchRepoHead(fetchImpl).catch((e: unknown) => e)
+    expect(String(err)).toContain('sha')
+    expect((err as { failure?: string }).failure).toBe('shape')
+  })
+})
+
 describe('downloadRepoTree（串行落盘 + 版本一致性）', () => {
   let staging: string
 
@@ -105,7 +121,7 @@ describe('downloadRepoTree（串行落盘 + 版本一致性）', () => {
       return new Response('BBB', { status: 200 })
     })
 
-    expect(await downloadRepoTree(manifest, staging, fetchImpl)).toBe(2)
+    expect(await downloadRepoTree(manifest, staging, null, fetchImpl)).toBe(2)
     expect(readFileSync(join(staging, 'out', 'a.js'), 'utf8')).toBe('AAA')
     expect(readFileSync(join(staging, 'out', 'nested', 'b.css'), 'utf8')).toBe('BBB')
     expect(JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8')).version).toBe('0.91.0')
@@ -117,7 +133,7 @@ describe('downloadRepoTree（串行落盘 + 版本一致性）', () => {
         ? new Response(null, { status: 404 })
         : new Response('AAA', { status: 200 })
     )
-    await expect(downloadRepoTree(manifest, staging, fetchImpl)).rejects.toThrow('nested/b.css')
+    await expect(downloadRepoTree(manifest, staging, null, fetchImpl)).rejects.toThrow('nested/b.css')
   })
 
   it('package.json 的 version 与清单不一致 → 抛错', async () => {
@@ -126,6 +142,28 @@ describe('downloadRepoTree（串行落盘 + 版本一致性）', () => {
         ? new Response(JSON.stringify({ version: '0.90.0' }), { status: 200 })
         : new Response('AAA', { status: 200 })
     )
-    await expect(downloadRepoTree(manifest, staging, fetchImpl)).rejects.toThrow('不一致')
+    await expect(downloadRepoTree(manifest, staging, null, fetchImpl)).rejects.toThrow('不一致')
+  })
+
+  it('每个 URL 都带 ref：传 sha 时含 /abc123/，传 null 时含 /master/', async () => {
+    const urls: string[] = []
+    const fetchImpl = fakeFetch(url => {
+      urls.push(url)
+      if (url.endsWith('/package.json')) {
+        return new Response(JSON.stringify({ version: '0.91.0' }), { status: 200 })
+      }
+      return new Response('AAA', { status: 200 })
+    })
+
+    await downloadRepoTree(manifest, staging, 'abc123', fetchImpl)
+    // 2 个 out 文件 + 1 次 package.json
+    expect(urls).toHaveLength(3)
+    expect(urls.every(url => url.includes('/abc123/'))).toBe(true)
+
+    urls.length = 0
+    await downloadRepoTree(manifest, staging, null, fetchImpl)
+    expect(urls).toHaveLength(3)
+    expect(urls.every(url => url.includes('/master/'))).toBe(true)
+    expect(urls.some(url => url.includes('/null/'))).toBe(false)
   })
 })

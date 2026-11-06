@@ -6985,7 +6985,8 @@ function writePayloadTree(payload, targetDir) {
   }
   return written;
 }
-const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/master`;
+const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}`;
+const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const UA = "taskloop-updater";
 const TIMEOUT_MS = 1e4;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
@@ -6999,6 +7000,7 @@ const REQUIRED_FILES$1 = [
   "renderer/hud/index.html",
   "renderer/notify/index.html"
 ];
+const refOf = (ref) => ref === null ? "master" : ref;
 function withFailure(err, failure) {
   const error = err instanceof Error ? err : new Error(String(err));
   Object.assign(error, { failure });
@@ -7041,13 +7043,43 @@ function parseRepoManifest(raw) {
   if (missing.length > 0) throw new Error(`清单缺少关键文件：${missing.join("、")}`);
   return { version: version2, files };
 }
-async function fetchRepoManifest(fetchImpl = chromiumFetch) {
+async function fetchRepoHead(fetchImpl = chromiumFetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     let res;
     try {
-      res = await fetchImpl(`${RAW}/out/manifest.json`, {
+      res = await fetchImpl(`${API}/commits/master`, {
+        headers: { "User-Agent": UA },
+        signal: controller.signal
+      });
+    } catch (e) {
+      throw withFailure(e, "network");
+    }
+    if (res.status === 404) throw withFailure(new Error("仓库里没有 master 分支"), "notfound");
+    if (!res.ok) throw withFailure(new Error(`GitHub API 返回 ${res.status}`), "http");
+    let body;
+    try {
+      body = await res.json();
+    } catch (e) {
+      throw withFailure(e, "shape");
+    }
+    const sha = isPlainObject(body) ? body.sha : void 0;
+    if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) {
+      throw withFailure(new Error("commits/master 的 sha 缺失或形状不对"), "shape");
+    }
+    return sha;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function fetchRepoManifest(ref, fetchImpl = chromiumFetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    let res;
+    try {
+      res = await fetchImpl(`${RAW}/${refOf(ref)}/out/manifest.json`, {
         headers: { "User-Agent": UA },
         signal: controller.signal
       });
@@ -7075,7 +7107,8 @@ async function fetchRepoManifest(fetchImpl = chromiumFetch) {
     clearTimeout(timer);
   }
 }
-async function downloadRepoTree(manifest, stagingDir, fetchImpl = chromiumFetch) {
+async function downloadRepoTree(manifest, stagingDir, ref, fetchImpl = chromiumFetch) {
+  const base = `${RAW}/${refOf(ref)}`;
   const root2 = node_path.resolve(stagingDir);
   const outRoot = node_path.resolve(root2, "out");
   const prefix = outRoot + node_path.sep;
@@ -7087,7 +7120,7 @@ async function downloadRepoTree(manifest, stagingDir, fetchImpl = chromiumFetch)
     try {
       let res;
       try {
-        res = await fetchImpl(`${RAW}/out/${rel}`, {
+        res = await fetchImpl(`${base}/out/${rel}`, {
           headers: { "User-Agent": UA },
           signal: controller2.signal
         });
@@ -7122,7 +7155,7 @@ async function downloadRepoTree(manifest, stagingDir, fetchImpl = chromiumFetch)
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetchImpl(`${RAW}/package.json`, {
+    const res = await fetchImpl(`${base}/package.json`, {
       headers: { "User-Agent": UA },
       signal: controller.signal
     });
@@ -7200,9 +7233,15 @@ function markIsFresh(mark, latest2) {
 async function checkUpdate(options = {}) {
   const current2 = electron.app.getVersion();
   let found;
+  let ref = null;
   try {
-    const manifest = await fetchRepoManifest();
-    found = { source: "repo", version: manifest.version, manifest };
+    ref = await fetchRepoHead();
+  } catch (e) {
+    console.warn("[update] 取 commit sha 失败，降级用 master 分支", e);
+  }
+  try {
+    const manifest = await fetchRepoManifest(ref);
+    found = { source: "repo", version: manifest.version, manifest, ref };
   } catch (repoError) {
     console.warn("[update] 仓库源不可用，回退 Release", repoError);
     try {
@@ -7345,7 +7384,7 @@ async function applyUpdate() {
     node_fs.rmSync(staging, { recursive: true, force: true });
     node_fs.mkdirSync(staging, { recursive: true });
     if (update2.source === "repo") {
-      if (await downloadRepoTree(update2.manifest, staging) === 0) {
+      if (await downloadRepoTree(update2.manifest, staging, update2.ref) === 0) {
         throw new Error("仓库源没有可写入的文件");
       }
     } else {
@@ -8301,7 +8340,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.91.0";
+const version = "0.91.1";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";
