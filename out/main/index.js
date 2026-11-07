@@ -8404,7 +8404,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.91.2";
+const version = "0.91.3";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";

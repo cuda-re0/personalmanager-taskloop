@@ -167,6 +167,12 @@ function mergeTodayFinished(active: Task[], finished: Task[]): Task[] {
 export function useHudData(): HudData {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const [rowError, setRowError] = useState<HudRowError | null>(null)
+  /**
+   * 悬浮窗的「今天」（86b）：必须是状态，不能每次渲染现算。
+   * 窗口会挂着过夜，没有触发点的现算值只会停在零点之前那一天；
+   * 下面那个 effect 负责跨零点重算。
+   */
+  const [today, setToday] = useState(() => localDayOf(new Date()))
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** v0.62：温度通道挂了只提示一次，不在界面上显示任何错误 */
   const sensorsWarned = useRef(false)
@@ -271,6 +277,39 @@ export function useHudData(): HudData {
       alive = false
       off()
       if (errorTimer.current) clearTimeout(errorTimer.current)
+    }
+  }, [])
+
+  /**
+   * 跨零点重算「今天」（86b）：排到下一个本地零点 +2 秒触发，然后递归排下一次。
+   * 另外监听窗口焦点——机器休眠跨零点、后台定时器被节流时，靠这次补算兜住。
+   */
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const schedule = (): void => {
+      const now = new Date()
+      // 本地日历加一天再取当天 00:00:02，月份/年份进位由 Date 自己处理
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2)
+      timer = setTimeout(
+        () => {
+          if (!alive) return
+          setToday(localDayOf(new Date()))
+          schedule()
+        },
+        Math.max(1000, next.getTime() - now.getTime())
+      )
+    }
+
+    const onFocus = (): void => setToday(localDayOf(new Date()))
+
+    schedule()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('focus', onFocus)
     }
   }, [])
 
@@ -424,7 +463,6 @@ export function useHudData(): HudData {
   }, [])
 
   // 过滤只在装配层做一次；增量（handleEvent）与首载补拉（mergeTodayFinished）都不改
-  const today = localDayOf(new Date())
   const rows = useMemo(
     () => buildRows(snapshot.occurrences, withinHudWindow(snapshot.tasks, today)),
     [snapshot.occurrences, snapshot.tasks, today]

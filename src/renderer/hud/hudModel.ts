@@ -99,15 +99,22 @@ export function hudDueLabel(dueAt: string | null): string {
 /**
  * HUD 只留截止日落在「今天 ~ 今天+7 天」（含两端）的任务。
  *
- * 两类任务不受窗口约束：已结束（`done` / `missed`，今天刚结束的必须还看得见）、
- * `dueLocalDay` 判不出日期的（不凭空丢）。其余用 `YYYY-MM-DD` 字符串字典序比较，
- * 不转 Date 比毫秒；窗口末端用本地日历加 7 天，不用 UTC 切日期。
+ * 已结束（`done` / `missed`）的任务另有一条口径：**只留今天结束的**——「今天」指
+ * `updatedAt` 落在本地今日，跨天就该从悬浮窗沉掉（86 单漏了这层限定，昨天乃至更早
+ * 的完成/失败行会一直挂在列表上，用户 2026-11-07 报障）。历史 `done` / `missed`
+ * 在悬浮窗不显示不等于数据没了，主界面照旧。
+ *
+ * 第三类不受窗口约束的是 `dueLocalDay` 判不出日期的（不凭空丢）。其余用
+ * `YYYY-MM-DD` 字符串字典序比较，不转 Date 比毫秒；窗口末端用本地日历加 7 天，
+ * 不用 UTC 切日期。
  */
 export function withinHudWindow(tasks: Task[], today: string): Task[] {
   const [year, month, day] = today.split('-').map(Number)
   const end = toLocalDay(new Date(year, month - 1, day + 7))
   return tasks.filter(task => {
-    if (task.status === 'done' || task.status === 'missed') return true
+    if (task.status === 'done' || task.status === 'missed') {
+      return toLocalDay(new Date(task.updatedAt)) === today
+    }
     const dueDay = dueLocalDay(task.dueAt)
     if (dueDay === null) return true
     return dueDay >= today && dueDay <= end

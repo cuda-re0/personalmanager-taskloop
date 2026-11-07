@@ -32,7 +32,9 @@ function withinHudWindow(tasks, today) {
   const [year, month, day] = today.split("-").map(Number);
   const end = toLocalDay(new Date(year, month - 1, day + 7));
   return tasks.filter((task) => {
-    if (task.status === "done" || task.status === "missed") return true;
+    if (task.status === "done" || task.status === "missed") {
+      return toLocalDay(new Date(task.updatedAt)) === today;
+    }
     const dueDay = dueLocalDay(task.dueAt);
     if (dueDay === null) return true;
     return dueDay >= today && dueDay <= end;
@@ -429,6 +431,7 @@ function mergeTodayFinished(active, finished) {
 function useHudData() {
   const [snapshot, setSnapshot] = reactExports.useState(EMPTY);
   const [rowError, setRowError] = reactExports.useState(null);
+  const [today, setToday] = reactExports.useState(() => toLocalDay(/* @__PURE__ */ new Date()));
   const errorTimer = reactExports.useRef(null);
   const sensorsWarned = reactExports.useRef(false);
   const themeBg = reactExports.useMemo(readThemeBg, []);
@@ -514,6 +517,30 @@ function useHudData() {
       alive = false;
       off();
       if (errorTimer.current) clearTimeout(errorTimer.current);
+    };
+  }, []);
+  reactExports.useEffect(() => {
+    let alive = true;
+    let timer = null;
+    const schedule = () => {
+      const now = /* @__PURE__ */ new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2);
+      timer = setTimeout(
+        () => {
+          if (!alive) return;
+          setToday(toLocalDay(/* @__PURE__ */ new Date()));
+          schedule();
+        },
+        Math.max(1e3, next.getTime() - now.getTime())
+      );
+    };
+    const onFocus = () => setToday(toLocalDay(/* @__PURE__ */ new Date()));
+    schedule();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
   reactExports.useEffect(() => {
@@ -620,7 +647,6 @@ function useHudData() {
       if (!res.ok) console.error("[hud] hud.setVisible 失败", res.error);
     }).catch((e) => console.error("[hud] hud.setVisible 调用失败", e));
   }, []);
-  const today = toLocalDay(/* @__PURE__ */ new Date());
   const rows = reactExports.useMemo(
     () => buildRows(snapshot.occurrences, withinHudWindow(snapshot.tasks, today)),
     [snapshot.occurrences, snapshot.tasks, today]

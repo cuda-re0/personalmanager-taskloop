@@ -221,12 +221,60 @@ describe('悬浮窗窗口：今天 ~ 今天+7（含两端）', () => {
     expect(hudDueLabel('不是日期')).toBe('')
   })
 
-  it('done / missed 的旧任务不受窗口限制', () => {
+  it('done / missed 只保留今天结束的（看 updatedAt，不看 dueAt）', () => {
     const tasks = [
-      makeTask({ id: 'done', title: '完成', status: 'done', dueAt: '2026-01-01' }),
-      makeTask({ id: 'missed', title: '失败', status: 'missed', dueAt: '2026-01-02' })
+      // ①今天结束的 → 保留
+      makeTask({
+        id: 'done-today',
+        title: '今天完成',
+        status: 'done',
+        dueAt: '2026-01-01',
+        updatedAt: new Date(2026, 9, 28, 10).toISOString()
+      }),
+      // ②昨天结束的 → 丢弃（跨天就该沉掉）
+      makeTask({
+        id: 'done-yesterday',
+        title: '昨天完成',
+        status: 'done',
+        dueAt: '2026-10-27',
+        updatedAt: new Date(2026, 9, 27, 10).toISOString()
+      }),
+      // ③dueAt 很久以前、但今天才判失败 → 保留（判定看 updatedAt）
+      makeTask({
+        id: 'missed-today',
+        title: '今天判失败',
+        status: 'missed',
+        dueAt: '2026-01-02',
+        updatedAt: new Date(2026, 9, 28, 11).toISOString()
+      })
     ]
-    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['done', 'missed'])
+    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['done-today', 'missed-today'])
+  })
+
+  it('已结束的行不受 7 天窗口限制：dueAt 在窗口之外也留', () => {
+    const tasks = [
+      makeTask({
+        id: 'done-far',
+        title: '远的已完成',
+        status: 'done',
+        dueAt: '2026-12-31',
+        updatedAt: new Date(2026, 9, 28, 9).toISOString()
+      })
+    ]
+    expect(withinHudWindow(tasks, TODAY).map(t => t.id)).toEqual(['done-far'])
+  })
+
+  it('missed 的 dueAt 在今天、updatedAt 是昨天 → 仍然丢弃（跨天优先于窗口）', () => {
+    const tasks = [
+      makeTask({
+        id: 'missed-stale',
+        title: '昨天判失败',
+        status: 'missed',
+        dueAt: '2026-10-28',
+        updatedAt: new Date(2026, 9, 27, 23).toISOString()
+      })
+    ]
+    expect(withinHudWindow(tasks, TODAY)).toEqual([])
   })
 
   it('dueAt 为 null 时保留（判不出日期不凭空丢）', () => {

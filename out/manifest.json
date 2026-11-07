@@ -1,12 +1,12 @@
 {
-  "version": "0.91.2",
+  "version": "0.91.3",
   "files": [
     "main/index.js",
     "preload/index.js",
     "renderer/assets/client-B34VK5kX.js",
     "renderer/assets/client-CGVkXN8R.css",
     "renderer/assets/format-Bs86JCX8.js",
-    "renderer/assets/hud-CQWJDmyN.js",
+    "renderer/assets/hud-0SpxbC3o.js",
     "renderer/assets/hud-CRSkWs5G.css",
     "renderer/assets/main-BHlI000k.js",
     "renderer/assets/main-ahMuusdD.css",
