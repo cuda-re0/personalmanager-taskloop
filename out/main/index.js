@@ -226,6 +226,7 @@ const attachmentNameSql = "-- v0.49：附件显示名。只加一列，不动 00
 const messageModeSql = "-- v0.73：消息带上发送时的输入模式（chat / task）。\n-- 可空：本迁移之前的老行拿不到这个信息，渲染层按「轮」推断兜底（73 §G）。\nALTER TABLE messages ADD COLUMN mode TEXT;\n";
 const pulseSql = "CREATE TABLE IF NOT EXISTS pulses (\n  id TEXT PRIMARY KEY,\n  title TEXT NOT NULL,\n  interval_minutes INTEGER NOT NULL,\n  window_start TEXT,\n  window_end TEXT,\n  enabled INTEGER NOT NULL DEFAULT 1,\n  last_fired_at TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\n";
 const alertSql = "CREATE TABLE IF NOT EXISTS alerts (\n  id TEXT PRIMARY KEY,\n  kind TEXT NOT NULL,\n  level TEXT NOT NULL,\n  source_id TEXT NOT NULL,\n  title TEXT NOT NULL,\n  fired_at TEXT NOT NULL,\n  acked_at TEXT,\n  escalated_at TEXT\n);\n";
+const messageSettledSql = "ALTER TABLE messages ADD COLUMN settled_at TEXT;\n";
 const MIGRATIONS = [
   { version: 1, name: "001_init", sql: initSql },
   { version: 2, name: "002_ledger_reversed", sql: ledgerReversedSql },
@@ -234,7 +235,8 @@ const MIGRATIONS = [
   { version: 5, name: "005_attachment_name", sql: attachmentNameSql },
   { version: 6, name: "006_message_mode", sql: messageModeSql },
   { version: 7, name: "007_pulse", sql: pulseSql },
-  { version: 8, name: "008_alert", sql: alertSql }
+  { version: 8, name: "008_alert", sql: alertSql },
+  { version: 9, name: "009_message_settled", sql: messageSettledSql }
 ];
 class AppErrorException extends Error {
   code;
@@ -825,7 +827,8 @@ const MESSAGE_COLUMNS = [
   "tokens_in",
   "tokens_out",
   "latency_ms",
-  "created_at"
+  "created_at",
+  "settled_at"
 ];
 const ATTACHMENT_COLUMNS = [
   "id",
@@ -908,6 +911,7 @@ function mapMessage(row2, attachments) {
     // 库里若有脏值就当 null（走轮推断兜底），不用 `as ChatMode` 硬转
     mode: row2.mode === "chat" || row2.mode === "task" ? row2.mode : null,
     attachments,
+    settledAt: row2.settled_at,
     createdAt: row2.created_at
   };
 }
@@ -925,7 +929,8 @@ function messageInsertParams(m) {
     m.tokensIn ?? null,
     m.tokensOut ?? null,
     m.latencyMs ?? null,
-    m.createdAt
+    m.createdAt,
+    m.settledAt ?? null
   ];
 }
 const PULSE_COLUMNS = [
@@ -1645,6 +1650,7 @@ function patch(id, input) {
   if (input.tokensIn !== void 0) cols.tokens_in = input.tokensIn;
   if (input.tokensOut !== void 0) cols.tokens_out = input.tokensOut;
   if (input.latencyMs !== void 0) cols.latency_ms = input.latencyMs;
+  if (input.settledAt !== void 0) cols.settled_at = input.settledAt;
   if (Object.keys(cols).length === 0) return requireById$4(id);
   const { clause, values } = buildSetClause(cols);
   const changes = getDb().prepare(`UPDATE messages SET ${clause} WHERE id = ?`).run(...values, id).changes;
@@ -2588,7 +2594,9 @@ const CH = {
     retry: "msg:retry",
     /** v0.48：撤回/编辑共用——按轮切片、软删任务、不广播消息删除事件 */
     remove: "msg:remove",
-    list: "msg:list"
+    list: "msg:list",
+    /** v0.92：提醒消息标记已处理（写 messages.settled_at） */
+    settle: "msg:settle"
   },
   attachment: {
     add: "attachment:add",
@@ -2695,6 +2703,78 @@ function broadcast(event) {
   const fn = transport ?? defaultTransport;
   fn(event);
 }
+const SELECT_ALERT = `SELECT ${ALERT_COLUMNS.join(", ")} FROM alerts`;
+function write$1(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    throw wrapWriteError(e, "提醒记录写入失败");
+  }
+}
+function selectById(id) {
+  const row2 = getDb().prepare(`${SELECT_ALERT} WHERE id = ?`).get(id);
+  return row2 ? mapAlert(row2) : null;
+}
+function insert$3(input) {
+  write$1(
+    () => getDb().prepare(`INSERT INTO alerts (${ALERT_COLUMNS.join(", ")}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      input.id,
+      input.kind,
+      input.level,
+      input.sourceId,
+      input.title,
+      input.firedAt,
+      null,
+      null
+    )
+  );
+  const alert = selectById(input.id);
+  if (alert === null) throw appError("DB_ERROR", "提醒记录写入失败", { detail: `id=${input.id}` });
+  return alert;
+}
+function ackBySourceId(sourceId, at) {
+  return write$1(
+    () => getDb().prepare("UPDATE alerts SET acked_at = ? WHERE source_id = ? AND acked_at IS NULL").run(at, sourceId).changes
+  );
+}
+function escalateDue$1(normalBefore, strongBefore, at) {
+  return write$1(
+    () => getDb().prepare(
+      `UPDATE alerts SET escalated_at = ?
+         WHERE acked_at IS NULL AND escalated_at IS NULL
+           AND ((level = 'strong' AND fired_at <= ?) OR (level <> 'strong' AND fired_at <= ?))`
+    ).run(at, strongBefore, normalBefore).changes
+  );
+}
+function listSince$1(sinceIso) {
+  return getDb().prepare(`${SELECT_ALERT} WHERE fired_at >= ? ORDER BY fired_at ASC`).all(sinceIso).map(mapAlert);
+}
+function listRecent(limit) {
+  return getDb().prepare(`${SELECT_ALERT} ORDER BY fired_at DESC LIMIT ?`).all(limit).map(mapAlert);
+}
+const ESCALATE_NORMAL_MS = 1e4;
+const ESCALATE_STRONG_MS = 6e4;
+function recordAlert(input) {
+  return insert$3({
+    id: node_crypto.randomUUID(),
+    kind: "reminder",
+    level: input.level,
+    sourceId: input.sourceId,
+    title: input.title,
+    firedAt: nowIso()
+  });
+}
+function ackAlert(sourceId) {
+  return ackBySourceId(sourceId, nowIso());
+}
+function escalateDue(now) {
+  const normalBefore = new Date(now.getTime() - ESCALATE_NORMAL_MS).toISOString();
+  const strongBefore = new Date(now.getTime() - ESCALATE_STRONG_MS).toISOString();
+  return escalateDue$1(normalBefore, strongBefore, now.toISOString());
+}
+function listSince(sinceMs, now) {
+  return listSince$1(new Date(now.getTime() - sinceMs).toISOString());
+}
 function appendMessage(input) {
   const normalized = {
     id: input.id ?? newId(),
@@ -2721,6 +2801,26 @@ function requireMessage(id) {
 }
 function patchMessage(id, input) {
   return patch(id, input);
+}
+function settleReminderMessage(id) {
+  const message = requireMessage(id);
+  if (message.kind !== "reminder") {
+    throw appError("INVALID_INPUT", "只有提醒消息可以标记已处理", {
+      detail: `kind=${message.kind}`
+    });
+  }
+  if (message.settledAt !== null) return message;
+  const at = nowIso();
+  const settled = patchMessage(id, { settledAt: at });
+  if (message.meta.kind === "reminder") {
+    try {
+      ackAlert(message.meta.reminderId);
+    } catch (e) {
+      console.warn("[alert] 确认失败", e);
+    }
+  }
+  broadcast({ type: "message.patch", messageId: id, patch: { settledAt: at } });
+  return settled;
 }
 function recentMessages(limit = 30) {
   return listRecent$1(limit);
@@ -2770,7 +2870,7 @@ function getByContent(contentMd) {
   const row2 = getDb().prepare(`${SELECT$2} WHERE content_md = ?`).get(contentMd);
   return row2 ? mapMemory(row2) : null;
 }
-function insert$3(input) {
+function insert$2(input) {
   const id = newId();
   const now = nowIso();
   try {
@@ -2855,7 +2955,7 @@ function addManual(input) {
   if (count() >= MEMORY_LIMIT) {
     throw appError("INVALID_INPUT", `记忆已达 ${MEMORY_LIMIT} 条，请先删几条`);
   }
-  return insert$3({ contentMd, kind: input.kind, source: "manual" });
+  return insert$2({ contentMd, kind: input.kind, source: "manual" });
 }
 function update$2(id, patch2) {
   const next = {};
@@ -2883,7 +2983,7 @@ function addAuto(input) {
   if (count() >= MEMORY_LIMIT) evictOne();
   const before = getByContent(text);
   if (before !== null) return before;
-  return insert$3({ contentMd: text, kind: input.kind, source: "auto" });
+  return insert$2({ contentMd: text, kind: input.kind, source: "auto" });
 }
 const COLUMNS = [
   "id",
@@ -4058,7 +4158,7 @@ function byWeek(weekStart) {
   const row2 = getDb().prepare(`${SELECT_FX} WHERE week_start = ?`).get(weekStart);
   return row2 === void 0 ? null : mapFxRate(row2);
 }
-function insert$2(row2) {
+function insert$1(row2) {
   getDb().prepare(
     `INSERT INTO fx_rates (${FX_RATE_COLUMNS.join(", ")})
        VALUES (${FX_RATE_COLUMNS.map(() => "?").join(", ")})`
@@ -4152,7 +4252,7 @@ async function ensureWeek(now = /* @__PURE__ */ new Date()) {
   }
   const createdAt = nowIso();
   try {
-    insert$2({ id: newId(), weekStart, rate, basis, source, createdAt });
+    insert$1({ id: newId(), weekStart, rate, basis, source, createdAt });
   } catch (e) {
     if (!isConstraintError(e)) throw e;
     const raced = byWeek(weekStart);
@@ -5649,78 +5749,6 @@ const aiService = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePro
   setProvider,
   turnRangeOf
 }, Symbol.toStringTag, { value: "Module" }));
-const SELECT_ALERT = `SELECT ${ALERT_COLUMNS.join(", ")} FROM alerts`;
-function write$1(fn) {
-  try {
-    return fn();
-  } catch (e) {
-    throw wrapWriteError(e, "提醒记录写入失败");
-  }
-}
-function selectById(id) {
-  const row2 = getDb().prepare(`${SELECT_ALERT} WHERE id = ?`).get(id);
-  return row2 ? mapAlert(row2) : null;
-}
-function insert$1(input) {
-  write$1(
-    () => getDb().prepare(`INSERT INTO alerts (${ALERT_COLUMNS.join(", ")}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      input.id,
-      input.kind,
-      input.level,
-      input.sourceId,
-      input.title,
-      input.firedAt,
-      null,
-      null
-    )
-  );
-  const alert = selectById(input.id);
-  if (alert === null) throw appError("DB_ERROR", "提醒记录写入失败", { detail: `id=${input.id}` });
-  return alert;
-}
-function ackBySourceId(sourceId, at) {
-  return write$1(
-    () => getDb().prepare("UPDATE alerts SET acked_at = ? WHERE source_id = ? AND acked_at IS NULL").run(at, sourceId).changes
-  );
-}
-function escalateDue$1(normalBefore, strongBefore, at) {
-  return write$1(
-    () => getDb().prepare(
-      `UPDATE alerts SET escalated_at = ?
-         WHERE acked_at IS NULL AND escalated_at IS NULL
-           AND ((level = 'strong' AND fired_at <= ?) OR (level <> 'strong' AND fired_at <= ?))`
-    ).run(at, strongBefore, normalBefore).changes
-  );
-}
-function listSince$1(sinceIso) {
-  return getDb().prepare(`${SELECT_ALERT} WHERE fired_at >= ? ORDER BY fired_at ASC`).all(sinceIso).map(mapAlert);
-}
-function listRecent(limit) {
-  return getDb().prepare(`${SELECT_ALERT} ORDER BY fired_at DESC LIMIT ?`).all(limit).map(mapAlert);
-}
-const ESCALATE_NORMAL_MS = 1e4;
-const ESCALATE_STRONG_MS = 6e4;
-function recordAlert(input) {
-  return insert$1({
-    id: node_crypto.randomUUID(),
-    kind: "reminder",
-    level: input.level,
-    sourceId: input.sourceId,
-    title: input.title,
-    firedAt: nowIso()
-  });
-}
-function ackAlert(sourceId) {
-  return ackBySourceId(sourceId, nowIso());
-}
-function escalateDue(now) {
-  const normalBefore = new Date(now.getTime() - ESCALATE_NORMAL_MS).toISOString();
-  const strongBefore = new Date(now.getTime() - ESCALATE_STRONG_MS).toISOString();
-  return escalateDue$1(normalBefore, strongBefore, now.toISOString());
-}
-function listSince(sinceMs, now) {
-  return listSince$1(new Date(now.getTime() - sinceMs).toISOString());
-}
 const SELECT_PULSE = `SELECT ${PULSE_COLUMNS.join(", ")} FROM pulses`;
 function write(fn) {
   try {
@@ -7764,6 +7792,8 @@ const g = {
   msgRetry: zod.z.object({ messageId: zod.z.string().min(1) }),
   // v0.48：撤回/编辑共用同一条通道，形状与 msgRetry 一致
   msgRemove: zod.z.object({ messageId: zod.z.string().min(1) }),
+  // v0.92：提醒消息标记已处理，与 msgRemove 同款
+  msgSettle: zod.z.object({ messageId: zod.z.string().min(1) }),
   // ai.*（W4，02 §3.4）
   aiConfirmDraft: zod.z.object({ messageId: zod.z.string().min(1), localId: zod.z.string().min(1) }),
   aiRejectDrafts: zod.z.object({
@@ -7890,6 +7920,7 @@ const guards = {
   [CH.msg.send]: g.msgSend,
   [CH.msg.retry]: g.msgRetry,
   [CH.msg.remove]: g.msgRemove,
+  [CH.msg.settle]: g.msgSettle,
   [CH.ai.confirmDraft]: g.aiConfirmDraft,
   [CH.ai.rejectDrafts]: g.aiRejectDrafts,
   [CH.ai.review]: g.aiReview,
@@ -8235,8 +8266,10 @@ const TABLE = [
     return dayIndex(from, to);
   }),
   row(CH.calendar.dayDetail, g.dayDetail, (input) => dayDetail(input.day)),
-  /* ---------------- msg（1） ---------------- */
+  /* ---------------- msg（2） ---------------- */
   row(CH.msg.list, g.msgList, (input) => listMessages(input)),
+  // v0.92：会话区提醒行「知道了 / 稍后提醒」→ 只写 messages.settled_at 并广播 patch
+  row(CH.msg.settle, g.msgSettle, (input) => settleReminderMessage(input.messageId)),
   /* ---------------- msg.send / msg.retry / msg.remove（3） ---------------- */
   // send 秒返回：AI 那段是 aiService 内部的 void runTurn()，这里不 await（03 §3.1、02 §3.3）
   row(CH.msg.send, g.msgSend, (input) => send(input)),
@@ -8404,7 +8437,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.91.3";
+const version = "0.92.0";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";

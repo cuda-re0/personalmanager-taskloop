@@ -7,8 +7,11 @@ import type {
 } from '../../shared/types/domain'
 import { nowIso } from '../db/localDay'
 import { newId } from '../db/ids'
+import { appError } from '../db/errors'
+import { broadcast } from '../bus'
 import type { MessageInsert } from '../db/mappers'
 import * as messageRepo from '../db/repositories/messageRepo'
+import * as alertService from './alertService'
 
 /**
  * messageService —— **只做数据访问**（不调 AI、不编排流式推送，那是 W3/W4）。
@@ -67,10 +70,42 @@ export interface PatchMessageInput {
   tokensIn?: number | null
   tokensOut?: number | null
   latencyMs?: number | null
+  settledAt?: string | null
 }
 
 export function patchMessage(id: string, input: PatchMessageInput): Message {
   return messageRepo.patch(id, input)
+}
+
+/**
+ * 会话区提醒行「知道了 / 稍后提醒」（v0.92）：只写 `messages.settled_at`。
+ *
+ * 幂等写死：已处理过就原样返回，不刷新时间戳、不广播——用户连点两下、
+ * 两个窗口同时点，库里也只留第一次的时刻。顺带 ack 对应的 alert 行，
+ * 但记不上不能连累界面状态（与 `reminderService.fireOne` 的 `recordAlert` 同口径）。
+ */
+export function settleReminderMessage(id: string): Message {
+  const message = requireMessage(id)
+  if (message.kind !== 'reminder') {
+    throw appError('INVALID_INPUT', '只有提醒消息可以标记已处理', {
+      detail: `kind=${message.kind}`
+    })
+  }
+  if (message.settledAt !== null) return message
+
+  const at = nowIso()
+  const settled = patchMessage(id, { settledAt: at })
+
+  if (message.meta.kind === 'reminder') {
+    try {
+      alertService.ackAlert(message.meta.reminderId)
+    } catch (e: unknown) {
+      console.warn('[alert] 确认失败', e)
+    }
+  }
+
+  broadcast({ type: 'message.patch', messageId: id, patch: { settledAt: at } })
+  return settled
 }
 
 /** 最近 N 条，时间升序（Bootstrap 用） */

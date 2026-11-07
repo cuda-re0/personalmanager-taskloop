@@ -115,6 +115,7 @@ describe('buildChatSystem / buildChatRequest（03 §4.3.1）', () => {
           status: 'sent',
           mode: 'chat',
           attachments: [],
+          settledAt: null,
           createdAt: '2026-10-30T00:00:00.000Z'
         },
         {
@@ -128,6 +129,7 @@ describe('buildChatSystem / buildChatRequest（03 §4.3.1）', () => {
           status: 'pending',
           mode: 'chat',
           attachments: [],
+          settledAt: null,
           createdAt: '2026-10-30T00:00:01.000Z'
         }
       ],

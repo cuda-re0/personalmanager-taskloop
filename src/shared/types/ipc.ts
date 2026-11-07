@@ -316,6 +316,11 @@ export interface Api {
       messageId: string
     }): Promise<IpcResult<{ removedIds: string[]; removedTaskIds: string[] }>>
     list(input: { before?: string; limit?: number }): Promise<IpcResult<Message[]>>
+    /**
+     * 提醒消息标记已处理（v0.92）：只写 `messages.settled_at`（并顺带 ack 对应 alert），
+     * 成功后会广播 `message.patch`，渲染层不要自己预改本地状态。
+     */
+    settle(input: { messageId: string }): Promise<IpcResult<Message>>
   }
 
   attachment: {

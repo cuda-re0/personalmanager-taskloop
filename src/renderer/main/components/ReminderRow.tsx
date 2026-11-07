@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react'
+import type { ReactElement } from 'react'
 import type { ChatActions } from '../features/chat/chatTypes'
 import { offsetLabel } from '../features/chat/chatViewModel'
 
@@ -9,6 +9,10 @@ interface Props {
   offsetMin: number | null
   taskId: string | null
   reminderId: string
+  /** v0.92：消息 id，两个按钮都把它交给主进程写 settled_at */
+  messageId: string
+  /** v0.92：已处理（`messages.settled_at` 非 null）。灰字 + 两个按钮不进 DOM */
+  acked: boolean
   actions: ChatActions
 }
 
@@ -20,21 +24,26 @@ function clockOf(iso: string): string {
   return `${hh}:${mm}`
 }
 
-/** 04 §3.1 + §9.4：居中细条、无气泡，--dot 小圆点，点击跳任务，两个按钮常显 */
+/**
+ * 04 §3.1 + §9.4：居中细条、无气泡，--dot 小圆点，点击跳任务，两个按钮常显。
+ *
+ * v0.92：组件自己不存状态——「处理过没有」落库在 `messages.settled_at`，
+ * 由 `acked` 驱动显示；主进程写完广播 `message.patch`，重启/切页都还是灰的。
+ */
 export function ReminderRow({
   title,
   fireAt,
   offsetMin,
   taskId,
   reminderId,
+  messageId,
+  acked,
   actions
 }: Props): ReactElement {
-  /** 一个状态管两件事：文字转灰 + 两个按钮一起从 DOM 移除。不落库，重启后按钮会再出现 */
-  const [settled, setSettled] = useState(false)
   const clock = clockOf(fireAt)
   const suffix = offsetMin === null ? (clock ? ` · ${clock}` : '') : ` · ${offsetLabel(offsetMin)}`
   return (
-    <div className={settled ? 'reminder-row is-settled' : 'reminder-row'}>
+    <div className={acked ? 'reminder-row is-settled' : 'reminder-row'}>
       <span className="reminder-dot" />
       <button
         className="reminder-text"
@@ -47,13 +56,13 @@ export function ReminderRow({
         {title}
         {suffix}
       </button>
-      {settled ? null : (
+      {acked ? null : (
         <>
           <button
             className="reminder-snooze"
             onClick={() => {
               actions.snoozeReminder(reminderId)
-              setSettled(true)
+              actions.settleReminder(messageId)
             }}
             type="button"
           >
@@ -61,10 +70,7 @@ export function ReminderRow({
           </button>
           <button
             className="reminder-ack"
-            onClick={() => {
-              actions.ackAlert(reminderId)
-              setSettled(true)
-            }}
+            onClick={() => actions.settleReminder(messageId)}
             type="button"
           >
             知道了

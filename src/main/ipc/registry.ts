@@ -448,8 +448,10 @@ const TABLE: Row[] = [
   }),
   row(CH.calendar.dayDetail, g.dayDetail, input => statsRepo.dayDetail(input.day)),
 
-  /* ---------------- msg（1） ---------------- */
+  /* ---------------- msg（2） ---------------- */
   row(CH.msg.list, g.msgList, input => messageService.listMessages(input)),
+  // v0.92：会话区提醒行「知道了 / 稍后提醒」→ 只写 messages.settled_at 并广播 patch
+  row(CH.msg.settle, g.msgSettle, input => messageService.settleReminderMessage(input.messageId)),
 
   /* ---------------- msg.send / msg.retry / msg.remove（3） ---------------- */
   // send 秒返回：AI 那段是 aiService 内部的 void runTurn()，这里不 await（03 §3.1、02 §3.3）

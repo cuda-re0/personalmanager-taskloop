@@ -15,6 +15,7 @@ function msg(id: string): Message {
     status: 'sent',
     mode: 'chat',
     attachments: [],
+    settledAt: null,
     createdAt: '2026-11-06T00:00:00.000Z'
   }
 }

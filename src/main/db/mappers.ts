@@ -627,6 +627,8 @@ export interface MessageRow {
   tokens_in: number | null
   tokens_out: number | null
   latency_ms: number | null
+  /** 009 迁移加列（v0.92）。老行为 NULL */
+  settled_at: string | null
   created_at: string
 }
 
@@ -643,7 +645,8 @@ export const MESSAGE_COLUMNS = [
   'tokens_in',
   'tokens_out',
   'latency_ms',
-  'created_at'
+  'created_at',
+  'settled_at'
 ] as const
 
 export interface AttachmentRow {
@@ -753,6 +756,7 @@ export function mapMessage(row: MessageRow, attachments: Attachment[]): Message 
     // 库里若有脏值就当 null（走轮推断兜底），不用 `as ChatMode` 硬转
     mode: row.mode === 'chat' || row.mode === 'task' ? row.mode : null,
     attachments,
+    settledAt: row.settled_at,
     createdAt: row.created_at
   }
 }
@@ -771,6 +775,8 @@ export interface MessageInsert {
   tokensIn?: number | null
   tokensOut?: number | null
   latencyMs?: number | null
+  /** v0.92：新消息一律 NULL（没处理过），只有 settleReminderMessage 事后补 */
+  settledAt?: string | null
   createdAt: string
 }
 
@@ -788,7 +794,8 @@ export function messageInsertParams(m: MessageInsert): SqlValue[] {
     m.tokensIn ?? null,
     m.tokensOut ?? null,
     m.latencyMs ?? null,
-    m.createdAt
+    m.createdAt,
+    m.settledAt ?? null
   ]
 }
 

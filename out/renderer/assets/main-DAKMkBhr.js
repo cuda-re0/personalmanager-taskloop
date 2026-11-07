@@ -1160,12 +1160,13 @@ function ReminderRow({
   offsetMin,
   taskId,
   reminderId,
+  messageId,
+  acked,
   actions
 }) {
-  const [settled, setSettled] = reactExports.useState(false);
   const clock = clockOf(fireAt);
   const suffix = offsetMin === null ? clock ? ` · ${clock}` : "" : ` · ${offsetLabel(offsetMin)}`;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: settled ? "reminder-row is-settled" : "reminder-row", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: acked ? "reminder-row is-settled" : "reminder-row", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "reminder-dot" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "button",
@@ -1182,14 +1183,14 @@ function ReminderRow({
         ]
       }
     ),
-    settled ? null : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    acked ? null : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
           className: "reminder-snooze",
           onClick: () => {
             actions.snoozeReminder(reminderId);
-            setSettled(true);
+            actions.settleReminder(messageId);
           },
           type: "button",
           children: "稍后提醒"
@@ -1199,10 +1200,7 @@ function ReminderRow({
         "button",
         {
           className: "reminder-ack",
-          onClick: () => {
-            actions.ackAlert(reminderId);
-            setSettled(true);
-          },
+          onClick: () => actions.settleReminder(messageId),
           type: "button",
           children: "知道了"
         }
@@ -1239,7 +1237,9 @@ const MessageItem = reactExports.memo(function MessageItem2({
         ReminderRow,
         {
           actions,
+          acked: message.settledAt !== null,
           fireAt: meta.fireAt,
+          messageId: message.id,
           offsetMin: meta.offsetMin,
           reminderId: meta.reminderId,
           taskId: meta.taskId,
@@ -1859,6 +1859,8 @@ function msg(seed) {
     // v0.73：演示数据当作老行（无模式标签），走轮推断兜底
     mode: null,
     attachments: [],
+    // 009 迁移（v0.92）：演示数据都是没处理过的提醒
+    settledAt: null,
     createdAt: `${DAY}T01:00:00.000Z`,
     ...seed
   };
@@ -2448,10 +2450,10 @@ function useChatData() {
       if (!res.ok) console.error("[chat] reminder.snooze 失败", res.error);
     }).catch((e) => console.error("[chat] reminder.snooze 调用失败", e));
   }, []);
-  const ackAlert = reactExports.useCallback((reminderId) => {
-    void window.api.alert.ack({ sourceId: reminderId }).then((res) => {
-      if (!res.ok) console.error("[chat] alert.ack 失败", res.error);
-    }).catch((e) => console.error("[chat] alert.ack 失败", e));
+  const settleReminder = reactExports.useCallback((messageId) => {
+    void window.api.msg.settle({ messageId }).then((res) => {
+      if (!res.ok) console.error("[chat] msg.settle 失败", res.error);
+    }).catch((e) => console.error("[chat] msg.settle 调用失败", e));
   }, []);
   const addEvidence = reactExports.useCallback(async (taskId, file) => {
     try {
@@ -2606,7 +2608,7 @@ function useChatData() {
       recallMessage,
       openTask,
       snoozeReminder,
-      ackAlert,
+      settleReminder,
       addEvidence,
       addTextEvidence,
       removeEvidence,
@@ -2624,7 +2626,7 @@ function useChatData() {
       recallMessage,
       openTask,
       snoozeReminder,
-      ackAlert,
+      settleReminder,
       addEvidence,
       addTextEvidence,
       removeEvidence,

@@ -100,6 +100,7 @@ function reviewMessage(id: string, taskId: string, verdict: ReviewVerdict['verdi
     status: 'sent',
     mode: 'task',
     attachments: [],
+    settledAt: null,
     createdAt: '2026-10-30T12:00:00.000Z'
   }
 }

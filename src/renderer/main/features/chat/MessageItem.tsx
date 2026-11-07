@@ -47,7 +47,9 @@ export const MessageItem = memo(function MessageItem({
       return (
         <ReminderRow
           actions={actions}
+          acked={message.settledAt !== null}
           fireAt={meta.fireAt}
+          messageId={message.id}
           offsetMin={meta.offsetMin}
           reminderId={meta.reminderId}
           taskId={meta.taskId}

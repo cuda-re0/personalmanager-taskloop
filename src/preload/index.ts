@@ -88,7 +88,8 @@ const api: Api = {
     retry: input => invoke<void>(CH.msg.retry, input),
     remove: input =>
       invoke<{ removedIds: string[]; removedTaskIds: string[] }>(CH.msg.remove, input),
-    list: input => invoke<Message[]>(CH.msg.list, input)
+    list: input => invoke<Message[]>(CH.msg.list, input),
+    settle: input => invoke<Message>(CH.msg.settle, input)
   },
 
   attachment: {

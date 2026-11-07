@@ -89,8 +89,10 @@ export interface ChatActions {
   recallMessage(messageId: string): void
   openTask(taskId: string): void
   snoozeReminder(reminderId: string): void
-  /** 会话区「知道了」（v0.88）：标记该条提醒已确认，按钮点过即消失 */
-  ackAlert(reminderId: string): void
+  /**
+   * v0.92：「知道了 / 稍后提醒」都调它，主进程写 `settled_at` 并广播 patch，渲染层不预改。
+   */
+  settleReminder(messageId: string): void
   /** 选完文件调：内部 `attachment.add` → `task.addEvidence`。失败返回 AppError.message 原文 */
   addEvidence(taskId: string, file: File): Promise<string | null>
   /** 写一条文字证据（v0.74）。text 先 trim，空串直接返回 null、不发请求。失败返回原文 */

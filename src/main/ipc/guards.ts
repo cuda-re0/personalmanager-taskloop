@@ -303,6 +303,8 @@ export const g = {
   msgRetry: z.object({ messageId: z.string().min(1) }),
   // v0.48：撤回/编辑共用同一条通道，形状与 msgRetry 一致
   msgRemove: z.object({ messageId: z.string().min(1) }),
+  // v0.92：提醒消息标记已处理，与 msgRemove 同款
+  msgSettle: z.object({ messageId: z.string().min(1) }),
   // ai.*（W4，02 §3.4）
   aiConfirmDraft: z.object({ messageId: z.string().min(1), localId: z.string().min(1) }),
   aiRejectDrafts: z.object({
@@ -437,6 +439,7 @@ export const guards: Record<string, z.ZodTypeAny> = {
   [CH.msg.send]: g.msgSend,
   [CH.msg.retry]: g.msgRetry,
   [CH.msg.remove]: g.msgRemove,
+  [CH.msg.settle]: g.msgSettle,
   [CH.ai.confirmDraft]: g.aiConfirmDraft,
   [CH.ai.rejectDrafts]: g.aiRejectDrafts,
   [CH.ai.review]: g.aiReview,

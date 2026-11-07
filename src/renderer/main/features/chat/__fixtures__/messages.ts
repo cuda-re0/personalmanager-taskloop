@@ -250,6 +250,8 @@ function msg(seed: Partial<Message> & Pick<Message, 'id' | 'role' | 'kind'>): Me
     // v0.73：演示数据当作老行（无模式标签），走轮推断兜底
     mode: null,
     attachments: [],
+    // 009 迁移（v0.92）：演示数据都是没处理过的提醒
+    settledAt: null,
     createdAt: `${DAY}T01:00:00.000Z`,
     ...seed
   }

@@ -655,14 +655,17 @@ export function useChatData(): ChatData {
       .catch((e: unknown) => console.error('[chat] reminder.snooze 调用失败', e))
   }, [])
 
-  /** 会话区「知道了」（v0.88）：只翻 acked_at，失败不提示（用户已经点掉了提醒） */
-  const ackAlert = useCallback((reminderId: string) => {
-    void window.api.alert
-      .ack({ sourceId: reminderId })
+  /**
+   * 会话区提醒行「知道了 / 稍后提醒」（v0.92）：主进程写 `messages.settled_at` 并广播
+   * `message.patch`，这里**不碰本地 state**（与 `retry` 同口径），失败只进日志。
+   */
+  const settleReminder = useCallback((messageId: string) => {
+    void window.api.msg
+      .settle({ messageId })
       .then(res => {
-        if (!res.ok) console.error('[chat] alert.ack 失败', res.error)
+        if (!res.ok) console.error('[chat] msg.settle 失败', res.error)
       })
-      .catch((e: unknown) => console.error('[chat] alert.ack 失败', e))
+      .catch((e: unknown) => console.error('[chat] msg.settle 调用失败', e))
   }, [])
 
   /**
@@ -876,7 +879,7 @@ export function useChatData(): ChatData {
       recallMessage,
       openTask,
       snoozeReminder,
-      ackAlert,
+      settleReminder,
       addEvidence,
       addTextEvidence,
       removeEvidence,
@@ -894,7 +897,7 @@ export function useChatData(): ChatData {
       recallMessage,
       openTask,
       snoozeReminder,
-      ackAlert,
+      settleReminder,
       addEvidence,
       addTextEvidence,
       removeEvidence,

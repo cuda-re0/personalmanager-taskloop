@@ -46,7 +46,9 @@ export const CH = {
     retry: 'msg:retry',
     /** v0.48：撤回/编辑共用——按轮切片、软删任务、不广播消息删除事件 */
     remove: 'msg:remove',
-    list: 'msg:list'
+    list: 'msg:list',
+    /** v0.92：提醒消息标记已处理（写 messages.settled_at） */
+    settle: 'msg:settle'
   },
   attachment: {
     add: 'attachment:add',

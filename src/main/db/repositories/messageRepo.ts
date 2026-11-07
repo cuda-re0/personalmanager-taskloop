@@ -61,6 +61,8 @@ export interface MessagePatch {
   tokensIn?: number | null
   tokensOut?: number | null
   latencyMs?: number | null
+  /** v0.92：提醒消息的用户已处理时刻；`null` 也照写，只有 `undefined` 才跳过 */
+  settledAt?: string | null
 }
 
 /** 02 §3.8：`message.patch` 只允许 contentMd / status / meta。其余字段是内部埋点，这里放开但注释标明 */
@@ -73,6 +75,7 @@ export function patch(id: string, input: MessagePatch): Message {
   if (input.tokensIn !== undefined) cols.tokens_in = input.tokensIn
   if (input.tokensOut !== undefined) cols.tokens_out = input.tokensOut
   if (input.latencyMs !== undefined) cols.latency_ms = input.latencyMs
+  if (input.settledAt !== undefined) cols.settled_at = input.settledAt
   if (Object.keys(cols).length === 0) return requireById(id)
 
   const { clause, values } = buildSetClause(cols)

@@ -161,6 +161,11 @@ export interface Message {
    */
   mode: ChatMode | null
   attachments: Attachment[]
+  /**
+   * 009 迁移加的列，UTC ISO8601。
+   * `null` = 用户还没处理这条提醒消息；非 reminder 消息恒为 `null`。
+   */
+  settledAt: string | null
   createdAt: string
 }
 
