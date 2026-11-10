@@ -9,6 +9,9 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * v0.44：04 §2 图里的 [设置] 已点亮（右侧抽屉，见 `features/settings/SettingsDrawer`）。
  * 本文件不碰开关逻辑，只多一个 `onOpenSettings` 回调给抽屉开门。
  *
+ * v0.94（92a）：右侧多一个「计划」按钮，排在 [设置] 左边。它只切 ④ 槽位的内容
+ * （积分 / 日历某天 / 计划三者互斥，见 `index.tsx`），本文件只管高亮当前是否展开。
+ *
  * 初态取 `hud.getState().visible`（v0.17 新增字段），此后以本地状态为准做切换；
  * v0.31 起主进程 `hud.setVisible()` 会广播 `hud.visible.changed`（HUD 设置页「关闭悬浮窗」
  * 也走这条），所以再订阅一次把本地状态拉回真值——否则开关会停在"开"，点第一次没反应。
@@ -52,9 +55,12 @@ const settingsButtonStyle: CSSProperties = {
 
 interface Props {
   onOpenSettings: () => void
+  /** 计划面板是否展开（92a）：只影响按钮字色，内容归 index.tsx 的 ④ 槽位 */
+  planOpen: boolean
+  onTogglePlan: () => void
 }
 
-export function AppHeader({ onOpenSettings }: Props): ReactElement {
+export function AppHeader({ onOpenSettings, planOpen, onTogglePlan }: Props): ReactElement {
   // null = 还没拿到初态：先按"显示"画，避免闪一下关闭态
   const [visible, setVisible] = useState<boolean | null>(null)
   const [settingsHover, setSettingsHover] = useState(false)
@@ -139,6 +145,13 @@ export function AppHeader({ onOpenSettings }: Props): ReactElement {
               transition: 'left 150ms'
             }}
           />
+        </button>
+        <button
+          type="button"
+          onClick={onTogglePlan}
+          style={planOpen ? { ...settingsButtonStyle, color: 'var(--text)' } : settingsButtonStyle}
+        >
+          计划
         </button>
         <button
           type="button"

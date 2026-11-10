@@ -9,6 +9,7 @@ import { TasksPanel } from './features/tasks/TasksPanel'
 import { CalendarPanel } from './features/calendar/CalendarPanel'
 import { CalendarDayView } from './features/calendar/CalendarDayView'
 import { PointsPanel } from './features/points/PointsPanel'
+import { PlanView } from './features/plan/PlanView'
 import { RightSplit } from './features/RightSplit'
 import { SPLIT_STORAGE_KEY, parseSplit, serializeSplit } from './features/splitModel'
 import { AppHeader } from './components/AppHeader'
@@ -50,9 +51,15 @@ window.addEventListener('drop', event => event.preventDefault())
  * 等 ratio 分配（flexGrow 行内给出），窗口高度变化时上下等比伸缩，不回到
  * 「一侧定高、另一侧吸差」。r 持久化在渲染层 localStorage（SPLIT_STORAGE_KEY），
  * 惰性初始化读一次；拖动中不落盘，pointerup 写一次。
+ *
+ * v0.94（92a）：④ 槽位有三个来源——「积分 / 日历某天 / 计划」——**三者互斥**，同一时刻
+ * 只渲染一个。顶栏「计划」打开时清掉 `dayDetail`；点日历某天时关掉计划。
+ * 计划视图（`features/plan/PlanView`）是只读的按天铺开列表，不参与右栏比例分配。
  */
 function App(): ReactElement {
   const [dayDetail, setDayDetail] = useState<string | null>(null)
+  /** 计划面板（92a）：与 `dayDetail` 互斥，两者都关时 ④ 槽位回积分面板 */
+  const [planOpen, setPlanOpen] = useState(false)
   /**
    * 设置抽屉（v0.44）：**关闭即卸载**——不保住 DOM，每次打开重新拉一次数据，
    * 免得抽屉里显示的是上一次打开时的旧快照。
@@ -64,7 +71,15 @@ function App(): ReactElement {
   )
   /** 点日期：同日再点关闭回积分面板；点其他天切换到那天（04 §4② v0.28） */
   const toggleDay = useCallback((day: string): void => {
+    // 92a：日历某天与计划面板互斥，点日历就把计划关掉
+    setPlanOpen(false)
     setDayDetail(prev => (prev === day ? null : day))
+  }, [])
+
+  /** 顶栏「计划」：打开时清掉日历那天（互斥），再点一次关闭 */
+  const togglePlan = useCallback((): void => {
+    setDayDetail(null)
+    setPlanOpen(v => !v)
   }, [])
 
   /** 拖动结束（pointerup）落盘一次，move 期间不写 localStorage */
@@ -74,7 +89,11 @@ function App(): ReactElement {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <AppHeader onOpenSettings={() => setSettingsOpen(true)} />
+      <AppHeader
+        planOpen={planOpen}
+        onTogglePlan={togglePlan}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <div className="app-shell" style={{ flex: '1 1 auto', minHeight: 0, height: 'auto' }}>
         <ChatPanel />
         <aside className="right-col">
@@ -84,7 +103,7 @@ function App(): ReactElement {
           <RightSplit ratio={ratio} onChange={setRatio} onCommit={commitSplit} />
           <div className="right-half" style={{ flexGrow: ratio }}>
             <CalendarPanel selectedDay={dayDetail} onSelectDay={toggleDay} />
-            {dayDetail ? <CalendarDayView day={dayDetail} /> : <PointsPanel />}
+            {planOpen ? <PlanView /> : dayDetail ? <CalendarDayView day={dayDetail} /> : <PointsPanel />}
           </div>
         </aside>
       </div>

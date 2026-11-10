@@ -5032,6 +5032,69 @@ function PointsPanel() {
     ] })
   ] });
 }
+function comparePlanRows(a, b) {
+  if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+  return 0;
+}
+function groupByPlanDay(tasks) {
+  const picked = tasks.filter((t) => t.plannedDay !== null && t.parentId === null);
+  const byDay = /* @__PURE__ */ new Map();
+  for (const task of picked) {
+    const day = task.plannedDay;
+    const bucket = byDay.get(day);
+    if (bucket === void 0) byDay.set(day, [task]);
+    else bucket.push(task);
+  }
+  return [...byDay.entries()].sort((a, b) => a[0] === b[0] ? 0 : a[0] < b[0] ? -1 : 1).map(([day, list]) => ({ day, tasks: [...list].sort(comparePlanRows) }));
+}
+const PLAN_STATUS = [
+  "todo",
+  "doing",
+  "pending_review",
+  "reviewing",
+  "done",
+  "missed"
+];
+function usePlanData() {
+  const [tasks, setTasks] = reactExports.useState([]);
+  reactExports.useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void window.api.task.list({ status: PLAN_STATUS }).then((res) => {
+        if (!alive) return;
+        if (!res.ok) {
+          console.error("[plan] task.list 失败", res.error);
+          return;
+        }
+        setTasks(res.data);
+      }).catch((e) => {
+        if (alive) console.error("[plan] task.list 调用失败", e);
+      });
+    };
+    load();
+    const off = window.api.onEvent((event) => {
+      if (event.type.startsWith("task.")) load();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+  return { tasks };
+}
+function isDone(task) {
+  return task.status === "done" || task.status === "missed";
+}
+function PlanView() {
+  const { tasks } = usePlanData();
+  const groups = groupByPlanDay(tasks);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "plan-panel", children: groups.map((g) => /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "plan-day", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "plan-day-head", children: floorTitle(g.day) }),
+    g.tasks.map((t) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: isDone(t) ? "plan-row plan-row--done" : "plan-row", children: t.title }, t.id))
+  ] }, g.day)) });
+}
 const DEFAULT_SPLIT = 0.71;
 const MIN_TOP_PX = 160;
 const MIN_BOTTOM_PX = 360;
@@ -5138,7 +5201,7 @@ const settingsButtonStyle = {
   fontSize: 13,
   cursor: "pointer"
 };
-function AppHeader({ onOpenSettings }) {
+function AppHeader({ onOpenSettings, planOpen, onTogglePlan }) {
   const [visible, setVisible] = reactExports.useState(null);
   const [settingsHover, setSettingsHover] = reactExports.useState(false);
   reactExports.useEffect(() => {
@@ -5212,6 +5275,15 @@ function AppHeader({ onOpenSettings }) {
               }
             }
           )
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          onClick: onTogglePlan,
+          style: planOpen ? { ...settingsButtonStyle, color: "var(--text)" } : settingsButtonStyle,
+          children: "计划"
         }
       ),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -6004,18 +6076,31 @@ window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", (event) => event.preventDefault());
 function App() {
   const [dayDetail, setDayDetail] = reactExports.useState(null);
+  const [planOpen, setPlanOpen] = reactExports.useState(false);
   const [settingsOpen, setSettingsOpen] = reactExports.useState(false);
   const [ratio, setRatio] = reactExports.useState(
     () => parseSplit(window.localStorage.getItem(SPLIT_STORAGE_KEY))
   );
   const toggleDay = reactExports.useCallback((day) => {
+    setPlanOpen(false);
     setDayDetail((prev) => prev === day ? null : day);
+  }, []);
+  const togglePlan = reactExports.useCallback(() => {
+    setDayDetail(null);
+    setPlanOpen((v) => !v);
   }, []);
   const commitSplit = reactExports.useCallback((r) => {
     window.localStorage.setItem(SPLIT_STORAGE_KEY, serializeSplit(r));
   }, []);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(AppHeader, { onOpenSettings: () => setSettingsOpen(true) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      AppHeader,
+      {
+        planOpen,
+        onTogglePlan: togglePlan,
+        onOpenSettings: () => setSettingsOpen(true)
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-shell", style: { flex: "1 1 auto", minHeight: 0, height: "auto" }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(ChatPanel, {}),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "right-col", children: [
@@ -6023,7 +6108,7 @@ function App() {
         /* @__PURE__ */ jsxRuntimeExports.jsx(RightSplit, { ratio, onChange: setRatio, onCommit: commitSplit }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "right-half", style: { flexGrow: ratio }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(CalendarPanel, { selectedDay: dayDetail, onSelectDay: toggleDay }),
-          dayDetail ? /* @__PURE__ */ jsxRuntimeExports.jsx(CalendarDayView, { day: dayDetail }) : /* @__PURE__ */ jsxRuntimeExports.jsx(PointsPanel, {})
+          planOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(PlanView, {}) : dayDetail ? /* @__PURE__ */ jsxRuntimeExports.jsx(CalendarDayView, { day: dayDetail }) : /* @__PURE__ */ jsxRuntimeExports.jsx(PointsPanel, {})
         ] })
       ] })
     ] }),
