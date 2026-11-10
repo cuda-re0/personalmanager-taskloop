@@ -47,7 +47,8 @@ function makeDraft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'localId' | 'type'
     pointsPlanned: 3,
     ...seed,
     difficulty: seed.difficulty ?? 'medium',
-    estimateMin: seed.estimateMin ?? null
+    estimateMin: seed.estimateMin ?? null,
+    plannedDay: seed.plannedDay ?? null
   }
 }
 

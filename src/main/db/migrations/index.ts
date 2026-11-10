@@ -7,6 +7,7 @@ import messageModeSql from './006_message_mode.sql?raw'
 import pulseSql from './007_pulse.sql?raw'
 import alertSql from './008_alert.sql?raw'
 import messageSettledSql from './009_message_settled.sql?raw'
+import taskPlannedDaySql from './010_task_planned_day.sql?raw'
 
 /**
  * 迁移清单。只增不改（01 §5）。
@@ -27,5 +28,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 6, name: '006_message_mode', sql: messageModeSql },
   { version: 7, name: '007_pulse', sql: pulseSql },
   { version: 8, name: '008_alert', sql: alertSql },
-  { version: 9, name: '009_message_settled', sql: messageSettledSql }
+  { version: 9, name: '009_message_settled', sql: messageSettledSql },
+  { version: 10, name: '010_task_planned_day', sql: taskPlannedDaySql }
 ]

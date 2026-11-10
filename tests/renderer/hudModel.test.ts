@@ -26,6 +26,7 @@ function makeTask(seed: Partial<Task> & Pick<Task, 'id' | 'title'>): Task {
     priority: 0,
     difficulty: 'medium',
     estimateMin: null,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,

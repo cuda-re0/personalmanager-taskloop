@@ -18,6 +18,7 @@ function draft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'type' | 'difficulty'>
     detailMd: '',
     estimateMin: 30,
     dueHint: null,
+    plannedDay: null,
     dailyTimeHint: null,
     activeToHint: null,
     reminderOffsets: [],

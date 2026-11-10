@@ -32,6 +32,7 @@ function taskOf(id: string, updatedAt: string, status: Task['status'] = 'pending
     priority: 0,
     difficulty: 'medium',
     estimateMin: null,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,

@@ -2,6 +2,7 @@ import type { DayStat, Task } from '../../shared/types/domain'
 import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { fmtPoints } from '../../shared/format'
 import { isoToLocalDay, isoToLocalTime, todayLocalDay } from '../../shared/localDay'
+import { visibleOn } from '../../shared/planDay'
 
 /**
  * 「时间与今日数据段」的拼装（03 §4.3.1 第 3 段）。
@@ -95,7 +96,9 @@ export function buildTodayBrief(input: ChatBriefInput): string {
   const now = input.now ?? new Date()
   const timeZone = input.timeZone
   const today = todayLocalDay(timeZone)
-  const pending = input.tasks
+  // 计划日在未来的任务今天还没到（91 §2.8）：判定与任务栏同一份 `visibleOn`，两边口径不许分叉。
+  // 不过滤的话，一份 30 天的计划会让晨报变成「待办 30 条」，而实际上今天只有一条。
+  const pending = input.tasks.filter(task => visibleOn(task.plannedDay, today))
   // 已完成 = 限时/活动今天完成数 + 每日打卡数（两个口径不相交，加起来才是 ① 里的「今日已完成」）
   const doneToday = input.stat.tasksDone + input.stat.occurrencesDone
   const overdue = pending.filter(task => {

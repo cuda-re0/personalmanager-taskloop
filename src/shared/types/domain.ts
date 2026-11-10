@@ -41,6 +41,12 @@ export interface Task {
   difficulty: Difficulty
   estimateMin: number | null
 
+  /**
+   * 010 迁移加的列，本地日历日 `YYYY-MM-DD`：「打算哪天做」。
+   * `null` = 没有计划日、立刻可见（历史任务全是这种）；`daily` 恒为 `null`。
+   * 与 `dueAt`（最晚哪天交）互相独立，可以早于、晚于或不存在。
+   */
+  plannedDay: string | null
   /** deadline: 截止时刻 | event: 发生时刻 | daily: null */
   dueAt: string | null
   /** daily 专用：每日提醒时刻 'HH:mm' */
@@ -86,6 +92,8 @@ export interface TaskPatch {
   priority?: Priority
   difficulty?: Difficulty
   estimateMin?: number | null
+  /** 「打算哪天做」（91 §2.6）：`null` 是有效值（清掉计划日），只有 `undefined` 才是「不改」 */
+  plannedDay?: string | null
   dueAt?: string | null
   dailyTime?: string | null
   repeatRule?: string | null
@@ -286,6 +294,11 @@ export interface TaskDraft {
    * 界面上显示成什么都由渲染层决定（04 §3.2）。daily 恒为 null。
    */
   dueHint: string | null
+  /**
+   * AI 识别出的「打算哪天做」（91）：`YYYY-MM-DD` 或 `null`。
+   * 识别不出来就是 `null`（绝大多数情况）；确认落库时原样带下去，不由渲染层再猜。
+   */
+  plannedDay: string | null
   dailyTimeHint: string | null // 'HH:mm'，仅 daily
   activeToHint: string | null // 'YYYY-MM-DD'，仅 daily 的可选结束日期（04 §3.2 要求此控件）
   reminderOffsets: number[] // 相对 dueHint 的分钟偏移，负数提前；按 type 默认值填充，用户可改

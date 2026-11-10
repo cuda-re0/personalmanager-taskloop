@@ -64,6 +64,10 @@ const parsedTaskSchema = z
     difficulty: difficultySchema,
     estimate_min: z.number().int().min(1).max(1440).nullable(),
     due_hint: dueHintSchema.nullable(),
+    // 计划日（91）：「打算哪天做」，与 due_hint（最晚哪天交）互相独立。
+    // `.optional()` 是刻意的：既有 fewshot 样例里没有这个键，缺省不能被判为无效输出
+    // （本 schema 是 `.strict()`，多给键才拒）。形状只挡 YYYY-MM-DD，真日历日由 taskService 判。
+    planned_day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     daily_time_hint: dailyTimeSchema.nullable(),
     tags: z.array(z.string().min(1).max(20)).max(8),
     steps: z.array(stepSchema).max(10),

@@ -2,6 +2,7 @@ import type { Occurrence, Task, TaskType } from '@shared/types/domain'
 import { dueInstant, duePrecisionOf } from '@shared/due'
 import { fmtDueLabel, fmtRemaining, toDatetimeLocal } from '@shared/format'
 import { toLocalDay as localDayOf } from '@shared/localDay'
+import { visibleOn } from '@shared/planDay'
 
 /**
  * 右栏①「当前任务」的纯模型（04 §4①）。导出只为可测，组件不另写排序/分组逻辑。
@@ -64,6 +65,8 @@ export interface TaskGroups {
  * `today` 显式传参（默认取本地今天）而不是在函数里读时钟：这是纯模型，要可测。
  * 过滤掉非今天的行是硬要求（v0.21）——`ensureRange` 会预生成今天~+3 天的 occurrence，
  * 一旦漏进来，每日组就变成同一任务 4 行，用户点掉即给未来日期提前打卡。
+ *
+ * v0.93（91）：限时/活动组的活跃行再按计划日过滤（`visibleOn`），计划日在未来的不进列表。
  */
 export function groupTasks(
   tasks: Task[],
@@ -84,9 +87,19 @@ export function groupTasks(
   // 活跃在前（原排序不动），今日 done / missed 沉底（内部保持原排序）；
   // done / missed 但不是今天的直接不出现（v0.27 done、v0.34 missed）。
   // v0.38：pending_review（待提交）算活跃——用户还要交材料，不能沉底也不能消失。
+  // v0.93（91）：活跃段再按计划日过滤——`plannedDay` 在未来的不出现（那是"下个月的事"，
+  // 现在列出来就是一堆噪音）；`null` 与 `<= today` 都出现，所以**昨天没做完的今天照样在**。
+  // 「今日已完成 / 今日已错过」那一段**不加**这个条件：用户今天做完了就要看得见，
+  // 哪怕它的计划日在未来。这里**不做**任何"滚动到今天""顺延搬运"——过期任务不搬家，只是继续可见。
   const byType = (type: TaskType): Task[] => [
     ...topLevel
-      .filter(t => t.type === type && t.status !== 'done' && t.status !== 'missed')
+      .filter(
+        t =>
+          t.type === type &&
+          t.status !== 'done' &&
+          t.status !== 'missed' &&
+          visibleOn(t.plannedDay, today)
+      )
       .sort(compareTasks),
     ...topLevel
       .filter(t => t.type === type && (isDoneToday(t, today) || isMissedToday(t, today)))

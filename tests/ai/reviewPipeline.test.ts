@@ -17,6 +17,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     priority: 0,
     difficulty: 'medium',
     estimateMin: 60,
+    plannedDay: null,
     dueAt: '2026-10-30T10:00:00.000Z',
     dailyTime: null,
     repeatRule: null,

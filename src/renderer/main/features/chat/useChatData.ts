@@ -160,6 +160,8 @@ export function promotePatchOf(draft: TaskDraft): TaskCreatePatch {
     detailMd: draft.detailMd,
     difficulty: draft.difficulty,
     estimateMin: draft.estimateMin,
+    // 计划日（91）：不带上去的话，草稿确认后就丢了——AI 认出来的"哪天做"白认
+    plannedDay: draft.plannedDay,
     dueAt: draft.type === 'daily' ? null : draft.dueHint,
     dailyTime: draft.type === 'daily' ? draft.dailyTimeHint : null,
     activeTo: draft.type === 'daily' ? draft.activeToHint : null,

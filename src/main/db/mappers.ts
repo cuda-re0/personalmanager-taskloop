@@ -80,6 +80,8 @@ export interface TaskRow {
   priority: number
   difficulty: string
   estimate_min: number | null
+  /** 010 迁移，老行为 NULL（= 没有计划日、立刻可见） */
+  planned_day: string | null
   due_at: string | null
   daily_time: string | null
   repeat_rule: string | null
@@ -139,7 +141,8 @@ export const TASK_COLUMNS = [
   'updated_at',
   'started_at',
   'completed_at',
-  'archived_at'
+  'archived_at',
+  'planned_day'
 ] as const
 
 /** INSERT 的列顺序，`taskInsertParams()` 的返回值必须与之等长同序 */
@@ -170,7 +173,8 @@ export const TASK_INSERT_COLUMNS = [
   'ai_proposal_json',
   'created_at',
   'updated_at',
-  'started_at'
+  'started_at',
+  'planned_day'
 ] as const
 
 export interface TaskInsert {
@@ -201,6 +205,8 @@ export interface TaskInsert {
   createdAt: string
   updatedAt: string
   startedAt?: string | null
+  /** 010：不传即 NULL（没有计划日），旧调用点一个新字段都不用加 */
+  plannedDay?: string | null
 }
 
 export function taskInsertParams(t: TaskInsert): SqlValue[] {
@@ -231,7 +237,8 @@ export function taskInsertParams(t: TaskInsert): SqlValue[] {
     t.aiProposal === undefined ? null : JSON.stringify(t.aiProposal),
     t.createdAt,
     t.updatedAt,
-    t.startedAt ?? null
+    t.startedAt ?? null,
+    t.plannedDay ?? null
   ]
 }
 
@@ -247,6 +254,7 @@ export function mapTask(row: TaskRow): Task {
     priority: row.priority as Priority,
     difficulty: row.difficulty as Difficulty,
     estimateMin: row.estimate_min,
+    plannedDay: row.planned_day,
     dueAt: row.due_at,
     dailyTime: row.daily_time,
     repeatRule: row.repeat_rule,
@@ -286,6 +294,8 @@ export function taskPatchToColumns(patch: TaskPatch): Record<string, SqlValue> {
   if (patch.priority !== undefined) out.priority = patch.priority
   if (patch.difficulty !== undefined) out.difficulty = patch.difficulty
   if (patch.estimateMin !== undefined) out.estimate_min = patch.estimateMin
+  // 计划日（91）：`null` 是有效值（清掉计划日），只有 `undefined` 才跳过
+  if (patch.plannedDay !== undefined) out.planned_day = patch.plannedDay
   if (patch.dueAt !== undefined) out.due_at = patch.dueAt
   if (patch.dailyTime !== undefined) out.daily_time = patch.dailyTime
   if (patch.repeatRule !== undefined) out.repeat_rule = patch.repeatRule

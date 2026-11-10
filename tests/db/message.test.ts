@@ -21,6 +21,7 @@ const draft = (localId: string): TaskDraft => ({
   difficulty: 'medium',
   estimateMin: 60, // 只用于判难度 / 排提醒 / 算逾期，不进积分公式（v0.9）
   dueHint: '周五',
+  plannedDay: null,
   dailyTimeHint: null,
   activeToHint: null, // 仅 daily 有可选结束日期（04 §3.2）
   reminderOffsets: [1440, 60], // 提前一天 + 提前一小时

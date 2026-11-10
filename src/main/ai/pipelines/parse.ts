@@ -138,6 +138,9 @@ export function toTaskDrafts(result: ParseResult, cfg: PointsConfig): TaskDraft[
     difficulty: task.difficulty,
     estimateMin: task.estimate_min,
     dueHint: toDueHint(task.due_hint, task.type),
+    // 计划日（91）：AI 没给就是 null（`planned_day` 在 schema 里 optional）。
+    // 这里原样带下去，不在这里校验是不是真日历日——落库那一步由 taskService 统一判
+    plannedDay: task.planned_day ?? null,
     dailyTimeHint: task.type === 'daily' ? task.daily_time_hint : null,
     // 04 §3.2 的"每日可选结束日期"没有模型来源：留给用户在卡面上填
     activeToHint: null,

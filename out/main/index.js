@@ -227,6 +227,7 @@ const messageModeSql = "-- v0.73：消息带上发送时的输入模式（chat /
 const pulseSql = "CREATE TABLE IF NOT EXISTS pulses (\n  id TEXT PRIMARY KEY,\n  title TEXT NOT NULL,\n  interval_minutes INTEGER NOT NULL,\n  window_start TEXT,\n  window_end TEXT,\n  enabled INTEGER NOT NULL DEFAULT 1,\n  last_fired_at TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\n";
 const alertSql = "CREATE TABLE IF NOT EXISTS alerts (\n  id TEXT PRIMARY KEY,\n  kind TEXT NOT NULL,\n  level TEXT NOT NULL,\n  source_id TEXT NOT NULL,\n  title TEXT NOT NULL,\n  fired_at TEXT NOT NULL,\n  acked_at TEXT,\n  escalated_at TEXT\n);\n";
 const messageSettledSql = "ALTER TABLE messages ADD COLUMN settled_at TEXT;\n";
+const taskPlannedDaySql = "ALTER TABLE tasks ADD COLUMN planned_day TEXT;\n";
 const MIGRATIONS = [
   { version: 1, name: "001_init", sql: initSql },
   { version: 2, name: "002_ledger_reversed", sql: ledgerReversedSql },
@@ -236,7 +237,8 @@ const MIGRATIONS = [
   { version: 6, name: "006_message_mode", sql: messageModeSql },
   { version: 7, name: "007_pulse", sql: pulseSql },
   { version: 8, name: "008_alert", sql: alertSql },
-  { version: 9, name: "009_message_settled", sql: messageSettledSql }
+  { version: 9, name: "009_message_settled", sql: messageSettledSql },
+  { version: 10, name: "010_task_planned_day", sql: taskPlannedDaySql }
 ];
 class AppErrorException extends Error {
   code;
@@ -527,7 +529,8 @@ const TASK_COLUMNS = [
   "updated_at",
   "started_at",
   "completed_at",
-  "archived_at"
+  "archived_at",
+  "planned_day"
 ];
 const TASK_INSERT_COLUMNS = [
   "id",
@@ -556,7 +559,8 @@ const TASK_INSERT_COLUMNS = [
   "ai_proposal_json",
   "created_at",
   "updated_at",
-  "started_at"
+  "started_at",
+  "planned_day"
 ];
 function taskInsertParams(t) {
   return [
@@ -586,7 +590,8 @@ function taskInsertParams(t) {
     t.aiProposal === void 0 ? null : JSON.stringify(t.aiProposal),
     t.createdAt,
     t.updatedAt,
-    t.startedAt ?? null
+    t.startedAt ?? null,
+    t.plannedDay ?? null
   ];
 }
 function mapTask(row2) {
@@ -601,6 +606,7 @@ function mapTask(row2) {
     priority: row2.priority,
     difficulty: row2.difficulty,
     estimateMin: row2.estimate_min,
+    plannedDay: row2.planned_day,
     dueAt: row2.due_at,
     dailyTime: row2.daily_time,
     repeatRule: row2.repeat_rule,
@@ -635,6 +641,7 @@ function taskPatchToColumns(patch2) {
   if (patch2.priority !== void 0) out.priority = patch2.priority;
   if (patch2.difficulty !== void 0) out.difficulty = patch2.difficulty;
   if (patch2.estimateMin !== void 0) out.estimate_min = patch2.estimateMin;
+  if (patch2.plannedDay !== void 0) out.planned_day = patch2.plannedDay;
   if (patch2.dueAt !== void 0) out.due_at = patch2.dueAt;
   if (patch2.dailyTime !== void 0) out.daily_time = patch2.dailyTime;
   if (patch2.repeatRule !== void 0) out.repeat_rule = patch2.repeatRule;
@@ -2012,7 +2019,7 @@ const reminderRepo$1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defi
   snooze
 }, Symbol.toStringTag, { value: "Module" }));
 const MINUTE_SHAPE = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}/;
-const DAY_SHAPE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DAY_SHAPE$1 = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MONTH_SHAPE = /^(\d{4})-(\d{2})$/;
 function isMonthNumber(month) {
   return Number.isInteger(month) && month >= 1 && month <= 12;
@@ -2033,7 +2040,7 @@ function duePrecisionOf(raw) {
     if (!isCalendarDay(Number(minute[1]), Number(minute[2]), Number(minute[3]))) return null;
     return Number.isNaN(new Date(raw).getTime()) ? null : "minute";
   }
-  const day = DAY_SHAPE.exec(raw);
+  const day = DAY_SHAPE$1.exec(raw);
   if (day) return isCalendarDay(Number(day[1]), Number(day[2]), Number(day[3])) ? "day" : null;
   const month = MONTH_SHAPE.exec(raw);
   if (month) return isMonthNumber(Number(month[2])) ? "month" : null;
@@ -3927,7 +3934,7 @@ const fewshot = {
   note,
   examples
 };
-const parseSystem = '<!-- v1 2026-10-29 -->\n# 这一轮的输出形状\n\n严格按这个形状输出，**不多一个键，不少一个键**：\n\n```json\n{\n  "intent": "create_task | review_task | query | chat",\n  "reply": "对用户说的一句话",\n  "tasks": [\n    {\n      "type": "daily | deadline | event",\n      "title": "动词开头的短标题",\n      "detail_md": "补全后可直接执行的任务描述",\n      "requires_evidence": true,\n      "difficulty": "trivial | easy | medium | hard | epic",\n      "estimate_min": 30,\n      "due_hint": "2026-10-30T15:00:00+08:00",\n      "daily_time_hint": "21:00",\n      "tags": ["工作"],\n      "steps": [{ "title": "步骤", "estimate_min": 10 }],\n      "missing_info": ["需要用户补充的信息"],\n      "confidence": 0.86\n    }\n  ]\n}\n```\n\n- `due_hint`、`daily_time_hint` 不需要时填 `null`；`estimate_min` 不知道就填 `null`；\n  `steps`、`tags`、`missing_info` 没有就填 `[]`。\n- `reply` 一句话，不超过 60 字。\n- `title` 动词开头（"写""交""约""查""背"），不超过 24 字，不要带书名号或引号。\n\n# 硬约束（逐条都必须满足）\n\n## 1. 一次最多 10 个任务\n\n用户一口气说了一堆事，最多抽 10 件——挑最要紧、最有明确产出的那几件。\n超过 10 件时，先抽 10 件，并在 `reply` 里说一句"先记了 10 件，剩下的要不要也加上"。\n**不要**为了凑数把一件事拆成几件；也**不要**因为数量多就漏掉明显独立的事项。\n\n## 2. 不臆造，但已知的粒度必须填\n\n`due_hint` 按你**真实知道**的粒度填，不要为了凑格式补时刻：\n\n| 你知道的 | 填法 | 例 |\n|---|---|---|\n| 具体几点 | 完整时间 | `2026-11-05T15:00:00+08:00` |\n| 只有哪一天 | 只写日期 | `2026-11-05` |\n| 只有哪个月 | 只写年月 | `2026-11` |\n| 连哪个月都不知道 | `null` | — |\n\n**禁止**把"只有日期"补成带时刻的形式——`T00:00`、`T09:00`、`T23:59` 都是编的。\n填 `null` 的唯一条件是**连月份都推不出来**。\n不要"一般这种事都是周五交"就填一个周五——填错日期比留空糟得多。\n\n## 3. 信息不足时暴露它，不要补全它\n\n缺什么写进 `missing_info`（每条一句问句，不超过 30 字），并把 `confidence` 压到 0.5 以下。\n`detail_md` 只能写"从用户的话里能推出来的执行步骤"，不能替他决定预算、人数、场地、交付格式。\n\n## 4. 任务类型怎么判（这条决定提醒时刻，判错等于提醒全错）\n\n| type | 判定信号 | 不要归到这里 |\n|---|---|---|\n| `daily` | 含"每天/每日/坚持/养成/打卡"，或周期性重复的自我训练 | 一次性的事 |\n| `deadline` | 有明确交付物 + 一个截止时间（"X 号前交""周五之前写完"；作业/报告/论文/报名/缴费） | 只是"要做"、连月份都没有 → **仍是 `deadline`**，但 `due_hint` 填 `null` |\n| `event` | 在**某个时刻发生**、需要提前准备、你本人要到场：考试 / 面试 / 答辩 / 会议 / 体检 / 竞赛 / 演出 | 需要你产出东西的事 → `deadline` |\n\n**"要我到场"≠"要我交东西"。** "下周三考英语六级"是 event（那个时刻你去考试），\n不是 deadline（没有交付物）。"下周五前交实验报告"是 deadline（有交付物，时间只是截止）。\n\n判断不清时默认 `deadline`：它只在前一天和前一小时催你，即使判错打扰也最小；\n`event` 会提前 7 天开始提醒，判错的代价更大。\n\n## 5. `due_hint` 的语义随 type 变\n\n- `deadline`：**截止时刻**。用户说了几点就填几点；只说了哪天就只填日期；只说了哪个月就只填年月\n- `event`：**发生时刻**。用户说了几点就填几点；只知道哪天就只填日期\n- `daily`：`due_hint` 必须是 `null`，用 `daily_time_hint` 表达每日提醒时刻\n\n形状按精度三选一：`2026-10-30T15:00:00+08:00` / `2026-10-30` / `2026-10`。\n换算基准是 system 消息末尾给出的【当前时间】——"明天""下周三""三小时后"都以它为准。\n用户没给钟点时**不要替他补**，日期就是日期。\n\n## 6. `daily_time_hint` 只给 daily 用\n\n是每天提醒的时刻，形如 `21:00`。用户没说就填 `null`，**不要自己编一个时间**——\n客户端有默认值。非 daily 类型一律填 `null`。\n\n## 7. `requires_evidence`：这件事有没有可验证的产出\n\n| 值 | 例子 |\n|---|---|\n| `true` | 写文档、交报告、做作业、发邮件给对方、完成代码提交、考试成绩出来 |\n| `false` | 跑步、背单词、喝水、冥想、打电话问候、看一集课程 |\n\n判不准时填 `true`——宁可多要一句"做完了"，也不让积分变成空口领奖。\n`daily` 类型默认 `false`（每天传一次截图太折磨），除非这个习惯本身有产出（如"每天写 500 字"）。\n\n## 8. 难度怎么判\n\n- `trivial`：10 分钟以内、单步、无依赖（回一条消息、买个东西）\n- `easy`：10–30 分钟、步骤清楚\n- `medium`：半小时到两小时，或需要 2–3 个步骤\n- `hard`：半天以上，或跨人协作、有明显阻碍\n- `epic`：跨多天、有明显不确定性\n\n难度还受类型限制，**越界视为无效输出**（不是让你改成合法值，而是说明你把类型或难度判错了）：\n\n| type | 只能填 |\n|---|---|\n| `daily` | `trivial` / `easy` / `medium` |\n| `deadline` | `easy` / `medium` / `hard` |\n| `event` | `medium` / `hard` / `epic` |\n\n`estimate_min` 只用于提示与判难度，**不要**因为"这件事要很久"就把难度往上抬一档：\n难度看的是"费不费劲"，不是"占多少时间"。\n\n## 9. 图片\n\n- 图里没有任务信息（纯风景、无字截图、表情包）→ `intent: "chat"`，`tasks: []`，正常回一句话。\n- 图里出现的是**已经做完的事**（打卡记录、已勾选的清单、完成截图）→ `intent: "review_task"`，\n  `tasks: []`，不要重新建一个"要做"的任务。\n- 图里有字有事项 → 照文字抽任务，`detail_md` 里可以引用图上的原文。\n- 看不清的字段不要猜，写进 `missing_info`。\n\n## 10. `intent` 四个取值\n\n- `create_task`：用户要记一件事、或图里有待办。\n- `review_task`：用户说"做完了 / 交了 / 搞定了"，或图里是完成记录。\n- `query`：用户在问已有的数据（"我今天做了多少""这周还有什么事"）。\n- `chat`：闲聊、提问与任务无关的事、上面都不沾。\n\n## 11. `reply` 的写法\n\n- 建了任务：说一句你理解成了什么 + 有没有要用户补的（不超过两句）。\n- `missing_info` 非空：在 `reply` 里点出最要紧的那一条，不要罗列。\n- 纯闲聊：正常回一句，别硬往任务上拐。\n\n# 示例\n\n下面的示例用来对齐**格式**。里面的日期是按"当前时间 = 2026-10-29 星期四"写的，只是格式示例：\n实际换算一律以 system 消息末尾的【当前时间】为准，**不要照抄示例里的日期**。\n';
+const parseSystem = '<!-- v1 2026-10-29 -->\n# 这一轮的输出形状\n\n严格按这个形状输出，**不多一个键，不少一个键**：\n\n```json\n{\n  "intent": "create_task | review_task | query | chat",\n  "reply": "对用户说的一句话",\n  "tasks": [\n    {\n      "type": "daily | deadline | event",\n      "title": "动词开头的短标题",\n      "detail_md": "补全后可直接执行的任务描述",\n      "requires_evidence": true,\n      "difficulty": "trivial | easy | medium | hard | epic",\n      "estimate_min": 30,\n      "due_hint": "2026-10-30T15:00:00+08:00",\n      "planned_day": "2026-10-29",\n      "daily_time_hint": "21:00",\n      "tags": ["工作"],\n      "steps": [{ "title": "步骤", "estimate_min": 10 }],\n      "missing_info": ["需要用户补充的信息"],\n      "confidence": 0.86\n    }\n  ]\n}\n```\n\n- `due_hint`、`planned_day`、`daily_time_hint` 不需要时填 `null`；`estimate_min` 不知道就填 `null`；\n  `steps`、`tags`、`missing_info` 没有就填 `[]`。\n- `reply` 一句话，不超过 60 字。\n- `title` 动词开头（"写""交""约""查""背"），不超过 24 字，不要带书名号或引号。\n\n# 硬约束（逐条都必须满足）\n\n## 1. 一次最多 10 个任务\n\n用户一口气说了一堆事，最多抽 10 件——挑最要紧、最有明确产出的那几件。\n超过 10 件时，先抽 10 件，并在 `reply` 里说一句"先记了 10 件，剩下的要不要也加上"。\n**不要**为了凑数把一件事拆成几件；也**不要**因为数量多就漏掉明显独立的事项。\n\n## 2. 不臆造，但已知的粒度必须填\n\n`due_hint` 按你**真实知道**的粒度填，不要为了凑格式补时刻：\n\n| 你知道的 | 填法 | 例 |\n|---|---|---|\n| 具体几点 | 完整时间 | `2026-11-05T15:00:00+08:00` |\n| 只有哪一天 | 只写日期 | `2026-11-05` |\n| 只有哪个月 | 只写年月 | `2026-11` |\n| 连哪个月都不知道 | `null` | — |\n\n**禁止**把"只有日期"补成带时刻的形式——`T00:00`、`T09:00`、`T23:59` 都是编的。\n填 `null` 的唯一条件是**连月份都推不出来**。\n不要"一般这种事都是周五交"就填一个周五——填错日期比留空糟得多。\n\n## 3. 信息不足时暴露它，不要补全它\n\n缺什么写进 `missing_info`（每条一句问句，不超过 30 字），并把 `confidence` 压到 0.5 以下。\n`detail_md` 只能写"从用户的话里能推出来的执行步骤"，不能替他决定预算、人数、场地、交付格式。\n\n## 4. 任务类型怎么判（这条决定提醒时刻，判错等于提醒全错）\n\n| type | 判定信号 | 不要归到这里 |\n|---|---|---|\n| `daily` | 含"每天/每日/坚持/养成/打卡"，或周期性重复的自我训练 | 一次性的事 |\n| `deadline` | 有明确交付物 + 一个截止时间（"X 号前交""周五之前写完"；作业/报告/论文/报名/缴费） | 只是"要做"、连月份都没有 → **仍是 `deadline`**，但 `due_hint` 填 `null` |\n| `event` | 在**某个时刻发生**、需要提前准备、你本人要到场：考试 / 面试 / 答辩 / 会议 / 体检 / 竞赛 / 演出 | 需要你产出东西的事 → `deadline` |\n\n**"要我到场"≠"要我交东西"。** "下周三考英语六级"是 event（那个时刻你去考试），\n不是 deadline（没有交付物）。"下周五前交实验报告"是 deadline（有交付物，时间只是截止）。\n\n判断不清时默认 `deadline`：它只在前一天和前一小时催你，即使判错打扰也最小；\n`event` 会提前 7 天开始提醒，判错的代价更大。\n\n## 5. `due_hint` 的语义随 type 变\n\n- `deadline`：**截止时刻**。用户说了几点就填几点；只说了哪天就只填日期；只说了哪个月就只填年月\n- `event`：**发生时刻**。用户说了几点就填几点；只知道哪天就只填日期\n- `daily`：`due_hint` 必须是 `null`，用 `daily_time_hint` 表达每日提醒时刻\n\n形状按精度三选一：`2026-10-30T15:00:00+08:00` / `2026-10-30` / `2026-10`。\n换算基准是 system 消息末尾给出的【当前时间】——"明天""下周三""三小时后"都以它为准。\n用户没给钟点时**不要替他补**，日期就是日期。\n\n### 5b. 计划日 `planned_day`\n\n- 只有用户**明确说了**某件事打算哪天做（"周三做""下周一再说"）才填，填 `YYYY-MM-DD`。\n- 任务的截止日期**不等于**计划日：`due_hint` 是「最晚哪天交」，`planned_day` 是「打算哪天做」，\n  **不要把 `due_hint` 的日期复制过去**。\n- 拿不准就填 `null`。\n\n## 6. `daily_time_hint` 只给 daily 用\n\n是每天提醒的时刻，形如 `21:00`。用户没说就填 `null`，**不要自己编一个时间**——\n客户端有默认值。非 daily 类型一律填 `null`。\n\n## 7. `requires_evidence`：这件事有没有可验证的产出\n\n| 值 | 例子 |\n|---|---|\n| `true` | 写文档、交报告、做作业、发邮件给对方、完成代码提交、考试成绩出来 |\n| `false` | 跑步、背单词、喝水、冥想、打电话问候、看一集课程 |\n\n判不准时填 `true`——宁可多要一句"做完了"，也不让积分变成空口领奖。\n`daily` 类型默认 `false`（每天传一次截图太折磨），除非这个习惯本身有产出（如"每天写 500 字"）。\n\n## 8. 难度怎么判\n\n- `trivial`：10 分钟以内、单步、无依赖（回一条消息、买个东西）\n- `easy`：10–30 分钟、步骤清楚\n- `medium`：半小时到两小时，或需要 2–3 个步骤\n- `hard`：半天以上，或跨人协作、有明显阻碍\n- `epic`：跨多天、有明显不确定性\n\n难度还受类型限制，**越界视为无效输出**（不是让你改成合法值，而是说明你把类型或难度判错了）：\n\n| type | 只能填 |\n|---|---|\n| `daily` | `trivial` / `easy` / `medium` |\n| `deadline` | `easy` / `medium` / `hard` |\n| `event` | `medium` / `hard` / `epic` |\n\n`estimate_min` 只用于提示与判难度，**不要**因为"这件事要很久"就把难度往上抬一档：\n难度看的是"费不费劲"，不是"占多少时间"。\n\n## 9. 图片\n\n- 图里没有任务信息（纯风景、无字截图、表情包）→ `intent: "chat"`，`tasks: []`，正常回一句话。\n- 图里出现的是**已经做完的事**（打卡记录、已勾选的清单、完成截图）→ `intent: "review_task"`，\n  `tasks: []`，不要重新建一个"要做"的任务。\n- 图里有字有事项 → 照文字抽任务，`detail_md` 里可以引用图上的原文。\n- 看不清的字段不要猜，写进 `missing_info`。\n\n## 10. `intent` 四个取值\n\n- `create_task`：用户要记一件事、或图里有待办。\n- `review_task`：用户说"做完了 / 交了 / 搞定了"，或图里是完成记录。\n- `query`：用户在问已有的数据（"我今天做了多少""这周还有什么事"）。\n- `chat`：闲聊、提问与任务无关的事、上面都不沾。\n\n## 11. `reply` 的写法\n\n- 建了任务：说一句你理解成了什么 + 有没有要用户补的（不超过两句）。\n- `missing_info` 非空：在 `reply` 里点出最要紧的那一条，不要罗列。\n- 纯闲聊：正常回一句，别硬往任务上拐。\n\n# 示例\n\n下面的示例用来对齐**格式**。里面的日期是按"当前时间 = 2026-10-29 星期四"写的，只是格式示例：\n实际换算一律以 system 消息末尾的【当前时间】为准，**不要照抄示例里的日期**。\n';
 const memorySystem = '<!-- v1 2026-10-31 -->\n# 任务\n\n从这段对话里挑出**值得长期记住**的信息，输出 JSON。没有就返回空数组——**空数组是常态**。\n\n## 输出形状\n\n严格按这个形状，不多一个键、不少一个键：\n\n```json\n{ "memories": [ { "contentMd": "对方在读研二，方向是分布式系统", "kind": "profile" } ] }\n```\n\n`kind` 三选一：`profile`（我是谁、我的处境与目标）/ `preference`（我喜欢或不喜欢什么、希望怎么被对待）/ `fact`（可核对的事实性信息）。\n\n## 四条否定条件（不写死的话你会每轮都记一句废话）\n\n- 「对方随口说的话」「这次聊的具体内容」「已经存在的记忆」都不记。\n- 只记**跨对话仍然成立**的事实：身份、长期偏好、稳定的人际 / 宠物 / 工作关系、明确说过的目标。\n- 不记情绪（「他今天心情不好」）、不记临时状态（「他现在在写代码」）、不记任务本身（任务是任务表的事）。\n- 一条不超过 30 字，写成陈述句，主语用「对方」。\n\n## 上限\n\n最多 2 条。宁可少记，不要凑数。\n';
 const reviewSystem = '<!-- v2 2026-11-05：加第 6 节文字说明 -->\n# 这一轮要判断的事\n\n用户说某件事做完了（或者交了一张图当证据）。你要判断：**这件事到底做完了没有、做到什么程度**，\n并给出一句能站得住的判断依据。\n\n你只看证据，不看态度。用户在聊天里说"我交了"不构成证据；\n但用户在证据区**亲手写下的文字说明**（证据列表里的 `文字证据：…`）算证据的一部分，用法见下面第 6 节。\n\n# 输出形状\n\n严格按这个形状，不多一个键，不少一个键：\n\n```json\n{\n  "verdict": "pass | partial | fail | need_evidence",\n  "quality": "partial | met | exceeded | null",\n  "result": "exceeded | met | below | null",\n  "reason": "一句话判断依据",\n  "followup": "要补什么证据",\n  "gaps": ["还差的部分"]\n}\n```\n\n- `reason`：不超过 50 字，写**依据**（"截图显示报告已导出为 PDF，含完整实验数据"），\n  不写"看起来完成了""应该没问题"这类空话。\n- `followup`：不超过 40 字，只在 `verdict = need_evidence` 时给，其它情况填 `null`。\n- `gaps`：只在 `verdict = partial` 时逐条列（每条不超过 40 字），其它情况填 `[]`。\n\n# 判定标准（按顺序执行）\n\n1. **先看证据，再看用户话术。** 用户说"做完了"不构成证据。\n2. **这次没有任何证据** → 只能 `need_evidence`，`followup` 说明要什么\n   （"发一下报告文件""截个提交记录"）。**不许猜、不许先给结论。**\n3. **证据非空** → 逐个对照证据与任务描述：\n   - 证据能证明核心产出完成 → `pass` + `quality: met`；明显超出要求 → `pass` + `exceeded`\n   - 证据只覆盖部分步骤，或有明显缺口 → `partial` + `partial`，`gaps` 逐条写缺什么\n   - 证据与任务**对不上**（发了个无关截图、只有一句"我做了"）→ `need_evidence`，\n     `followup` 指出对不上在哪\n4. **用户明确说没做 / 没做完** → `fail`。\n5. 判不准时用 `need_evidence`，不要用 `pass` 赌一把：前者只是多问一句，后者是白发一次分。\n\n# 活动类任务：结果不达标就是失败\n\n活动类任务（考试、面试、比赛、评审这类）看的是**结果**，不是"过程有没有做完"。\n任务描述里通常写清了达标条件，例如"60 分及格""进前三""拿到证书""通过面试"。\n\n判定顺序：\n\n1. **先从任务标题与描述里找出达标条件。** 描述写了就必须按描述判；\n   没写才按常识：考试、测验看及格线（多数为 60 分）；比赛、竞赛看有没有名次或奖项；\n   面试看是否通过或录用；其它活动按"有没有达成这件事的基本目的"。\n2. **证据里能不能看到结果本身？** 也就是成绩单、分数截图、证书、名次榜、录取通知、\n   评分截图这类东西。**只看到"我在考场""我在比赛现场"不算结果。**\n   - 看不到结果 → `need_evidence`，`followup` 要具体的东西（"发一下成绩单"）。\n   - 看得到结果 → 进入第 3 步。\n3. **拿这个结果与达标条件比：**\n   - 明显好于条件（高分通过、拿了更好的名次） → `pass` + `result: "exceeded"`\n   - 刚好达到条件 → `pass` + `result: "met"`\n   - **`quality` 一律填 `"met"`**，活动不看完成度。\n4. **结果低于达标条件 → `fail` + `result: "below"`。**\n   这时 `reason` 必须写清差在哪（"总分 48，低于 60 分及格线"），\n   **不要写"不理想""有待提高"这种没有数字的空话**。\n\n注意：活动类任务**不存在"做得认真所以算完成"这条路**。没及格就是没完成，没拿到奖就是没完成。\n\n# 非活动类任务\n\n非活动类任务的 `result` **一律填 `null`**，上面的规则不适用。\n\n# 6. 文字说明怎么用\n\n`文字证据：…` 是用户自己写的一段话。它不是截图、不是文件，用法有三条：\n\n1. **纯文字、没有任何附件证据** → 最高只能 `partial`，`gaps` 写明缺什么。\n   话说得再诚恳也不给 `pass`——一段话不能证明产出存在。\n2. **用来解释某一类证据为什么不存在**：交给老师、纸质提交、线下当面完成、别人代交，\n   这类情况下"提交记录截图"客观上拿不到。如果文字说明与任务描述相符，\n   并且**已有的附件证据能证明产出本身**（作业照片、报告文件），就按产出判 `pass`，\n   不要再因为缺提交记录反复 `need_evidence`。\n3. **文字说明与附件证据互相矛盾**（说明说交了、截图显示没做）→ `need_evidence`，\n   `followup` 指出矛盾在哪。\n\n活动类任务的**结果**不适用第 2 条：分数、名次、证书必须有能看见的东西，\n文字说明不能替代结果证据。\n\n# 不要做的事\n\n- 不要因为"用户很努力"就放行。\n- 不要在 `reason` 里写分数或建议分值。\n- 不要把"需要补证据"写成"失败了"——它们是两件事。\n';
 const summarizeSystem = '<!-- v1 2026-10-31 -->\n# 任务\n\n把一段对话压缩成摘要，供下一轮聊天当背景用。**只压缩，不评价，不续写。**\n\n## 输出形状\n\n严格按这个形状，不多一个键、不少一个键：\n\n```json\n{ "summaryMd": "……" }\n```\n\n## 要求\n\n- 不超过 600 字。\n- 一段连续的中文，不分点、不列清单、不加 markdown。\n- 保留：对方说过的身份与处境、明确的目标与偏好、聊到的重要结论、还没回答的问题。\n- 丢掉：寒暄、重复、语气词、你已经记进长期记忆的那些事实（它们会另外拼进 prompt）。\n- 写"发生了什么"，不要写"用户和助手进行了友好的交流"这类空话。\n- 如果给了旧摘要，把它和新的对话合成**一段**，不要分「之前」「之后」两段。\n';
@@ -4027,6 +4034,9 @@ function toTaskDrafts(result, cfg) {
     difficulty: task.difficulty,
     estimateMin: task.estimate_min,
     dueHint: toDueHint(task.due_hint, task.type),
+    // 计划日（91）：AI 没给就是 null（`planned_day` 在 schema 里 optional）。
+    // 这里原样带下去，不在这里校验是不是真日历日——落库那一步由 taskService 统一判
+    plannedDay: task.planned_day ?? null,
     dailyTimeHint: task.type === "daily" ? task.daily_time_hint : null,
     // 04 §3.2 的"每日可选结束日期"没有模型来源：留给用户在卡面上填
     activeToHint: null,
@@ -4510,6 +4520,16 @@ function skipOccurrence(occurrenceId, note2) {
     return skip({ occurrence: occ, note: note2 });
   });
 }
+const DAY_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+function isValidPlanDay(s) {
+  if (!DAY_SHAPE.test(s)) return false;
+  const [year, month, day] = s.split("-").map(Number);
+  const at = new Date(Date.UTC(year, month - 1, day));
+  return at.getUTCFullYear() === year && at.getUTCMonth() === month - 1 && at.getUTCDate() === day;
+}
+function visibleOn(plannedDay, today) {
+  return plannedDay === null || plannedDay <= today;
+}
 const DIFFICULTY_ORDER = [
   "trivial",
   "easy",
@@ -4566,6 +4586,12 @@ function assertRepeatRule(rule) {
     throw appError("INVALID_INPUT", "重复规则格式不正确", { detail: rule });
   }
 }
+function normalizePlannedDay(raw, type) {
+  if (raw === null || raw === void 0) return null;
+  if (type === "daily") throw appError("INVALID_INPUT", "每日任务不需要计划日");
+  if (!isValidPlanDay(raw)) throw appError("INVALID_INPUT", "计划日必须是 YYYY-MM-DD");
+  return raw;
+}
 function createTask(input) {
   const title = assertTitle(input.title);
   const now = nowIso();
@@ -4596,6 +4622,7 @@ function createTask(input) {
       priority: input.priority ?? 0,
       difficulty,
       estimateMin: input.estimateMin ?? null,
+      plannedDay: normalizePlannedDay(input.plannedDay, input.type),
       dueAt: isDaily ? null : input.dueAt ?? null,
       dailyTime: input.dailyTime ?? null,
       repeatRule: input.repeatRule ?? null,
@@ -4644,8 +4671,9 @@ function updateTask(id, patch2) {
   const now = nowIso();
   return tx(() => {
     const current2 = requireById$6(id);
-    if (patch2.difficulty === void 0) return update$5(id, patch2, now);
-    const difficulty = patch2.difficulty;
+    const nextPatch = patch2.plannedDay === void 0 ? patch2 : { ...patch2, plannedDay: normalizePlannedDay(patch2.plannedDay, current2.type) };
+    if (nextPatch.difficulty === void 0) return update$5(id, nextPatch, now);
+    const difficulty = nextPatch.difficulty;
     if (!isDifficultyAllowed(current2.type, difficulty)) {
       throw appError("INVALID_INPUT", "该任务类型不支持所选难度", {
         detail: `${current2.type} + ${difficulty}`
@@ -4653,7 +4681,7 @@ function updateTask(id, patch2) {
     }
     const cfg = pointsConfig();
     const pointsPlanned = current2.type === "daily" ? cfg.dailyBase : computePlannedPoints(current2.type, difficulty, cfg);
-    update$5(id, patch2, now);
+    update$5(id, nextPatch, now);
     return updateColumns(id, { points_planned: pointsPlanned }, now);
   });
 }
@@ -4765,6 +4793,8 @@ function promoteDraft(input) {
       detailMd: patch$1.detailMd ?? draft.detailMd,
       difficulty,
       estimateMin: patch$1.estimateMin ?? draft.estimateMin,
+      // 计划日（91）：卡面上改过的优先，否则用 AI 识别出来的那个（`promotePatchOf` 会带上来）
+      plannedDay: patch$1.plannedDay ?? draft.plannedDay,
       // deadline/event 写 due_at；daily 不使用（01 §2.1.1）——按落库类型映射
       dueAt: isDaily ? null : toDueAt(patch$1.dueAt !== void 0 ? patch$1.dueAt : draft.dueHint),
       dailyTime: isDaily ? toDailyTime(patch$1.dailyTime !== void 0 ? patch$1.dailyTime : draft.dailyTimeHint) : null,
@@ -5002,7 +5032,7 @@ function buildTodayBrief(input) {
   const now = input.now ?? /* @__PURE__ */ new Date();
   const timeZone = input.timeZone;
   const today = todayLocalDay(timeZone);
-  const pending2 = input.tasks;
+  const pending2 = input.tasks.filter((task) => visibleOn(task.plannedDay, today));
   const doneToday = input.stat.tasksDone + input.stat.occurrencesDone;
   const overdue = pending2.filter((task) => {
     const due = dueInstant(task.dueAt);
@@ -5235,6 +5265,10 @@ const parsedTaskSchema = zod.z.object({
   difficulty: difficultySchema$1,
   estimate_min: zod.z.number().int().min(1).max(1440).nullable(),
   due_hint: dueHintSchema.nullable(),
+  // 计划日（91）：「打算哪天做」，与 due_hint（最晚哪天交）互相独立。
+  // `.optional()` 是刻意的：既有 fewshot 样例里没有这个键，缺省不能被判为无效输出
+  // （本 schema 是 `.strict()`，多给键才拒）。形状只挡 YYYY-MM-DD，真日历日由 taskService 判。
+  planned_day: zod.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   daily_time_hint: dailyTimeSchema.nullable(),
   tags: zod.z.array(zod.z.string().min(1).max(20)).max(8),
   steps: zod.z.array(stepSchema).max(10),
@@ -7602,6 +7636,9 @@ const taskPatchSchema = zod.z.object({
   priority: prioritySchema.optional(),
   difficulty: difficultySchema.optional(),
   estimateMin: zod.z.number().nullable().optional(),
+  // 计划日（91）：形状只挡"是字符串还是 null"，是不是真日历日由 taskService 判。
+  // 少了这一行，渲染层传上来的 plannedDay 会被 zod 静默剥掉，等于白改。
+  plannedDay: zod.z.string().nullable().optional(),
   dueAt: zod.z.string().nullable().optional(),
   dailyTime: zod.z.string().nullable().optional(),
   repeatRule: zod.z.string().nullable().optional(),
@@ -8437,7 +8474,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.92.1";
+const version = "0.93.0";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";
@@ -8534,7 +8571,9 @@ function groupTasks(tasks, occurrences, today = toLocalDay(/* @__PURE__ */ new D
   });
   const topLevel = tasks.filter((t) => t.parentId === null);
   const byType = (type) => [
-    ...topLevel.filter((t) => t.type === type && t.status !== "done" && t.status !== "missed").sort(compareTasks),
+    ...topLevel.filter(
+      (t) => t.type === type && t.status !== "done" && t.status !== "missed" && visibleOn(t.plannedDay, today)
+    ).sort(compareTasks),
     ...topLevel.filter((t) => t.type === type && (isDoneToday(t, today) || isMissedToday(t, today))).sort(compareTasks)
   ];
   return {

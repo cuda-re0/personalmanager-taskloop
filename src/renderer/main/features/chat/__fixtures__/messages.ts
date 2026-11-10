@@ -70,6 +70,7 @@ function makeTask(seed: Pick<Task, 'id' | 'type' | 'title'> & Partial<Task>): Ta
     priority: 0,
     difficulty: 'medium',
     estimateMin: 60,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,
@@ -170,6 +171,7 @@ function draft(seed: Partial<TaskDraft> & Pick<TaskDraft, 'localId' | 'type' | '
   return {
     detailMd: '',
     dueHint: null,
+    plannedDay: null,
     dailyTimeHint: null,
     activeToHint: null,
     reminderOffsets: [...TYPE_DEFAULT_OFFSETS[seed.type]],

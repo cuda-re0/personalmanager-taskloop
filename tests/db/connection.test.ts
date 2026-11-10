@@ -22,8 +22,9 @@ describe('connection / 迁移', () => {
     try {
       const db = getDb()
       // v0.49 起多一条 005_attachment_name；v0.73 起多一条 006_message_mode；
-      // v0.88 起多一条 008_alert；v0.92 起多一条 009_message_settled
-      expect(getUserVersion(db)).toBe(9)
+      // v0.88 起多一条 008_alert；v0.92 起多一条 009_message_settled；
+      // v0.93 起多一条 010_task_planned_day
+      expect(getUserVersion(db)).toBe(10)
 
       for (const name of ['migration.001_init', 'migration.002_ledger_reversed']) {
         const row = db.prepare('SELECT value FROM schema_meta WHERE key = ?').get(name) as
@@ -42,8 +43,8 @@ describe('connection / 迁移', () => {
     try {
       const db = getDb()
       // 再次跑一遍迁移等价于生产重启路径：已应用的版本必须跳过
-      expect(migrate(db)).toBe(9)
-      expect(getUserVersion(db)).toBe(9)
+      expect(migrate(db)).toBe(10)
+      expect(getUserVersion(db)).toBe(10)
     } finally {
       closeTestDb()
     }

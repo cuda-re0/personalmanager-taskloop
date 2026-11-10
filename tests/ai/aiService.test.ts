@@ -53,6 +53,7 @@ function makeDraft(overrides: Partial<TaskDraft> = {}): TaskDraft {
     difficulty: 'medium',
     estimateMin: 90,
     dueHint: '2026-10-30T07:00:00.000Z',
+    plannedDay: null,
     dailyTimeHint: null,
     activeToHint: null,
     reminderOffsets: [-1440, -60],

@@ -26,6 +26,7 @@ function makeTask(seed: Partial<Task> & Pick<Task, 'id' | 'type' | 'title'>): Ta
     priority: 0,
     difficulty: 'medium',
     estimateMin: null,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,
@@ -362,5 +363,37 @@ describe('isStepChecked', () => {
     expect(
       isStepChecked(makeTask({ id: 'b', type: 'deadline', title: 'B', status: 'doing' }))
     ).toBe(true)
+  })
+})
+
+describe('groupTasks 计划日过滤（v0.93 / 91）', () => {
+  const today = '2026-10-28'
+
+  it('计划日是今天 / 昨天 / null 的活跃任务都出现；计划日在明天的不出现', () => {
+    const tasks = [
+      makeTask({ id: 't-today', type: 'deadline', title: '今天做', plannedDay: today }),
+      makeTask({ id: 't-yesterday', type: 'deadline', title: '昨天没做完', plannedDay: '2026-10-27' }),
+      makeTask({ id: 't-null', type: 'deadline', title: '没有计划日' }),
+      makeTask({ id: 't-tomorrow', type: 'deadline', title: '明天才做', plannedDay: '2026-10-29' })
+    ]
+
+    const groups = groupTasks(tasks, [], today)
+    expect(groups.deadline.map(t => t.id).sort()).toEqual(['t-null', 't-today', 't-yesterday'])
+  })
+
+  it('计划日在未来、但今天已完成：仍然出现（今日已完成沉底段不吃计划日过滤）', () => {
+    const tasks = [
+      makeTask({
+        id: 't-done-future',
+        type: 'deadline',
+        title: '提前做完了',
+        plannedDay: '2026-10-29',
+        status: 'done',
+        completedAt: '2026-10-28T06:00:00.000Z'
+      })
+    ]
+
+    const groups = groupTasks(tasks, [], today)
+    expect(groups.deadline.map(t => t.id)).toEqual(['t-done-future'])
   })
 })

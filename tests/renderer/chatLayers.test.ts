@@ -58,6 +58,7 @@ describe('messagesOfLayer（v0.69）', () => {
         difficulty: 'easy',
         estimateMin: null,
         dueHint: '2026-11-06',
+        plannedDay: null,
         dailyTimeHint: null,
         activeToHint: null,
         reminderOffsets: [],

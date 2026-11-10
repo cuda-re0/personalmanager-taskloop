@@ -16,6 +16,7 @@
       "difficulty": "trivial | easy | medium | hard | epic",
       "estimate_min": 30,
       "due_hint": "2026-10-30T15:00:00+08:00",
+      "planned_day": "2026-10-29",
       "daily_time_hint": "21:00",
       "tags": ["工作"],
       "steps": [{ "title": "步骤", "estimate_min": 10 }],
@@ -26,7 +27,7 @@
 }
 ```
 
-- `due_hint`、`daily_time_hint` 不需要时填 `null`；`estimate_min` 不知道就填 `null`；
+- `due_hint`、`planned_day`、`daily_time_hint` 不需要时填 `null`；`estimate_min` 不知道就填 `null`；
   `steps`、`tags`、`missing_info` 没有就填 `[]`。
 - `reply` 一句话，不超过 60 字。
 - `title` 动词开头（"写""交""约""查""背"），不超过 24 字，不要带书名号或引号。
@@ -82,6 +83,13 @@
 形状按精度三选一：`2026-10-30T15:00:00+08:00` / `2026-10-30` / `2026-10`。
 换算基准是 system 消息末尾给出的【当前时间】——"明天""下周三""三小时后"都以它为准。
 用户没给钟点时**不要替他补**，日期就是日期。
+
+### 5b. 计划日 `planned_day`
+
+- 只有用户**明确说了**某件事打算哪天做（"周三做""下周一再说"）才填，填 `YYYY-MM-DD`。
+- 任务的截止日期**不等于**计划日：`due_hint` 是「最晚哪天交」，`planned_day` 是「打算哪天做」，
+  **不要把 `due_hint` 的日期复制过去**。
+- 拿不准就填 `null`。
 
 ## 6. `daily_time_hint` 只给 daily 用
 

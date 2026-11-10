@@ -1688,6 +1688,7 @@ function makeTask(seed) {
     priority: 0,
     difficulty: "medium",
     estimateMin: 60,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,
@@ -1783,6 +1784,7 @@ function draft(seed) {
   return {
     detailMd: "",
     dueHint: null,
+    plannedDay: null,
     dailyTimeHint: null,
     activeToHint: null,
     reminderOffsets: [...TYPE_DEFAULT_OFFSETS[seed.type]],
@@ -2091,6 +2093,8 @@ function promotePatchOf(draft2) {
     detailMd: draft2.detailMd,
     difficulty: draft2.difficulty,
     estimateMin: draft2.estimateMin,
+    // 计划日（91）：不带上去的话，草稿确认后就丢了——AI 认出来的"哪天做"白认
+    plannedDay: draft2.plannedDay,
     dueAt: draft2.type === "daily" ? null : draft2.dueHint,
     dailyTime: draft2.type === "daily" ? draft2.dailyTimeHint : null,
     activeTo: draft2.type === "daily" ? draft2.activeToHint : null,
@@ -2898,6 +2902,9 @@ function describeRepeatRule(rule) {
   const date = Number(r.monthDay.slice(3));
   return r.n === 1 ? `每年 ${month} 月 ${date} 日` : `每 ${r.n} 年的 ${month} 月 ${date} 日`;
 }
+function visibleOn(plannedDay, today) {
+  return plannedDay === null || plannedDay <= today;
+}
 function compareTasks(a, b) {
   const rank = (t) => t.status === "doing" ? 0 : 1;
   if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -2926,7 +2933,9 @@ function groupTasks(tasks, occurrences, today = toLocalDay(/* @__PURE__ */ new D
   });
   const topLevel = tasks.filter((t) => t.parentId === null);
   const byType = (type) => [
-    ...topLevel.filter((t) => t.type === type && t.status !== "done" && t.status !== "missed").sort(compareTasks),
+    ...topLevel.filter(
+      (t) => t.type === type && t.status !== "done" && t.status !== "missed" && visibleOn(t.plannedDay, today)
+    ).sort(compareTasks),
     ...topLevel.filter((t) => t.type === type && (isDoneToday(t, today) || isMissedToday(t, today))).sort(compareTasks)
   ];
   return {

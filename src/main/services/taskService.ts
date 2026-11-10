@@ -17,6 +17,7 @@ import type { CompleteTaskInput } from '../../shared/types/ipc'
 import { dueInstant, duePrecisionOf } from '../../shared/due'
 import { computeAwardedPoints, computePlannedPoints } from '../../shared/points/rubric'
 import { parseRepeatRule } from '../../shared/repeatRule'
+import { isValidPlanDay } from '../../shared/planDay'
 import type { TaskDraft } from '../../shared/types/domain'
 import { isDifficultyAllowed } from '../../shared/taskRules'
 import { tx } from '../db/connection'
@@ -60,6 +61,8 @@ export interface CreateTaskInput {
   priority?: Priority
   difficulty?: Difficulty
   estimateMin?: number | null
+  /** 「打算哪天做」（91）：`YYYY-MM-DD` / `null` / 省略三态，校验见 `normalizePlannedDay` */
+  plannedDay?: string | null
   dueAt?: string | null
   dailyTime?: string | null
   repeatRule?: string | null
@@ -108,6 +111,28 @@ function assertRepeatRule(rule: string | null): void {
   } catch {
     throw appError('INVALID_INPUT', '重复规则格式不正确', { detail: rule })
   }
+}
+
+/**
+ * 计划日的**唯一**归一/校验点（91 §2.6）：创建与修改两条路径都过这里。
+ *
+ * 三条规则，顺序不能换：
+ * 1. `null` / `undefined` → `null`（没有计划日，立刻可见；绝大多数任务都是这种）；
+ * 2. `daily` 上带计划日 → 报错。每日任务的"哪天做"由 repeatRule + occurrence 表达，
+ *    再存一个 planned_day 就有两套口径（哪天该出现到底听谁的）；
+ * 3. 形状 + 真日历日由 `isValidPlanDay` 判（`2026-02-30` 也要拒掉）。
+ *
+ * 刻意**不**做"非法就归 null"的宽容处理：静默吞掉等于把 AI 判错的日期藏起来，
+ * 用户看到的是"计划日设了等于没设"，比报错更难查。
+ */
+function normalizePlannedDay(
+  raw: string | null | undefined,
+  type: TaskType
+): string | null {
+  if (raw === null || raw === undefined) return null
+  if (type === 'daily') throw appError('INVALID_INPUT', '每日任务不需要计划日')
+  if (!isValidPlanDay(raw)) throw appError('INVALID_INPUT', '计划日必须是 YYYY-MM-DD')
+  return raw
 }
 
 export function createTask(input: CreateTaskInput): Task {
@@ -162,6 +187,7 @@ export function createTask(input: CreateTaskInput): Task {
       priority: input.priority ?? 0,
       difficulty,
       estimateMin: input.estimateMin ?? null,
+      plannedDay: normalizePlannedDay(input.plannedDay, input.type),
       dueAt: isDaily ? null : (input.dueAt ?? null),
       dailyTime: input.dailyTime ?? null,
       repeatRule: input.repeatRule ?? null,
@@ -252,10 +278,17 @@ export function updateTask(id: string, patch: TaskPatch): Task {
 
   return tx(() => {
     const current = taskRepo.requireById(id)
-    if (patch.difficulty === undefined) return taskRepo.update(id, patch, now)
+    // 计划日只在传入时才归一（`undefined` = 不改，`null` = 清掉）。类型取**库里**那条任务——
+    // `TaskPatch` 没有 type，改不到类型，daily 上写计划日一律拒（91 §2.6）。
+    const nextPatch: TaskPatch =
+      patch.plannedDay === undefined
+        ? patch
+        : { ...patch, plannedDay: normalizePlannedDay(patch.plannedDay, current.type) }
 
     // 同一处做 type × difficulty 校验，规则同 createTask（主进程只拒绝，不归位）
-    const difficulty = patch.difficulty
+    if (nextPatch.difficulty === undefined) return taskRepo.update(id, nextPatch, now)
+
+    const difficulty = nextPatch.difficulty
     if (!isDifficultyAllowed(current.type, difficulty)) {
       throw appError('INVALID_INPUT', '该任务类型不支持所选难度', {
         detail: `${current.type} + ${difficulty}`
@@ -266,7 +299,7 @@ export function updateTask(id: string, patch: TaskPatch): Task {
     const pointsPlanned =
       current.type === 'daily' ? cfg.dailyBase : computePlannedPoints(current.type, difficulty, cfg)
 
-    taskRepo.update(id, patch, now)
+    taskRepo.update(id, nextPatch, now)
     return taskRepo.updateColumns(id, { points_planned: pointsPlanned }, now)
   })
 }
@@ -500,6 +533,8 @@ export function promoteDraft(input: PromoteDraftInput): PromoteDraftResult {
       detailMd: patch.detailMd ?? draft.detailMd,
       difficulty,
       estimateMin: patch.estimateMin ?? draft.estimateMin,
+      // 计划日（91）：卡面上改过的优先，否则用 AI 识别出来的那个（`promotePatchOf` 会带上来）
+      plannedDay: patch.plannedDay ?? draft.plannedDay,
       // deadline/event 写 due_at；daily 不使用（01 §2.1.1）——按落库类型映射
       dueAt: isDaily ? null : toDueAt(patch.dueAt !== undefined ? patch.dueAt : draft.dueHint),
       dailyTime: isDaily

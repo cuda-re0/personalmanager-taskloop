@@ -166,6 +166,7 @@ function taskOf(id: string, status: TaskStatus): Task {
     priority: 0,
     difficulty: 'medium',
     estimateMin: null,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,

@@ -46,6 +46,9 @@ const taskPatchSchema = z.object({
   priority: prioritySchema.optional(),
   difficulty: difficultySchema.optional(),
   estimateMin: z.number().nullable().optional(),
+  // 计划日（91）：形状只挡"是字符串还是 null"，是不是真日历日由 taskService 判。
+  // 少了这一行，渲染层传上来的 plannedDay 会被 zod 静默剥掉，等于白改。
+  plannedDay: z.string().nullable().optional(),
   dueAt: z.string().nullable().optional(),
   dailyTime: z.string().nullable().optional(),
   repeatRule: z.string().nullable().optional(),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DayStat, Task, TaskType } from '../../src/shared/types/domain'
 import { buildTodayBrief } from '../../src/main/services/chatBrief'
+import { toLocalDay, todayLocalDay } from '../../src/shared/localDay'
 
 /**
  * `buildTodayBrief`（03 §4.3.1 第 3 段）。
@@ -25,6 +26,7 @@ function makeTask(overrides: Partial<Task> & { title: string; type?: TaskType })
     priority: 0,
     difficulty: 'medium',
     estimateMin: null,
+    plannedDay: null,
     dueAt: null,
     dailyTime: null,
     repeatRule: null,
@@ -161,5 +163,50 @@ describe('buildTodayBrief', () => {
     const absent = buildTodayBrief(base)
     expect(absent).not.toContain('昨天')
     expect(absent.split('\n')).toHaveLength(3)
+  })
+})
+
+describe('buildTodayBrief 计划日（v0.93 / 91）', () => {
+  /**
+   * `buildTodayBrief` 的「今天」取自**真实系统时钟**（`todayLocalDay(timeZone)`），
+   * `now` 只钉住首行的时刻——这是既有事实（见文件开头那条例外允许的红）。
+   * 所以本组用例的计划日不写死日期，一律由真实今天推导，否则过了那个月就整组失效。
+   */
+  const REAL_TODAY = todayLocalDay(TZ)
+  const plusDays = (day: string, n: number): string => {
+    const [y, m, d] = day.split('-').map(Number)
+    return toLocalDay(new Date(Date.UTC(y, m - 1, d + n)), 'UTC')
+  }
+
+  it('计划日在未来的任务不算进「待办 N 条」', () => {
+    const brief = buildTodayBrief({
+      tasks: [
+        makeTask({ title: '交月报', dueAt: '2026-10-31T10:00:00.000Z' }),
+        // 下周才打算做：今天还没到，不该出现在今天的简报里
+        makeTask({ title: '复习线性代数', plannedDay: plusDays(REAL_TODAY, 7) })
+      ],
+      stat: makeStat({ tasksDone: 0, occurrencesDone: 0 }),
+      balance: 100,
+      now: NOW,
+      timeZone: TZ
+    })
+    const lines = brief.split('\n')
+    expect(lines[1]).toContain('待办 1 条')
+    expect(lines[1]).toContain('交月报')
+    expect(lines[1]).not.toContain('复习线性代数')
+  })
+
+  it('计划日是今天或昨天的照样算（过期不搬运，只是继续显示）', () => {
+    const brief = buildTodayBrief({
+      tasks: [
+        makeTask({ title: '今天做', plannedDay: REAL_TODAY }),
+        makeTask({ title: '昨天没做完', plannedDay: plusDays(REAL_TODAY, -1) })
+      ],
+      stat: makeStat({ tasksDone: 0, occurrencesDone: 0 }),
+      balance: 100,
+      now: NOW,
+      timeZone: TZ
+    })
+    expect(brief.split('\n')[1]).toContain('待办 2 条')
   })
 })
