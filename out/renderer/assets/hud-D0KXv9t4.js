@@ -1,5 +1,5 @@
 import { r as reactExports, j as jsxRuntimeExports, c as createRoot } from "./client-B34VK5kX.js";
-import { t as toLocalDay, d as dueLocalDay, f as fmtPoints, a as dueInstant, R as RUBRIC_VERSION } from "./format-Bs86JCX8.js";
+import { t as toLocalDay, d as dueLocalDay, f as fmtPoints, a as dueInstant, R as RUBRIC_VERSION } from "./format-lT38jDfF.js";
 const TYPE_RANK = { daily: 0, deadline: 1, event: 2 };
 function completionRatio(done, total) {
   if (total <= 0) return 0;

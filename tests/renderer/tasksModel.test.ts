@@ -190,6 +190,16 @@ describe('remainingLabel（04 §4① 剩余时间）', () => {
     const daily = makeTask({ id: 'd', type: 'daily', title: 'D' })
     expect(remainingLabel(daily, now)).toBe('')
   })
+
+  it('活动已过期不显示「逾期」（结果等外部出，超时既不失败也不催）', () => {
+    const overdueEvent = makeTask({
+      id: 'e',
+      type: 'event',
+      title: 'E',
+      dueAt: '2026-10-27T10:00:00+08:00'
+    })
+    expect(remainingLabel(overdueEvent, now)).toBe('')
+  })
 })
 
 describe('taskRightLabel（v0.59：剩余 · 目标 一行）', () => {

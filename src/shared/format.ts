@@ -40,6 +40,9 @@ export function fmtMoney(cents: number): string {
  *
  * 字段值格式化，不是界面文案；天数整除显示，不产出积分值。
  * `dueAt` 的「截止瞬间」一律走 `@shared/due` 的 `dueInstant`，不裸解析。
+ *
+ * v0.92.1：活动（`type === 'event'`）的结果由外部判定，超时既不失败也不催，
+ * 过了截止就不再显示剩余时间（返回空串）；只有限时任务才显示「逾期」。
  */
 export function fmtRemaining(dueAt: string | null, type: TaskType, now: Date): string {
   if (type !== 'deadline' && type !== 'event') return ''
@@ -47,7 +50,7 @@ export function fmtRemaining(dueAt: string | null, type: TaskType, now: Date): s
   const due = dueInstant(dueAt)
   if (due === null) return ''
   const diffHours = (due.getTime() - now.getTime()) / 3600000
-  if (diffHours < 0) return '逾期'
+  if (diffHours < 0) return type === 'event' ? '' : '逾期'
 
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)

@@ -5,7 +5,7 @@ import { dueInstant } from '@shared/due'
 /**
  * 驳回后的逾期宽限（用户 2026-11-06 裁决）：截止后 24 小时内驳回仍回 `doing`，
  * 可以继续补交证据；只有超过 24 小时之后的下一次驳回才判 `missed`。
- * 宽限只影响「驳回是否判死」——`fmtRemaining` 过了截止时刻照旧显示「逾期」。
+ * 宽限只影响「驳回是否判死」——限时任务过了截止时刻照旧显示「逾期」（活动不显示，v0.92.1）。
  */
 export const OVERDUE_GRACE_MS = 24 * 60 * 60 * 1000
 
@@ -59,10 +59,10 @@ function isOverdue(dueAt: string | null, now: Date): boolean {
 /**
  * verdict + 任务 → 下一步动作。**纯函数**，`now` 显式传入，测试直接调。
  *
- * 活动（`type === 'event'`）的 `fail` **无条件**判 `missed`，不看 `dueAt`：
- * 活动看的是结果，不及格 / 没拿奖就是没完成（v0.9 活动达标门槛），
- * 与"有没有超期"无关。`type` 做成可选是为了兼容只传 `{ dueAt }` 的老调用与测试，
- * `undefined` 视同非活动，照旧走超期判定。
+ * 活动（`type === 'event'`）只看 `fail`：不及格 / 没拿奖就是没完成（v0.9 活动达标门槛），
+ * 无条件判 `missed`；`partial`（"参加了，但没看到成绩"这类）一律回 `doing`，**与时间无关**
+ * （v0.92.1）——活动的结果要等外部出，挂着不算超时失败。因此 `isOverdue` 只服务限时任务。
+ * `type` 做成可选是为了兼容只传 `{ dueAt }` 的老调用与测试，`undefined` 视同非活动，照旧走超期判定。
  */
 export function decideReview(
   verdict: ReviewVerdict,
@@ -71,7 +71,10 @@ export function decideReview(
 ): ReviewDecision {
   if (verdict.verdict === 'pass') return 'complete'
   if (verdict.verdict === 'need_evidence') return 'stay'
-  if (task.type === 'event' && verdict.verdict === 'fail') return 'missed'
+  if (task.type === 'event') {
+    // 走到这里只剩 partial / fail：结果不达标仍判失败，partial 不看 dueAt
+    return verdict.verdict === 'fail' ? 'missed' : 'revive'
+  }
   // partial / fail（非活动）：流转一致，只有卡片展示不同
   return isOverdue(task.dueAt, now) ? 'missed' : 'revive'
 }

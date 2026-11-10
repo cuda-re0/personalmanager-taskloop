@@ -136,7 +136,7 @@ function fmtRemaining(dueAt, type, now) {
   const due = dueInstant(dueAt);
   if (due === null) return "";
   const diffHours = (due.getTime() - now.getTime()) / 36e5;
-  if (diffHours < 0) return "逾期";
+  if (diffHours < 0) return type === "event" ? "" : "逾期";
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const isTomorrow = type === "deadline" && toLocalDay(due) === toLocalDay(tomorrow);

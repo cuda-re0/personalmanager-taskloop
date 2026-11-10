@@ -1,5 +1,5 @@
 import { r as reactExports, j as jsxRuntimeExports, a as reactDomExports, c as createRoot } from "./client-B34VK5kX.js";
-import { c as computePlannedPoints, b as duePrecisionOf, d as dueLocalDay, f as fmtPoints, a as dueInstant, D as DEFAULT_CONFIG, e as computeAwardedPoints, t as toLocalDay, g as toDatetimeLocal, h as fmtDueLabel, i as fmtRemaining, j as fmtMoney, R as RUBRIC_VERSION } from "./format-Bs86JCX8.js";
+import { c as computePlannedPoints, b as duePrecisionOf, d as dueLocalDay, f as fmtPoints, a as dueInstant, D as DEFAULT_CONFIG, e as computeAwardedPoints, t as toLocalDay, g as toDatetimeLocal, h as fmtDueLabel, i as fmtRemaining, j as fmtMoney, R as RUBRIC_VERSION } from "./format-lT38jDfF.js";
 const MAX_LINES = 6;
 const LINE_HEIGHT = 22;
 const MAX_HEIGHT = MAX_LINES * LINE_HEIGHT;
@@ -1537,7 +1537,9 @@ function isOverdue(dueAt, now) {
 function decideReview(verdict, task, now) {
   if (verdict.verdict === "pass") return "complete";
   if (verdict.verdict === "need_evidence") return "stay";
-  if (task.type === "event" && verdict.verdict === "fail") return "missed";
+  if (task.type === "event") {
+    return verdict.verdict === "fail" ? "missed" : "revive";
+  }
   return isOverdue(task.dueAt, now) ? "missed" : "revive";
 }
 function countNeedEvidence(messages, taskId) {

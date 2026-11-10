@@ -85,6 +85,14 @@ describe('decideReview 的边界（§7.2）', () => {
   it('活动 + fail + 未超期 → missed（活动不达标不看超期）', () => {
     expect(decideReview(verdictOf('fail'), { ...NOT_OVERDUE, type: 'event' }, NOW)).toBe('missed')
   })
+
+  it('活动 + partial + 已逾期 → revive（活动的时间维度退出判定）', () => {
+    expect(decideReview(verdictOf('partial'), { ...OVERDUE, type: 'event' }, NOW)).toBe('revive')
+  })
+
+  it('活动 + partial + 未逾期 → revive', () => {
+    expect(decideReview(verdictOf('partial'), { ...NOT_OVERDUE, type: 'event' }, NOW)).toBe('revive')
+  })
 })
 
 /** 造一条 task_review 消息（只填本条用例关心的字段） */

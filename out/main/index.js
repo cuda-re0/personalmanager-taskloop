@@ -4932,7 +4932,7 @@ function fmtRemaining(dueAt, type, now) {
   const due = dueInstant(dueAt);
   if (due === null) return "";
   const diffHours = (due.getTime() - now.getTime()) / 36e5;
-  if (diffHours < 0) return "逾期";
+  if (diffHours < 0) return type === "event" ? "" : "逾期";
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const isTomorrow = type === "deadline" && toLocalDay(due) === toLocalDay(tomorrow);
@@ -8437,7 +8437,7 @@ function registerIpcHandlers() {
   createHandlers(electron.ipcMain);
 }
 const name = "taskloop";
-const version = "0.92.0";
+const version = "0.92.1";
 const description = "taskloop desktop shell";
 const main = "./out/main/index.js";
 const author = "";
