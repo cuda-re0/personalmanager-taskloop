@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   WEEKDAY_HEADERS,
   buildMonthGrid,
@@ -20,7 +20,15 @@ import './calendar.css'
  *
  * 可见文字只有字段值与 04 已登记的固定标签：
  * 月份（`2026 年 10 月`）、星期（`一`…`日`）、日期数字。不加图例、不加说明文字。
+ *
+ * v0.94.2 起日历可折叠：头部右侧多一个箭头按钮，折叠态只留标题行，状态记 localStorage
+ * （`taskloop:calendar:collapsed`）；展开态网格内部可滚动（`.calendar-grid` 自己 overflow-y），
+ * 窗口变矮时不再把日期行顶到下面面板上去。
  */
+
+/** 折叠状态键：只存 '1' / '0'，缺省 = 展开 */
+const COLLAPSED_KEY = 'taskloop:calendar:collapsed'
+
 export function CalendarPanel({
   selectedDay,
   onSelectDay
@@ -31,9 +39,18 @@ export function CalendarPanel({
   const { year, month, index, actions } = useCalendarData()
   const grid = useMemo(() => buildMonthGrid(year, month), [year, month])
   const today = toLocalDay(new Date())
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => window.localStorage.getItem(COLLAPSED_KEY) === '1'
+  )
+
+  const toggle = (): void => {
+    const next = !collapsed
+    setCollapsed(next)
+    window.localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0')
+  }
 
   return (
-    <section className="calendar-panel">
+    <section className={collapsed ? 'calendar-panel calendar-panel--collapsed' : 'calendar-panel'}>
       <div className="calendar-head">
         <button
           aria-label="上个月"
@@ -44,14 +61,35 @@ export function CalendarPanel({
           ‹
         </button>
         <span className="calendar-title">{monthTitle(year, month)}</span>
-        <button
-          aria-label="下个月"
-          className="calendar-nav"
-          onClick={actions.nextMonth}
-          type="button"
-        >
-          ›
-        </button>
+        <div className="calendar-head-right">
+          <button
+            aria-label="下个月"
+            className="calendar-nav"
+            onClick={actions.nextMonth}
+            type="button"
+          >
+            ›
+          </button>
+          <button
+            aria-label={collapsed ? '展开日历' : '折叠日历'}
+            className="calendar-fold"
+            onClick={() => toggle()}
+            type="button"
+          >
+            <svg
+              aria-hidden
+              fill="none"
+              height="10"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.5"
+              viewBox="0 0 10 10"
+              width="10"
+            >
+              <path d={collapsed ? 'M2 3.5 L5 6.5 L8 3.5' : 'M2 6.5 L5 3.5 L8 6.5'} />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="calendar-weekdays">

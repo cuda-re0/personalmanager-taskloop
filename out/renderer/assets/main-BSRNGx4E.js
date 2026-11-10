@@ -4376,6 +4376,7 @@ function useDayTasks(day) {
   }, []);
   return rows;
 }
+const COLLAPSED_KEY = "taskloop:calendar:collapsed";
 function CalendarPanel({
   selectedDay,
   onSelectDay
@@ -4383,7 +4384,15 @@ function CalendarPanel({
   const { year, month, index, actions } = useCalendarData();
   const grid = reactExports.useMemo(() => buildMonthGrid(year, month), [year, month]);
   const today = toLocalDay(/* @__PURE__ */ new Date());
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "calendar-panel", children: [
+  const [collapsed, setCollapsed] = reactExports.useState(
+    () => window.localStorage.getItem(COLLAPSED_KEY) === "1"
+  );
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    window.localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: collapsed ? "calendar-panel calendar-panel--collapsed" : "calendar-panel", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "calendar-head", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
@@ -4396,16 +4405,41 @@ function CalendarPanel({
         }
       ),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "calendar-title", children: monthTitle(year, month) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          "aria-label": "下个月",
-          className: "calendar-nav",
-          onClick: actions.nextMonth,
-          type: "button",
-          children: "›"
-        }
-      )
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "calendar-head-right", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            "aria-label": "下个月",
+            className: "calendar-nav",
+            onClick: actions.nextMonth,
+            type: "button",
+            children: "›"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            "aria-label": collapsed ? "展开日历" : "折叠日历",
+            className: "calendar-fold",
+            onClick: () => toggle(),
+            type: "button",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "svg",
+              {
+                "aria-hidden": true,
+                fill: "none",
+                height: "10",
+                stroke: "currentColor",
+                strokeLinecap: "round",
+                strokeWidth: "1.5",
+                viewBox: "0 0 10 10",
+                width: "10",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: collapsed ? "M2 3.5 L5 6.5 L8 3.5" : "M2 6.5 L5 3.5 L8 6.5" })
+              }
+            )
+          }
+        )
+      ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "calendar-weekdays", children: WEEKDAY_HEADERS.map((w) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: w }, w)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(

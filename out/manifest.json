@@ -1,5 +1,5 @@
 {
-  "version": "0.94.1",
+  "version": "0.94.2",
   "files": [
     "main/index.js",
     "preload/index.js",
@@ -8,8 +8,8 @@
     "renderer/assets/format-lT38jDfF.js",
     "renderer/assets/hud-CRSkWs5G.css",
     "renderer/assets/hud-D0KXv9t4.js",
-    "renderer/assets/main-D8tM2bTF.js",
-    "renderer/assets/main-Lh_Zs9sf.css",
+    "renderer/assets/main-BSRNGx4E.js",
+    "renderer/assets/main-Deoi6p2G.css",
     "renderer/assets/notify-D4C_cZHa.css",
     "renderer/assets/notify-DvJTgZ-I.js",
     "renderer/hud/index.html",

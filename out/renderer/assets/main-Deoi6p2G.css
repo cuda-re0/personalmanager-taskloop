@@ -1736,6 +1736,7 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   padding: 2px 16px 0;
+  overflow-y: auto;
 }
 
 /* 格子：日期数字 + 固定 6px 红点行（没点也占位，防止行高跳动） */
@@ -1886,6 +1887,65 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 13px;
+}
+
+/* v0.94.2：日历可折叠 + 展开态网格内部滚动。
+   折叠态只留标题行（0 0 auto，不吃剩余空间，全让给下面的积分 / 计划面板）；
+   展开态网格自己 overflow-y，窗口变矮时日期行在网格内滚，不再顶到下面面板上。 */
+.calendar-head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.calendar-fold:hover {
+  color: var(--text);
+}
+
+.calendar-panel--collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.calendar-panel--collapsed .calendar-weekdays,
+.calendar-panel--collapsed .calendar-grid {
+  display: none;
+}
+
+/* 滚动条与 .tasks-panel 同口径（6px、轨道透明、拇指同一个黑、按钮不显示） */
+.calendar-grid::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.calendar-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.calendar-grid::-webkit-scrollbar-thumb {
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.calendar-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.calendar-grid::-webkit-scrollbar-button {
+  display: none;
 }
 /* 右栏 ③「积分」+ ④「明细」（04 §4③④）。颜色只取 tokens.css 的变量。
  * 右侧留白固定 20px（v0.26）、左侧 16px：③ 的 padding 直接写 20/16，

@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 /**
  * 计划面板（92a-fix）高度不变量：`.plan-panel` 是 ④ 槽位的内容，不是独立整块——
  * 同一 `.right-half` 里上面还有 `.calendar-panel`（flex: 0 1 240px）。
- * 所以它必须走 `.calendar-dayview` 同一口径（flex: 1 1 auto + min-height: 0），
- * 不能用 `height: 100%`：那是按整块下半高算的，会多出约 240px，
- * 撑出 `.right-half`（overflow: hidden）导致底部被裁、滚动条跑到可视区外。
+ * `height: 100%` 是按整个下半块算的，而 `.plan-panel` 只应吃日历之后的剩余空间；
+ * 这个写法依赖 flex 的隐式收缩才不出问题，换成 `flex: 1 1 auto; min-height: 0` 后
+ * 行为与 `.calendar-dayview` 一致且确定。
  */
 
 const PLAN_CSS = readFileSync(
@@ -29,11 +29,11 @@ describe('.plan-panel 高度口径（92a-fix）', () => {
     expect(BODY).toMatch(/flex:\s*1 1 auto/)
   })
 
-  it('允许被压缩到 0：min-height: 0（否则内容高度顶住，撑破 .right-half）', () => {
+  it('允许被压缩到 0：min-height: 0（不被内容高度顶住）', () => {
     expect(BODY).toMatch(/min-height:\s*0/)
   })
 
-  it('不再用 height: 100%：它不是整块，按整块算会多出日历那 240px', () => {
+  it('不再用 height: 100%：高度应来自 flex 分配，不按整块百分比算', () => {
     expect(BODY).not.toMatch(/height:\s*100%/)
     // 内部滚动仍在：删高度不能顺手删掉滚动
     expect(BODY).toMatch(/overflow-y:\s*auto/)
